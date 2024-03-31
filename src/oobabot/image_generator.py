@@ -56,9 +56,9 @@ class StableDiffusionImageView(discord.ui.View):
         timeout: float,
         template_store: templates.TemplateStore,
     ):
-        self.timeout = timeout
-        super().__init__(timeout=self.timeout)
+        super().__init__(timeout=timeout)
 
+        self.timeout = timeout
         self.template_store = template_store
 
         # only the user who requested generation of the image
@@ -189,7 +189,7 @@ class StableDiffusionImageView(discord.ui.View):
 
     def get_image_message_text(self) -> str:
         timeout_string = f"{int(self.timeout / 60)} minutes" # type: ignore - timeout will always be a float
-        timeout_remainder = self.timeout - (self.timeout - (int(self.timeout / 60) * 60)) # type: ignore
+        timeout_remainder = self.timeout - (int(self.timeout / 60) * 60) # type: ignore
         if timeout_remainder > 0:
             timeout_string += f" and {timeout_remainder} seconds"
 
@@ -351,7 +351,7 @@ class ImageGenerator:
                     match = avatar_pattern.search(raw_message.content)
                     if match:
                         fancy_logger.get().debug("Found request for self-portrait in image prompt, substituting avatar prompt.")
-                        image_prompt = avatar_pattern.sub(f"{self.avatar_prompt}, ", image_prompt)
+                        image_prompt = avatar_pattern.sub(f"{self.avatar_prompt}, ", image_prompt).strip(", ")
                         fancy_logger.get().debug("Final image prompt: %s", image_prompt)
                 return image_prompt
         return None
