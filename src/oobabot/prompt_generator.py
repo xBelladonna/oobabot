@@ -3,8 +3,10 @@
 Generate a prompt for the AI to respond to, given the
 message history and persona.
 """
-import typing
+import os
 import datetime
+from zoneinfo import ZoneInfo
+import typing
 from oobabot import fancy_logger
 from oobabot import persona
 from oobabot import templates
@@ -133,6 +135,13 @@ class PromptGenerator:
             )
         self.max_history_chars = available_chars_for_history
 
+    def get_datetime(self) -> str:
+        if os.environ.get("TZ"):
+            tz=ZoneInfo(os.environ.get("TZ")) # type: ignore
+        else:
+            tz=None
+        return datetime.datetime.now(tz=tz).strftime("%B %d, %Y - %I:%M:%S %p")
+
     async def _render_history(
         self,
         message_history: typing.AsyncIterator[types.GenericMessage],
@@ -150,7 +159,7 @@ class PromptGenerator:
         # reverse order
         history_lines = []
 
-        current_datetime = datetime.datetime.now().strftime("%B %d, %Y - %H:%M:%S")
+        current_datetime = self.get_datetime()
         section_separator = self.template_store.format(
             templates.Templates.SECTION_SEPARATOR,
             {
@@ -250,7 +259,7 @@ class PromptGenerator:
         guild_name: str,
         response_channel: str,
     ) -> str:
-        current_datetime = datetime.datetime.now().strftime("%B %d, %Y - %H:%M:%S")
+        current_datetime = self.get_datetime()
         prompt = self.template_store.format(
             templates.Templates.PROMPT,
             {
