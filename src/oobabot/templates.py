@@ -28,7 +28,16 @@ class Templates(enum.Enum):
     PROMPT = "prompt"
     EXAMPLE_DIALOGUE = "example_dialogue"
     SECTION_SEPARATOR = "section_separator"
-    PROMPT_HISTORY_LINE = "prompt_history_line"
+    USER_NAME = "user_name"
+    BOT_NAME = "bot_name"
+    SYSTEM_SEQUENCE_PREFIX = "system_sequence_prefix"
+    SYSTEM_SEQUENCE_SUFFIX = "system_sequence_suffix"
+    USER_SEQUENCE_PREFIX = "user_sequence_prefix"
+    USER_SEQUENCE_SUFFIX = "user_sequence_suffix"
+    BOT_SEQUENCE_PREFIX = "bot_sequence_prefix"
+    BOT_SEQUENCE_SUFFIX = "bot_sequence_suffix"
+    USER_PROMPT_HISTORY_BLOCK = "user_prompt_history_block"
+    BOT_PROMPT_HISTORY_BLOCK = "bot_prompt_history_block"
     PROMPT_IMAGE_COMING = "prompt_image_coming"
 
     def __str__(self) -> str:
@@ -48,11 +57,20 @@ class TemplateToken(str, enum.Enum):
     PERSONA = "PERSONA"
     IMAGE_COMING = "IMAGE_COMING"
     IMAGE_PROMPT = "IMAGE_PROMPT"
+    IMAGE_TIMEOUT = "IMAGE_TIMEOUT"
     EXAMPLE_DIALOGUE = "EXAMPLE_DIALOGUE"
     MESSAGE_HISTORY = "MESSAGE_HISTORY"
     SECTION_SEPARATOR = "SECTION_SEPARATOR"
-    USER_MESSAGE = "USER_MESSAGE"
+    NAME = "NAME"
     USER_NAME = "USER_NAME"
+    BOT_NAME = "BOT_NAME"
+    SYSTEM_SEQUENCE_PREFIX = "SYSTEM_SEQUENCE_PREFIX"
+    SYSTEM_SEQUENCE_SUFFIX = "SYSTEM_SEQUENCE_SUFFIX"
+    USER_SEQUENCE_PREFIX = "USER_SEQUENCE_PREFIX"
+    USER_SEQUENCE_SUFFIX = "USER_SEQUENCE_SUFFIX"
+    BOT_SEQUENCE_PREFIX = "BOT_SEQUENCE_PREFIX"
+    BOT_SEQUENCE_SUFFIX = "BOT_SEQUENCE_SUFFIX"
+    MESSAGE = "MESSAGE"
     GUILDNAME = "GUILDNAME"
     CHANNELNAME = "CHANNELNAME"
     CURRENTDATETIME = "CURRENTDATETIME"
@@ -75,7 +93,7 @@ class TemplateStore:
         Templates.COMMAND_LOBOTOMIZE_RESPONSE: (
             [
                 TemplateToken.AI_NAME,
-                TemplateToken.USER_NAME,
+                TemplateToken.NAME,
             ],
             "Displayed in Discord after a successful /lobotomize command.  "
             + "Both the discord users and the bot AI will see this message.",
@@ -83,6 +101,8 @@ class TemplateStore:
         ),
         Templates.PROMPT: (
             [
+                TemplateToken.SYSTEM_SEQUENCE_PREFIX,
+                TemplateToken.SYSTEM_SEQUENCE_SUFFIX,
                 TemplateToken.AI_NAME,
                 TemplateToken.IMAGE_COMING,
                 TemplateToken.MESSAGE_HISTORY,
@@ -99,6 +119,10 @@ class TemplateStore:
         ),
         Templates.EXAMPLE_DIALOGUE: (
             [
+                TemplateToken.USER_SEQUENCE_PREFIX,
+                TemplateToken.USER_SEQUENCE_SUFFIX,
+                TemplateToken.BOT_SEQUENCE_PREFIX,
+                TemplateToken.BOT_SEQUENCE_SUFFIX,
                 TemplateToken.AI_NAME,
             ],
             "The example dialogue inserted directly before the message history. "
@@ -108,20 +132,82 @@ class TemplateStore:
         ),
         Templates.SECTION_SEPARATOR: (
             [
+                TemplateToken.SYSTEM_SEQUENCE_PREFIX,
+                TemplateToken.SYSTEM_SEQUENCE_SUFFIX,
                 TemplateToken.AI_NAME,
+                TemplateToken.CURRENTDATETIME,
             ],
             "Separator between different sections, if necessary. For example, to "
             "separate example dialogue from the main chat transcript.",
             True,
         ),
-        Templates.PROMPT_HISTORY_LINE: (
+        Templates.USER_NAME: (
             [
-                TemplateToken.USER_MESSAGE,
+                TemplateToken.NAME,
+            ],
+            "The template that will be applied to user display names, and becomes {USER_NAME}.",
+            True,
+        ),
+        Templates.SYSTEM_SEQUENCE_PREFIX: (
+            [],
+            "The BOS token that should be inserted before the system block.",
+            True,
+        ),
+        Templates.SYSTEM_SEQUENCE_SUFFIX: (
+            [],
+            "The EOS token that should be inserted after the system block.",
+            True,
+        ),
+        Templates.USER_SEQUENCE_PREFIX: (
+            [],
+            "The BOS token that should be inserted before the user message block.",
+            True,
+        ),
+        Templates.USER_SEQUENCE_SUFFIX: (
+            [],
+            "The EOS token that should be inserted after the user message block.",
+            True,
+        ),
+        Templates.BOT_SEQUENCE_PREFIX: (
+            [],
+            "The BOS token that should be inserted before the bot message block.",
+            True,
+        ),
+        Templates.BOT_SEQUENCE_SUFFIX: (
+            [],
+            "The EOS token that should be inserted after the bot message block.",
+            True,
+        ),
+        Templates.BOT_NAME: (
+            [
+                TemplateToken.NAME,
+            ],
+            "The template that will be applied to the bot's display name, and becomes {BOT_NAME}.",
+            True,
+        ),
+        Templates.USER_PROMPT_HISTORY_BLOCK: (
+            [
+                TemplateToken.USER_SEQUENCE_PREFIX,
+                TemplateToken.USER_SEQUENCE_SUFFIX,
+                TemplateToken.MESSAGE,
                 TemplateToken.USER_NAME,
             ],
             "Part of the AI response-generation prompt, this is used to "
-            + "render a single line of chat history.  A list of these, "
-            + "one for each past chat message, will become {MESSAGE_HISTORY} "
+            + "render a single line of chat history for users.  A list of these, "
+            + "one for each past user message, will become part of {MESSAGE_HISTORY} "
+            + "and inserted into the main prompt",
+            True,
+        ),
+        Templates.BOT_PROMPT_HISTORY_BLOCK: (
+            [
+                TemplateToken.BOT_SEQUENCE_PREFIX,
+                TemplateToken.BOT_SEQUENCE_SUFFIX,
+                TemplateToken.MESSAGE,
+                TemplateToken.BOT_NAME,
+            ],
+            "Part of the AI response-generation prompt, this is used to "
+            + "render a single line of chat history for the bot.  A list of these, "
+            + "one for each past bot message, will become part of {MESSAGE_HISTORY} "
             + "and inserted into the main prompt",
             True,
         ),
@@ -137,7 +223,7 @@ class TemplateStore:
         Templates.IMAGE_DETACH: (
             [
                 TemplateToken.IMAGE_PROMPT,
-                TemplateToken.USER_NAME,
+                TemplateToken.NAME,
             ],
             "Shown in Discord when the user selects to discard an image "
             + "that Stable Diffusion had generated.",
@@ -146,7 +232,8 @@ class TemplateStore:
         Templates.IMAGE_CONFIRMATION: (
             [
                 TemplateToken.IMAGE_PROMPT,
-                TemplateToken.USER_NAME,
+                TemplateToken.IMAGE_TIMEOUT,
+                TemplateToken.NAME,
             ],
             "Shown in Discord when an image is first generated from "
             + "Stable Diffusion.  This should prompt the user to either "
@@ -156,14 +243,16 @@ class TemplateStore:
         Templates.IMAGE_GENERATION_ERROR: (
             [
                 TemplateToken.IMAGE_PROMPT,
-                TemplateToken.USER_NAME,
+                TemplateToken.NAME,
             ],
             "Shown in Discord when the we could not contact Stable Diffusion "
             + "to generate an image.",
             False,
         ),
         Templates.IMAGE_UNAUTHORIZED: (
-            [TemplateToken.USER_NAME],
+            [
+                TemplateToken.NAME,
+            ],
             "Shown in Discord privately to a user if they try to regenerate "
             "an image that was requested by someone else.",
             False,
@@ -194,9 +283,42 @@ class TemplateStore:
         Templates.SECTION_SEPARATOR: textwrap.dedent(
             "***"
         ),
-        Templates.PROMPT_HISTORY_LINE: textwrap.dedent(
+        Templates.USER_NAME: textwrap.dedent(
             """
-            {USER_NAME}: {USER_MESSAGE}
+            {NAME}
+            """
+        ),
+        Templates.BOT_NAME: textwrap.dedent(
+            """
+            {NAME}
+            """
+        ),
+        Templates.SYSTEM_SEQUENCE_PREFIX: textwrap.dedent(
+            ""
+        ),
+        Templates.SYSTEM_SEQUENCE_SUFFIX: textwrap.dedent(
+            ""
+        ),
+        Templates.USER_SEQUENCE_PREFIX: textwrap.dedent(
+            ""
+        ),
+        Templates.USER_SEQUENCE_SUFFIX: textwrap.dedent(
+            ""
+        ),
+        Templates.BOT_SEQUENCE_PREFIX: textwrap.dedent(
+            ""
+        ),
+        Templates.BOT_SEQUENCE_SUFFIX: textwrap.dedent(
+            ""
+        ),
+        Templates.USER_PROMPT_HISTORY_BLOCK: textwrap.dedent(
+            """
+            {USER_NAME}: {MESSAGE}
+            """
+        ),
+        Templates.BOT_PROMPT_HISTORY_BLOCK: textwrap.dedent(
+            """
+            {BOT_NAME}: {MESSAGE}
             """
         ),
         Templates.PROMPT_IMAGE_COMING: textwrap.dedent(
@@ -206,14 +328,14 @@ class TemplateStore:
         ),
         Templates.IMAGE_DETACH: textwrap.dedent(
             """
-            {USER_NAME} asked for an image with the prompt:
+            {NAME} asked for an image with the prompt:
                 '{IMAGE_PROMPT}'
             ...but couldn't find a suitable one.
             """
         ),
         Templates.IMAGE_CONFIRMATION: textwrap.dedent(
             """
-            {USER_NAME}, is this what you wanted?
+            {NAME}, is this what you wanted?
             If no choice is made, this message will 💣 self-destruct 💣 in 3 minutes.
             """
         ),
@@ -224,7 +346,7 @@ class TemplateStore:
         ),
         Templates.IMAGE_UNAUTHORIZED: textwrap.dedent(
             """
-            Sorry, only {USER_NAME} can press the buttons.
+            Sorry, only {NAME} can press the buttons.
             """
         ),
         Templates.COMMAND_LOBOTOMIZE_RESPONSE: textwrap.dedent(

@@ -20,6 +20,7 @@ from oobabot import fancy_logger
 from oobabot import image_generator
 from oobabot import ooba_client
 from oobabot import persona
+from oobabot import templates
 from oobabot import prompt_generator
 from oobabot import repetition_tracker
 from oobabot import response_stats
@@ -42,6 +43,7 @@ class DiscordBot(discord.Client):
         image_generator: typing.Optional[image_generator.ImageGenerator],
         ooba_client: ooba_client.OobaClient,
         persona: persona.Persona,
+        template_store: templates.TemplateStore,
         prompt_generator: prompt_generator.PromptGenerator,
         repetition_tracker: repetition_tracker.RepetitionTracker,
         response_stats: response_stats.AggregateResponseStats,
@@ -51,6 +53,7 @@ class DiscordBot(discord.Client):
         self.image_generator = image_generator
         self.ooba_client = ooba_client
         self.persona = persona
+        self.template_store = template_store
         self.prompt_generator = prompt_generator
         self.repetition_tracker = repetition_tracker
         self.response_stats = response_stats
@@ -687,7 +690,7 @@ class DiscordBot(discord.Client):
             for sentence in sentences:
                 # if the AI gives itself a second line, just ignore
                 # the line instruction and continue
-                if self.prompt_generator.bot_prompt_line == sentence:
+                if self.prompt_generator.bot_prompt_block == sentence:
                     fancy_logger.get().warning(
                         "Filtered out %s from response, continuing", sentence
                     )
@@ -695,12 +698,50 @@ class DiscordBot(discord.Client):
 
                 # hack: abort response if it looks like the AI is
                 # continuing the conversation as someone else
-                username_pattern = re.compile(r'\[(.*?)\]:')
+                username_pattern = self.template_store.format(
+                    templates.Templates.USER_PROMPT_HISTORY_BLOCK,
+                    {
+                        templates.TemplateToken.USER_NAME: self.template_store.format(
+                            templates.Templates.USER_NAME,
+                            {
+                                templates.TemplateToken.NAME: "(.*?)",
+                            },
+                        ),
+                        templates.TemplateToken.MESSAGE: "",
+                    },
+                ).strip()
+                username_pattern = re.compile(
+                    re.escape(username_pattern) + r'\s*(.*)'
+                )
                 match = username_pattern.match(sentence)
                 if match:
-                    username, remaining_text = match.groups()
+                    username_sequence, remaining_text = match.groups()
+                    bot_message_prompt = self.template_store.format(
+                        templates.Templates.USER_PROMPT_HISTORY_BLOCK,
+                        {
+                            templates.TemplateToken.USER_NAME: self.template_store.format(
+                                templates.Templates.BOT_NAME,
+                                {
+                                    templates.TemplateToken.NAME: username_sequence,
+                                },
+                            ),
+                            templates.TemplateToken.MESSAGE: "",
+                        },
+                    ).strip()
+                    ai_message_prompt = self.template_store.format(
+                        templates.Templates.USER_PROMPT_HISTORY_BLOCK,
+                        {
+                            templates.TemplateToken.USER_NAME: self.template_store.format(
+                                templates.Templates.BOT_NAME,
+                                {
+                                    templates.TemplateToken.NAME: self.persona.ai_name,
+                                },
+                            ),
+                            templates.TemplateToken.MESSAGE: "",
+                        },
+                    ).strip()
 
-                    if username.strip() == self.persona.ai_name:
+                    if username_sequence == bot_message_prompt or username_sequence == ai_message_prompt:
                         # If the username matches the bot's name, trim the username portion and keep the remaining text
                         fancy_logger.get().warning(
                             "Filtered out %s from response, continuing", sentence

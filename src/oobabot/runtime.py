@@ -51,6 +51,7 @@ class Runtime:
 
         self.ooba_client = ooba_client.OobaClient(
             settings=settings.oobabooga_settings.get_all(),
+            template_store=self.template_store,
         )
 
         ########################################################
@@ -142,6 +143,7 @@ class Runtime:
             ooba_client=self.ooba_client,
             image_generator=self.image_generator,
             persona=self.persona,
+            template_store=self.template_store,
             prompt_generator=self.prompt_generator,
             repetition_tracker=self.repetition_tracker,
             response_stats=self.response_stats,

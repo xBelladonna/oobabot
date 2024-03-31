@@ -198,7 +198,7 @@ class BotCommands:
                 template_name=templates.Templates.COMMAND_LOBOTOMIZE_RESPONSE,
                 format_args={
                     templates.TemplateToken.AI_NAME: self.persona.ai_name,
-                    templates.TemplateToken.USER_NAME: interaction.user.name,
+                    templates.TemplateToken.NAME: interaction.user.name,
                 },
             )
             await interaction.response.send_message(

@@ -86,7 +86,7 @@ discord:
   # A list of strings that will cause the bot to stop generating a response when
   # encountered.
   #   default: ['### End of Transcript ###<|endoftext|>', '<|endoftext|>']
-  stop_markers: ['Note:','(Note:','user:','User:','<|im_end|>','<|im_start|>']
+  stop_markers: []
 
   # FEATURE PREVIEW: Stream responses into a single message as they are generated. Note: may
   # be janky
@@ -211,7 +211,7 @@ oobabooga:
     ban_eos_token: false
     skip_special_tokens: true
     raw_prompting: true
-    stop: ['</s>','Note:','(Note:','###','<|im_end|>','<|im_start|>','\n[','<|']
+    stop: ['</s>','Note:','(Note:','user:','User:']
 
   # When running inside the Oobabooga plugin, automatically connect to Discord when
   # Oobabooga starts.  This has no effect when running from the command line.
@@ -330,7 +330,7 @@ template:
   # Displayed in Discord after a successful /lobotomize command.  Both the discord users and
   # the bot AI will see this message.
   # .
-  # Allowed tokens: {AI_NAME}, {USER_NAME}
+  # Allowed tokens: {AI_NAME}, {NAME}
   # .
   #   default:  Ummmm... what were we talking about?
   command_lobotomize_response:  'what was i saying again?'
@@ -373,14 +373,50 @@ template:
   #   default: ***
   section_separator:
 
+  # The template that will be applied to user display names, and becomes {USER_NAME}.
+  # .
+  # Allowed tokens: {NAME}
+  # .
+  #   default: "{NAME}"
+  user_name: "{NAME}"
+
+  # The template that will be applied to the bot's display name, and becomes {BOT_NAME}.
+  # .
+  # Allowed tokens: {NAME}
+  # .
+  #   default: "{NAME}"
+  bot_name: "{NAME}"
+
+  # The BOS token that should be inserted before the system block.
+  system_sequence_prefix: "<|im_start|>system\n"
+  # The EOS token that should be inserted after the system block.
+  system_sequence_suffix: "<|im_end|>"
+  # The BOS token that should be inserted before the user message block.
+  user_sequence_prefix: "<|im_start|>user\n"
+  # The EOS token that should be inserted after the user message block.
+  user_sequence_suffix: ""
+  # The BOS token that should be inserted before the bot message block.
+  bot_sequence_prefix: "<|im_start|>assistant\n"
+  # The EOS token that should be inserted after the bot message block.
+  bot_sequence_suffix: ""
+
   # Part of the AI response-generation prompt, this is used to render a single line of chat
-  # history.  A list of these, one for each past chat message, will become {MESSAGE_HISTORY}
+  # history for users. A list of these, one for each past user message, will become part of {MESSAGE_HISTORY}
   # and inserted into the main prompt
   # .
-  # Allowed tokens: {USER_MESSAGE}, {USER_NAME}
+  # Allowed tokens: {MESSAGE}, {USER_NAME}
   # .
-  #   default:  {USER_NAME}: {USER_MESSAGE}
-  prompt_history_line: '<|END_OF_TURN_TOKEN|><|START_OF_TURN_TOKEN|><|USER_TOKEN|>{USER_NAME}: {USER_MESSAGE}'
+  #   default:  {USER_NAME}: {MESSAGE}
+  user_prompt_history_block: '<|END_OF_TURN_TOKEN|><|START_OF_TURN_TOKEN|><|USER_TOKEN|>{USER_NAME}: {MESSAGE}'
+
+  # Part of the AI response-generation prompt, this is used to render a single line of chat
+  # history for the bot. A list of these, one for each past bot message, will become part of {MESSAGE_HISTORY}
+  # and inserted into the main prompt
+  # .
+  # Allowed tokens: {MESSAGE}, {USER_NAME}
+  # .
+  #   default:  {USER_NAME}: {MESSAGE}
+  bot_prompt_history_block: '<|END_OF_TURN_TOKEN|><|START_OF_TURN_TOKEN|><|USER_TOKEN|>{USER_NAME}: {MESSAGE}'
 
   # Part of the AI response-generation prompt, this is used to inform the AI that it is in
   # the process of generating an image.

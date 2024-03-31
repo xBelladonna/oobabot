@@ -54,8 +54,6 @@ class PromptGenerator:
         self.persona = persona
         self.template_store = template_store
 
-        self.prompt_prefix = discord_settings["prompt_prefix"]
-        self.prompt_suffix = discord_settings["prompt_suffix"]
         self.reply_in_thread = discord_settings["reply_in_thread"]
 
         self.example_dialogue = self.template_store.format(
@@ -67,11 +65,17 @@ class PromptGenerator:
 
         # this will be also used when sending message
         # to suppress sending the prompt text to the user
-        self.bot_prompt_line = self.template_store.format(
-            templates.Templates.PROMPT_HISTORY_LINE,
+        self.bot_name = self.template_store.format(
+            templates.Templates.BOT_NAME,
             {
-                templates.TemplateToken.USER_NAME: self.prompt_prefix + "[" + self.persona.ai_name + "]" + self.prompt_suffix,
-                templates.TemplateToken.USER_MESSAGE: "",
+                templates.TemplateToken.NAME: self.persona.ai_name,
+            },
+        )
+        self.bot_prompt_block = self.template_store.format(
+            templates.Templates.BOT_PROMPT_HISTORY_BLOCK,
+            {
+                templates.TemplateToken.BOT_NAME: self.bot_name,
+                templates.TemplateToken.MESSAGE: "",
             },
         ).strip()
 
@@ -146,10 +150,12 @@ class PromptGenerator:
         # reverse order
         history_lines = []
 
+        current_datetime = datetime.datetime.now().strftime("%B %d, %Y - %H:%M:%S")
         section_separator = self.template_store.format(
             templates.Templates.SECTION_SEPARATOR,
             {
                 templates.TemplateToken.AI_NAME: self.persona.ai_name,
+                templates.TemplateToken.CURRENTDATETIME: current_datetime,
             },
         )
 
@@ -158,13 +164,43 @@ class PromptGenerator:
             if not message.body_text:
                 continue
 
-            line = self.template_store.format(
-                templates.Templates.PROMPT_HISTORY_LINE,
-                {
-                    templates.TemplateToken.USER_NAME: self.prompt_prefix + "[" + message.author_name + "]" + self.prompt_suffix,
-                    templates.TemplateToken.USER_MESSAGE: message.body_text,
-                },
-            )
+            if message.author_is_bot:
+                line = self.template_store.format(
+                    templates.Templates.BOT_SEQUENCE_PREFIX,
+                    {},
+                )
+                line += self.template_store.format(
+                    templates.Templates.BOT_PROMPT_HISTORY_BLOCK,
+                    {
+                        templates.TemplateToken.BOT_NAME: self.bot_name,
+                        templates.TemplateToken.MESSAGE: message.body_text,
+                    },
+                )
+                line += self.template_store.format(
+                    templates.Templates.BOT_SEQUENCE_SUFFIX,
+                    {},
+                )
+            else:
+                line = self.template_store.format(
+                    templates.Templates.USER_SEQUENCE_PREFIX,
+                    {},
+                )
+                line += self.template_store.format(
+                    templates.Templates.USER_PROMPT_HISTORY_BLOCK,
+                    {
+                        templates.TemplateToken.USER_NAME: self.template_store.format(
+                            templates.Templates.USER_NAME,
+                            {
+                                templates.TemplateToken.NAME: message.author_name,
+                            },
+                        ),
+                        templates.TemplateToken.MESSAGE: message.body_text,
+                    },
+                )
+                line += self.template_store.format(
+                    templates.Templates.USER_SEQUENCE_SUFFIX,
+                    {},
+                )
 
             if len(line) > prompt_len_remaining:
                 num_discarded_lines = self.history_lines - len(history_lines)
@@ -214,6 +250,7 @@ class PromptGenerator:
         guild_name: str,
         response_channel: str,
     ) -> str:
+        current_datetime = datetime.datetime.now().strftime("%B %d, %Y - %H:%M:%S")
         prompt = self.template_store.format(
             templates.Templates.PROMPT,
             {
@@ -223,16 +260,21 @@ class PromptGenerator:
                 templates.TemplateToken.SECTION_SEPARATOR: self.template_store.format(
                     templates.Templates.SECTION_SEPARATOR,
                     {
-                        templates.TemplateToken.AI_NAME: self.persona.ai_name
+                        templates.TemplateToken.AI_NAME: self.persona.ai_name,
+                        templates.TemplateToken.CURRENTDATETIME: current_datetime,
                     },
                 ),
                 templates.TemplateToken.IMAGE_COMING: image_coming,
                 templates.TemplateToken.GUILDNAME: guild_name,
                 templates.TemplateToken.CHANNELNAME: response_channel,
-                templates.TemplateToken.CURRENTDATETIME: (datetime.datetime.now().strftime("%B %d, %Y - %H:%M:%S")),
+                templates.TemplateToken.CURRENTDATETIME: current_datetime,
             },
         )
-        prompt += self.bot_prompt_line
+        prompt += self.template_store.format(
+            templates.Templates.BOT_SEQUENCE_PREFIX,
+            {},
+        )
+        prompt += self.bot_prompt_block
         return prompt
 
     async def generate(

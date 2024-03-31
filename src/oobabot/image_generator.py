@@ -53,9 +53,11 @@ class StableDiffusionImageView(discord.ui.View):
         image_prompt: str,
         requesting_user_id: int,
         requesting_user_name: str,
+        timeout: float,
         template_store: templates.TemplateStore,
     ):
-        super().__init__(timeout=120.0)
+        self.timeout = timeout
+        super().__init__(timeout=self.timeout)
 
         self.template_store = template_store
 
@@ -185,6 +187,30 @@ class StableDiffusionImageView(discord.ui.View):
         if not self.photo_accepted:
             await self.delete_image()
 
+    def get_image_message_text(self) -> str:
+        timeout_string = f"{int(self.timeout / 60)} minutes" # type: ignore - timeout will always be a float
+        timeout_remainder = self.timeout - (self.timeout - (int(self.timeout / 60) * 60)) # type: ignore
+        if timeout_remainder > 0:
+            timeout_string += f" and {timeout_remainder} seconds"
+
+        return self.template_store.format(
+            templates.Templates.IMAGE_CONFIRMATION,
+            {
+                templates.TemplateToken.NAME: self.requesting_user_name,
+                templates.TemplateToken.IMAGE_PROMPT: self.image_prompt,
+                templates.TemplateToken.IMAGE_TIMEOUT: timeout_string,
+            },
+        )
+
+    def _get_message(self, message_type: templates.Templates) -> str:
+        return self.template_store.format(
+            message_type,
+            {
+                templates.TemplateToken.NAME: self.requesting_user_name,
+                templates.TemplateToken.IMAGE_PROMPT: self.image_prompt,
+            },
+        )
+
     async def diy_interaction_check(self, interaction: discord.Interaction) -> bool:
         """
         Only allow the requesting user to interact with this view.
@@ -198,20 +224,8 @@ class StableDiffusionImageView(discord.ui.View):
         )
         return False
 
-    def get_image_message_text(self) -> str:
-        return self._get_message(templates.Templates.IMAGE_CONFIRMATION)
-
     def get_detach_message(self) -> str:
         return self._get_message(templates.Templates.IMAGE_DETACH)
-
-    def _get_message(self, message_type: templates.Templates) -> str:
-        return self.template_store.format(
-            message_type,
-            {
-                templates.TemplateToken.USER_NAME: self.requesting_user_name,
-                templates.TemplateToken.IMAGE_PROMPT: self.image_prompt,
-            },
-        )
 
 
 class ImageGenerator:
@@ -240,6 +254,7 @@ class ImageGenerator:
         self.avatar_prompt = sd_settings.get("avatar_prompt", "")
         self.prompt_generator = prompt_generator
         self.stable_diffusion_client = stable_diffusion_client
+        self.timeout = float(sd_settings.get("timeout", 180))
         self.template_store = template_store
 
         self.image_patterns = [
@@ -289,7 +304,7 @@ class ImageGenerator:
             error_message = self.template_store.format(
                 templates.Templates.IMAGE_GENERATION_ERROR,
                 {
-                    templates.TemplateToken.USER_NAME: raw_message.author.display_name,
+                    templates.TemplateToken.NAME: raw_message.author.display_name,
                     templates.TemplateToken.IMAGE_PROMPT: image_prompt,
                 },
             )
@@ -301,6 +316,7 @@ class ImageGenerator:
             image_prompt=image_prompt,
             requesting_user_id=raw_message.author.id,
             requesting_user_name=raw_message.author.display_name,
+            timeout=self.timeout,
             template_store=self.template_store,
         )
 
