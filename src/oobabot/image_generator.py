@@ -244,7 +244,7 @@ class ImageGenerator:
 
         self.image_patterns = [
             re.compile(
-                r"^.*\b" + image_word + r"\b\s*(a|the|of|with)?\s*:?([\w ,\-\(\)\[\]:]+)[^\w]*$",
+                r"^.*\b" + image_word + r"\b\s*((a|the|of|with)\s)*:?([\w ,\-\(\)\[\]:]+)[^\w]*$",
                 re.IGNORECASE,
             )
             for image_word in self.image_words
@@ -326,7 +326,7 @@ class ImageGenerator:
         for image_pattern in self.image_patterns:
             match = image_pattern.search(raw_message.content)
             if match:
-                image_prompt = match.group(2)
+                image_prompt = match.group(3)
                 if len(image_prompt) < self.MIN_IMAGE_PROMPT_LENGTH:
                     continue
                 fancy_logger.get().debug("Found image prompt: %s", image_prompt)
