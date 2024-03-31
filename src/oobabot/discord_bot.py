@@ -690,7 +690,7 @@ class DiscordBot(discord.Client):
             for sentence in sentences:
                 # if the AI gives itself a second line, just ignore
                 # the line instruction and continue
-                if self.prompt_generator.bot_prompt_block == sentence:
+                if re.match(self.prompt_generator.bot_name, sentence):
                     fancy_logger.get().warning(
                         "Filtered out %s from response, continuing", sentence
                     )
