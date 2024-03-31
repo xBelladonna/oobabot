@@ -152,7 +152,7 @@ class Runtime:
 
         self.discord_token = settings.discord_settings.get_str("discord_token")
 
-    def test_connections(self) -> bool:
+    def test_connections(self) -> dict[str, bool]:
         """
         Tests that we can connect to all services we depend on.
         Does not test Discord connectivity.
@@ -178,8 +178,14 @@ class Runtime:
                 fancy_logger.get().warning("Please check the URL and try again.")
                 if err.__cause__ is not None:
                     fancy_logger.get().error("Reason: %s", err.__cause__)
-                return False
-        return True
+                return {
+                    "mandatory": client is self.ooba_client,
+                    "test_passed": False
+                }
+        return {
+            "mandatory": client is self.ooba_client,
+            "test_passed": False
+        }
 
     async def run(self):
         """
