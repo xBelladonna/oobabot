@@ -6,7 +6,7 @@ ENV PYTHONUNBUFFERED=1
 
 RUN apt-get update && \
     apt install -y --no-install-recommends \
-        python3-pip espeak-ng libespeak-ng1 libclblast1 && \
+        python3-pip tzdata espeak-ng libespeak-ng1 libclblast1 && \
     apt clean && rm -rf /var/lib/apt/lists/*
 RUN pip --no-cache-dir install poetry
 
