@@ -273,6 +273,14 @@ class PromptGenerator:
                         templates.TemplateToken.CURRENTDATETIME: current_datetime,
                     },
                 ),
+                templates.TemplateToken.SYSTEM_SEQUENCE_PREFIX: self.template_store.format(
+                    templates.Templates.SYSTEM_SEQUENCE_PREFIX,
+                    {},
+                ),
+                templates.TemplateToken.SYSTEM_SEQUENCE_SUFFIX: self.template_store.format(
+                    templates.Templates.SYSTEM_SEQUENCE_SUFFIX,
+                    {},
+                ),
                 templates.TemplateToken.IMAGE_COMING: image_coming,
                 templates.TemplateToken.GUILDNAME: guild_name,
                 templates.TemplateToken.CHANNELNAME: response_channel,
