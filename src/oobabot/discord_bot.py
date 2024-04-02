@@ -6,11 +6,11 @@ be easily extracted into a cross-platform library.
 
 import asyncio
 import typing
-import discord
 import base64
 import io
 import re
 import requests
+import discord
 from PIL import Image
 
 from oobabot import bot_commands
@@ -74,10 +74,6 @@ class DiscordBot(discord.Client):
         self.vision_max_image_size = vision_api_settings["max_image_size"]
         self.vision_fetch_urls = vision_api_settings["fetch_urls"]
         self.use_vision = vision_api_settings["use_vision"]
-
-        self.prompt_prefix = discord_settings["prompt_prefix"]
-        self.prompt_suffix = discord_settings["prompt_suffix"]
-        self.prompt_finder = re.compile(r"\[.+?\]+:")
 
         # add stopping_strings to stop_markers
         self.stop_markers.extend(self.ooba_client.get_stopping_strings())
@@ -171,19 +167,19 @@ class DiscordBot(discord.Client):
             )
 
     async def on_message(self, raw_message: discord.Message) -> None:
-         """
-         Called when a message is received from Discord.
+        """
+        Called when a message is received from Discord.
 
-         This method is called for every message that the bot can see.
-         It decides whether to respond to the message, and if so,
-         calls _handle_response() to generate a response.
+        This method is called for every message that the bot can see.
+        It decides whether to respond to the message, and if so,
+        calls _handle_response() to generate a response.
 
-         :param raw_message: The raw message from Discord.
-         """
+        :param raw_message: The raw message from Discord.
+        """
 
 
-         # If the message is not a command, proceed with regular message handling
-         try:
+        # If the message is not a command, proceed with regular message handling
+        try:
             message = discord_utils.discord_message_to_generic_message(raw_message)
             should_respond, is_summon = self.decide_to_respond.should_reply_to_message(
                 self.ai_user_id, message
@@ -248,75 +244,76 @@ class DiscordBot(discord.Client):
                 await self._handle_response(
                     message, raw_message, is_summon_in_public_channel, image_descriptions
                 )
-         except discord.DiscordException as err:
+        except discord.DiscordException as err:
             fancy_logger.get().error(
                 "Exception while processing message: %s", err, exc_info=True
             )
 
     async def _handle_response(
-      self,
-      message: types.GenericMessage,
-      raw_message: discord.Message,
-      is_summon_in_public_channel: bool,
-      image_descriptions: typing.List[str],
-      ) -> None:
-      """
-      Called when we've decided to respond to a message.
+        self,
+        message: types.GenericMessage,
+        raw_message: discord.Message,
+        is_summon_in_public_channel: bool,
+        image_descriptions: typing.List[str],
+        ) -> None:
+        """
+        Called when we've decided to respond to a message.
 
-      It decides if we're sending a text response, an image response,
-      or both, and then sends the response(s).
-      """
-      image_prompt = None
-      if self.image_generator is not None:
+        It decides if we're sending a text response, an image response,
+        or both, and then sends the response(s).
+        """
+        image_prompt = None
+        if self.image_generator is not None:
             # are we creating an image?
             image_prompt = self.image_generator.maybe_get_image_prompt(raw_message)
 
-      result = await self._send_text_response(
-            message=message,
-            raw_message=raw_message,
-            image_requested=image_prompt is not None,
-            is_summon_in_public_channel=is_summon_in_public_channel,
-            image_descriptions=image_descriptions
-      )
-      if result is None:
+        result = await self._send_text_response(
+                message=message,
+                raw_message=raw_message,
+                image_requested=image_prompt is not None,
+                is_summon_in_public_channel=is_summon_in_public_channel,
+                image_descriptions=image_descriptions
+        )
+        if result is None:
             # we failed to create a thread that the user could
             # read our response in, so we're done here.  Abort!
             return
-      message_task, response_channel = result
+        message_task, response_channel = result
 
-      # log the mention, now that we know the channel we
-      # want to monitor later to continue to conversation
-      if isinstance(response_channel, (discord.Thread, discord.abc.GuildChannel)):
+        # log the mention, now that we know the channel we
+        # want to monitor later to continue to conversation
+        if isinstance(response_channel, (discord.Thread, discord.abc.GuildChannel)):
             if is_summon_in_public_channel:
-               self.decide_to_respond.log_mention(
-                  response_channel.id,
-                  message.send_timestamp,
-               )
+                self.decide_to_respond.log_mention(
+                    response_channel.id,
+                    message.send_timestamp,
+                )
 
-      image_task = None
-      if self.image_generator is not None and image_prompt is not None:
+        image_task = None
+        if self.image_generator is not None and image_prompt is not None:
             image_task = self.image_generator.generate_image(
-               image_prompt,
-               raw_message,
-               response_channel=response_channel,
+            image_prompt,
+            raw_message,
+            response_channel=response_channel,
             )
 
-      response_tasks = [
-            task for task in [message_task, image_task] if task is not None
-      ]
+        response_tasks = [
+                task for task in [message_task, image_task] if task is not None
+        ]
 
-      # Use asyncio.gather instead of asyncio.wait to properly handle exceptions
-      if response_tasks:
+        # Use asyncio.gather instead of asyncio.wait to properly handle exceptions
+        if response_tasks:
             done, pending = await asyncio.wait(response_tasks, return_when=asyncio.ALL_COMPLETED)
             # Check for exceptions in the tasks that have completed
             for task in done:
-               if task.exception():
-                  fancy_logger.get().error(
-                        f"Exception while running {task.get_coro()} "
-                        + f"response: {task.exception()}",
+                if task.exception():
+                    fancy_logger.get().error(
+                        "Exception while running %s. Response: %s",
+                        task.get_coro(),
+                        task.exception(),
                         stack_info=True,
-                  )
-                  raise task.exception()
+                    )
+                    raise task.exception()
 
     async def _send_text_response(
         self,
@@ -341,22 +338,23 @@ class DiscordBot(discord.Client):
         response_channel = raw_message.channel
         if (
             self.reply_in_thread
-            and isinstance(raw_message.channel, discord.TextChannel)
+            and isinstance(response_channel, discord.TextChannel)
             and isinstance(raw_message.author, discord.Member)
         ):
             # we want to create a response thread, if possible
             # but we have to see if the user has permission to do so
             # if the user can't we wont respond at all.
-            perms = raw_message.channel.permissions_for(raw_message.author)
+            perms = response_channel.permissions_for(raw_message.author)
             if perms.create_public_threads:
                 response_channel = await raw_message.create_thread(
                     name=f"{self.persona.ai_name}, replying to "
                     + f"{raw_message.author.display_name}",
                 )
                 fancy_logger.get().debug(
-                    f"Created response thread {response_channel.name} "
-                    + f"({response_channel.id}) "
-                    + f"in {raw_message.channel.name}"
+                    "Created response thread %s (%d) in %s",
+                    response_channel.name,
+                    response_channel.id,
+                    raw_message.channel.name,
                 )
             else:
                 # This user can't create threads, so we won't respond.
@@ -400,11 +398,11 @@ class DiscordBot(discord.Client):
         fancy_logger.get().debug(
             "Request from %s in %s", message.author_name, message.channel_name
         )
-    
+
         repeated_id = self.repetition_tracker.get_throttle_message_id(
             response_channel_id
         )
-    
+
         # determine if we're responding to a specific message that
         # summoned us.  If so, find out what message ID that was, so
         # that we can ignore all messages sent after it (as not to
@@ -416,7 +414,7 @@ class DiscordBot(discord.Client):
             if message.channel_id == response_channel_id:
                 reference = raw_message.to_reference()
             ignore_all_until_message_id = raw_message.id
-    
+
         recent_messages = await self._recent_messages_following_thread(
             channel=response_channel,
             num_history_lines=self.prompt_generator.history_lines,
@@ -456,8 +454,8 @@ class DiscordBot(discord.Client):
             guild_name=str(guild_name),
             response_channel=str(response_channel),
         )
-        
-    
+
+
         this_response_stat = self.response_stats.log_request_arrived(prompt_prefix)
         # restrict the @mentions the AI is allowed to use in its response.
         # this is to prevent another user from being able to trick the AI
@@ -690,9 +688,10 @@ class DiscordBot(discord.Client):
             for sentence in sentences:
                 # if the AI gives itself a second line, just ignore
                 # the line instruction and continue
-                if re.match(self.prompt_generator.bot_name, sentence):
+                if self.prompt_generator.bot_prompt_block in sentence:
                     fancy_logger.get().warning(
-                        "Filtered out %s from response, continuing", sentence
+                        "Filtered out %s from response, continuing.",
+                        sentence,
                     )
                     continue
 
@@ -717,9 +716,9 @@ class DiscordBot(discord.Client):
                 if match:
                     username_sequence, remaining_text = match.groups()
                     bot_message_prompt = self.template_store.format(
-                        templates.Templates.USER_PROMPT_HISTORY_BLOCK,
+                        templates.Templates.BOT_PROMPT_HISTORY_BLOCK,
                         {
-                            templates.TemplateToken.USER_NAME: self.template_store.format(
+                            templates.TemplateToken.BOT_NAME: self.template_store.format(
                                 templates.Templates.BOT_NAME,
                                 {
                                     templates.TemplateToken.NAME: username_sequence,
@@ -729,9 +728,9 @@ class DiscordBot(discord.Client):
                         },
                     ).strip()
                     ai_message_prompt = self.template_store.format(
-                        templates.Templates.USER_PROMPT_HISTORY_BLOCK,
+                        templates.Templates.BOT_PROMPT_HISTORY_BLOCK,
                         {
-                            templates.TemplateToken.USER_NAME: self.template_store.format(
+                            templates.TemplateToken.BOT_NAME: self.template_store.format(
                                 templates.Templates.BOT_NAME,
                                 {
                                     templates.TemplateToken.NAME: self.persona.ai_name,
@@ -791,64 +790,64 @@ class DiscordBot(discord.Client):
       message: discord.Message,
       stop_before_message_id: typing.Optional[int],
    ) -> typing.Tuple[typing.Optional[types.GenericMessage], bool]:
-      """
-      Filter out any messages that we don't want to include in the
-      AI's history.
+        """
+        Filter out any messages that we don't want to include in the
+        AI's history.
 
-      These include:
-       - messages generated by our image generator
-       - messages at or before the stop_before_message_id
+        These include:
+        - messages generated by our image generator
+        - messages at or before the stop_before_message_id
 
-      Also, modify the message in the following ways:
-       - if the message is from the AI, set the author name to
-         the AI's persona name, not its Discord account name
-       - remove <@_0000000_> user-id based message mention text,
-         replacing them with @username mentions
-      """
-      # if we've hit the throttle message, stop and don't add any
-      # more history
-      if stop_before_message_id and message.id == stop_before_message_id:
-         return (None, False)
+        Also, modify the message in the following ways:
+        - if the message is from the AI, set the author name to
+            the AI's persona name, not its Discord account name
+        - remove <@_0000000_> user-id based message mention text,
+            replacing them with @username mentions
+        """
+        # if we've hit the throttle message, stop and don't add any
+        # more history
+        if stop_before_message_id and message.id == stop_before_message_id:
+            return (None, False)
 
-      generic_message = discord_utils.discord_message_to_generic_message(message)
+        generic_message = discord_utils.discord_message_to_generic_message(message)
 
-      if generic_message.author_id == self.ai_user_id:
-         # make sure the AI always sees its persona name
-         # in the transcript, even if the chat program
-         # has it under a different account name
-         generic_message.author_name = self.persona.ai_name
+        if generic_message.author_id == self.ai_user_id:
+            # make sure the AI always sees its persona name
+            # in the transcript, even if the chat program
+            # has it under a different account name
+            generic_message.author_name = self.persona.ai_name
 
-         # hack: use the suppress_embeds=True flag to indicate
-         # that this message is one we generated as part of a text
-         # response, as opposed to an image or application message
-         if not message.flags.suppress_embeds:
-            # this is a message generated by our image generator
-            return (None, True)
+            # hack: use the suppress_embeds=True flag to indicate
+            # that this message is one we generated as part of a text
+            # response, as opposed to an image or application message
+            if not message.flags.suppress_embeds:
+                # this is a message generated by our image generator
+                return (None, True)
 
-      if isinstance(message.channel, discord.DMChannel):
-         fn_user_id_to_name = discord_utils.dm_user_id_to_name(
-            self.ai_user_id,
-            self.persona.ai_name,
-         )
-      elif isinstance(message.channel, discord.TextChannel):
-         fn_user_id_to_name = discord_utils.guild_user_id_to_name(
-            message.channel.guild,
-         )
-      elif isinstance(message.channel, discord.GroupChannel):
-         fn_user_id_to_name = discord_utils.group_user_id_to_name(
-            message.channel,
-         )
-      else:
-         fn_user_id_to_name = discord_utils.dm_user_id_to_name(
-            self.ai_user_id,
-            self.persona.ai_name,
-         )
+        if isinstance(message.channel, discord.DMChannel):
+            fn_user_id_to_name = discord_utils.dm_user_id_to_name(
+                self.ai_user_id,
+                self.persona.ai_name,
+            )
+        elif isinstance(message.channel, discord.TextChannel):
+            fn_user_id_to_name = discord_utils.guild_user_id_to_name(
+                message.channel.guild,
+            )
+        elif isinstance(message.channel, discord.GroupChannel):
+            fn_user_id_to_name = discord_utils.group_user_id_to_name(
+                message.channel,
+            )
+        else:
+            fn_user_id_to_name = discord_utils.dm_user_id_to_name(
+                self.ai_user_id,
+                self.persona.ai_name,
+            )
 
-      discord_utils.replace_mention_ids_with_names(
-         generic_message,
-         fn_user_id_to_name=fn_user_id_to_name,
-      )
-      return (generic_message, True)
+        discord_utils.replace_mention_ids_with_names(
+            generic_message,
+            fn_user_id_to_name=fn_user_id_to_name,
+        )
+        return (generic_message, True)
 
     async def _filtered_history_iterator(
         self,
@@ -951,6 +950,5 @@ class DiscordBot(discord.Client):
             stop_before_message_id=stop_before_message_id,
             ignore_all_until_message_id=ignore_all_until_message_id,
         )
-
 
         return result
