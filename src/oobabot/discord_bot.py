@@ -697,25 +697,25 @@ class DiscordBot(discord.Client):
 
                 # hack: abort response if it looks like the AI is
                 # continuing the conversation as someone else
+                name_identifier = "%%%%%%%%NAME%%%%%%%%"
                 username_pattern = self.template_store.format(
                     templates.Templates.USER_PROMPT_HISTORY_BLOCK,
                     {
                         templates.TemplateToken.USER_NAME: self.template_store.format(
                             templates.Templates.USER_NAME,
                             {
-                                templates.TemplateToken.NAME: "(.*?)",
+                                templates.TemplateToken.NAME: name_identifier,
                             },
                         ),
                         templates.TemplateToken.MESSAGE: "",
                     },
                 ).strip()
-                username_pattern = re.compile(
-                    re.escape(username_pattern) + r'\s*(.*)'
-                )
-                match = username_pattern.match(sentence)
+                username_pattern = re.escape(username_pattern).replace(name_identifier, ".*")
+                message_pattern = re.compile(r'(' + username_pattern + r')\s*(.*)')
+                match = message_pattern.match(sentence)
                 if match:
                     username_sequence, remaining_text = match.groups()
-                    bot_message_prompt = self.template_store.format(
+                    bot_display_name_prompt = self.template_store.format(
                         templates.Templates.BOT_PROMPT_HISTORY_BLOCK,
                         {
                             templates.TemplateToken.BOT_NAME: self.template_store.format(
@@ -727,7 +727,7 @@ class DiscordBot(discord.Client):
                             templates.TemplateToken.MESSAGE: "",
                         },
                     ).strip()
-                    ai_message_prompt = self.template_store.format(
+                    ai_name_prompt = self.template_store.format(
                         templates.Templates.BOT_PROMPT_HISTORY_BLOCK,
                         {
                             templates.TemplateToken.BOT_NAME: self.template_store.format(
@@ -740,7 +740,7 @@ class DiscordBot(discord.Client):
                         },
                     ).strip()
 
-                    if username_sequence == bot_message_prompt or username_sequence == ai_message_prompt:
+                    if username_sequence in bot_display_name_prompt or username_sequence in ai_name_prompt:
                         # If the username matches the bot's name, trim the username portion and keep the remaining text
                         fancy_logger.get().warning(
                             "Filtered out %s from response, continuing", sentence
