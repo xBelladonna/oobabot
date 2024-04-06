@@ -159,12 +159,10 @@ class PromptGenerator:
         # reverse order
         history_lines = []
 
-        current_datetime = self.get_datetime()
         section_separator = self.template_store.format(
             templates.Templates.SECTION_SEPARATOR,
             {
                 templates.TemplateToken.AI_NAME: self.persona.ai_name,
-                templates.TemplateToken.CURRENTDATETIME: current_datetime,
             },
         )
 

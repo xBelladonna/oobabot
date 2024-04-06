@@ -135,7 +135,6 @@ class TemplateStore:
                 TemplateToken.SYSTEM_SEQUENCE_PREFIX,
                 TemplateToken.SYSTEM_SEQUENCE_SUFFIX,
                 TemplateToken.AI_NAME,
-                TemplateToken.CURRENTDATETIME,
             ],
             "Separator between different sections, if necessary. For example, to "
             "separate example dialogue from the main chat transcript.",
@@ -187,8 +186,6 @@ class TemplateStore:
         ),
         Templates.USER_PROMPT_HISTORY_BLOCK: (
             [
-                TemplateToken.USER_SEQUENCE_PREFIX,
-                TemplateToken.USER_SEQUENCE_SUFFIX,
                 TemplateToken.MESSAGE,
                 TemplateToken.USER_NAME,
             ],
@@ -200,8 +197,6 @@ class TemplateStore:
         ),
         Templates.BOT_PROMPT_HISTORY_BLOCK: (
             [
-                TemplateToken.BOT_SEQUENCE_PREFIX,
-                TemplateToken.BOT_SEQUENCE_SUFFIX,
                 TemplateToken.MESSAGE,
                 TemplateToken.BOT_NAME,
             ],
