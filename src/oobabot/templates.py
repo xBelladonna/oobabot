@@ -222,7 +222,7 @@ class TemplateStore:
             ],
             "Shown in Discord when the user selects to discard an image "
             + "that Stable Diffusion had generated.",
-            False,
+            True,
         ),
         Templates.IMAGE_CONFIRMATION: (
             [
@@ -233,7 +233,7 @@ class TemplateStore:
             "Shown in Discord when an image is first generated from "
             + "Stable Diffusion.  This should prompt the user to either "
             + "save or discard the image.",
-            False,
+            True,
         ),
         Templates.IMAGE_GENERATION_ERROR: (
             [
@@ -242,7 +242,7 @@ class TemplateStore:
             ],
             "Shown in Discord when the we could not contact Stable Diffusion "
             + "to generate an image.",
-            False,
+            True,
         ),
         Templates.IMAGE_UNAUTHORIZED: (
             [
@@ -250,7 +250,7 @@ class TemplateStore:
             ],
             "Shown in Discord privately to a user if they try to regenerate "
             "an image that was requested by someone else.",
-            False,
+            True,
         ),
     }
 
