@@ -259,7 +259,7 @@ class ImageGenerator:
 
         self.image_patterns = [
             re.compile(
-                r"^.*\b" + image_word + r"\b\s*((a|the|of|with)\s)*:?([\w ,\-\(\)\[\]:]+)[^\w]*$",
+                r"^.*\b" + image_word + r"\b\s*((as?|of|the|with)\s)*:?([\w\s,:\-\(\)\[\]]+)[^\w]*$",
                 re.IGNORECASE,
             )
             for image_word in self.image_words
@@ -267,7 +267,7 @@ class ImageGenerator:
         self.avatar_patterns = [
             re.compile(
                 r"\b" + avatar_word + r"[^\w]*\b",
-                re.IGNORECASE
+                re.IGNORECASE,
             )
             for avatar_word in self.avatar_words
         ]
