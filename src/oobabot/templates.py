@@ -39,6 +39,9 @@ class Templates(enum.Enum):
     BOT_SEQUENCE_SUFFIX = "bot_sequence_suffix"
     USER_PROMPT_HISTORY_BLOCK = "user_prompt_history_block"
     BOT_PROMPT_HISTORY_BLOCK = "bot_prompt_history_block"
+    GPT_VISION_SYSTEM_PROMPT = "gpt_vision_system_prompt"
+    GPT_VISION_PROMPT = "gpt_vision_prompt"
+    PROMPT_IMAGE_RECEIVED = "prompt_image_received"
     PROMPT_IMAGE_COMING = "prompt_image_coming"
 
     def __str__(self) -> str:
@@ -212,6 +215,27 @@ class TemplateStore:
             + "and inserted into the main prompt",
             True,
         ),
+        Templates.GPT_VISION_SYSTEM_PROMPT: (
+            [
+                TemplateToken.AI_NAME,
+            ],
+            "This is the system prompt sent to the GPT Vision model.",
+            True,
+        ),
+        Templates.GPT_VISION_PROMPT: (
+            [],
+            "The user instruction prompt sent to the GPT Vision model.",
+            True,
+        ),
+        Templates.PROMPT_IMAGE_RECEIVED: (
+            [
+                TemplateToken.USER_NAME,
+                TemplateToken.AI_NAME,
+            ],
+            "Part of the AI response-generation prompt, this is used to "
+            + "prefix any image descriptions we get from GPT Vision.",
+            True,
+        ),
         Templates.PROMPT_IMAGE_COMING: (
             [
                 TemplateToken.AI_NAME,
@@ -323,6 +347,21 @@ class TemplateStore:
         Templates.BOT_PROMPT_HISTORY_BLOCK: textwrap.dedent(
             """
             {BOT_NAME}: {MESSAGE}
+            """
+        ),
+        Templates.GPT_VISION_SYSTEM_PROMPT: textwrap.dedent(
+            """
+            A chat between a curious human and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the human's questions.
+            """
+        ),
+        Templates.GPT_VISION_PROMPT: textwrap.dedent(
+            """
+            Describe the following image in as much detail as possible, including any relevant details while being concise.
+            """
+        ),
+        Templates.PROMPT_IMAGE_RECEIVED: textwrap.dedent(
+            """
+            {USER_NAME} posted an image and your image recognition system describes it to you: 
             """
         ),
         Templates.PROMPT_IMAGE_COMING: textwrap.dedent(

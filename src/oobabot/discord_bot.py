@@ -406,7 +406,7 @@ class DiscordBot(discord.Client):
                     templates.TemplateToken.USER_NAME: message.author_name,
                 },
             )
-            description_text = ' '.join(f'[{message.author_name} posted an image and your image recognition system describes it to you: {desc}]' for desc in image_descriptions)
+            description_text = "\n".join(image_received + desc for desc in image_descriptions)
             for msg in recent_messages_list:
                 for ignore_prefix in self.ignore_prefixes:
                     if message.body_text.startswith(ignore_prefix):

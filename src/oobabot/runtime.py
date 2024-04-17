@@ -123,6 +123,7 @@ class Runtime:
         if vision_settings["use_vision"]:
             self.vision = vision.VisionClient(
                 settings=vision_settings,
+                persona=self.persona,
                 template_store=self.template_store
             )
 

@@ -6,6 +6,7 @@ import requests
 import aiohttp
 from PIL import Image
 
+from oobabot import persona
 from oobabot import templates
 
 class VisionClient:
@@ -16,6 +17,7 @@ class VisionClient:
     def __init__(
             self,
             settings: typing.Dict[str, typing.Any],
+            persona: persona.Persona,
             template_store: templates.TemplateStore,
         ):
         
@@ -26,6 +28,7 @@ class VisionClient:
         self.max_tokens = settings["max_tokens"]
         self.max_image_size = settings["max_image_size"]
         self.template_store = template_store
+        self.persona = persona
 
         self.url_extractor = re.compile(r"(https?://\S+)")
 
@@ -62,21 +65,39 @@ class VisionClient:
                 if not r.headers["content-type"].startswith("image/"): return
             else: return
 
-        instruction = "Describe the following image in as much detail as possible, including any relevant details while being concise."
-        system_prompt = ""
+        system_prompt = self.template_store.format(
+            templates.Templates.GPT_VISION_SYSTEM_PROMPT,
+            {
+                templates.TemplateToken.AI_NAME: self.persona.ai_name,
+            },
+        )
+        instruction = self.template_store.format(
+            templates.Templates.GPT_VISION_PROMPT,
+            {},
+        )
+        if system_prompt:
+            system_prompt = {
+                "role": "system",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": system_prompt,
+                    },
+                ]
+            }
         request = {
             "role": "user",
             "content": [
                 {
                     "type": "text",
-                    "text": instruction
+                    "text": instruction,
                 },
                 {
                     "type": "image_url",
                     "image_url": {
                         "url": image,
                     }
-                }
+                },
             ]
         }
 
