@@ -309,7 +309,8 @@ class OobaClient(http_client.SerializedHttpClient):
             request["stop"] = request["stop"][:3]
             fancy_logger.get().debug("Real OpenAI API in use, truncating to 4 stopping strings as per the API limit.")
 
-        fancy_logger.get().debug("Using stop sequences: %s", ", ".join(request["stop"]).replace("\n", "\\n"))
+        if self.log_all_the_things:
+            fancy_logger.get().debug("Using stop sequences: %s", ", ".join(request["stop"]).replace("\n", "\\n"))
 
         async with aiohttp.ClientSession() as session:
             async with session.post(self.openai_endpoint, headers=headers, json=request, verify_ssl=False) as response:

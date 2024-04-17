@@ -492,14 +492,18 @@ class DiscordBot(discord.Client):
                         templates.TemplateToken.NAME: member_name,
                     },
                 )
-                stopping_string = "\n" + self.template_store.format(
-                        templates.Templates.USER_PROMPT_HISTORY_BLOCK,
-                        {
-                            templates.TemplateToken.USER_NAME: user_name,
-                            templates.TemplateToken.MESSAGE: "",
-                        },
-                    ).strip()
-                stopping_strings.append("\n" + emoji.replace_emoji(user_name.split()[0], ""))
+                if self.prevent_impersonation > 1:
+                    canonicalized_name = emoji.replace_emoji(user_name.split()[0], "").strip()
+                    stopping_string = "\n" + canonicalized_name if len(canonicalized_name) > 3 else user_name
+                else:
+                    user_prompt_prefix = self.template_store.format(
+                            templates.Templates.USER_PROMPT_HISTORY_BLOCK,
+                            {
+                                templates.TemplateToken.USER_NAME: user_name,
+                                templates.TemplateToken.MESSAGE: "",
+                            },
+                        ).strip()
+                    stopping_string = "\n" + user_prompt_prefix
                 stopping_strings.append(stopping_string)
 
         try:

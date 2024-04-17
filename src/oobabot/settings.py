@@ -468,15 +468,24 @@ class Settings:
             )
         )
         self.discord_settings.add_setting(
-            oesp.ConfigSetting[bool](
+            oesp.ConfigSetting[int](
                 name="prevent_impersonation",
-                default=False,
+                default=0,
                 description_lines=[
                     textwrap.dedent(
                         """
                         Prevent impersonation by automatically adding the display names
                         of the members in the recent message cache (up to the history
                         limit, or 4 sequences if using the real OpenAI API).
+                        """
+                    ),
+                    "There are three options:",
+                    "0: None, the feature is disabled",
+                    "1: Standard, using the fully templated user prompt prefix",
+                    textwrap.dedent(
+                        """
+                        2: Aggressive, using just the "canonicalized" user display name
+                        (for models that use "narrative voice")
                         """
                     )
                 ],
