@@ -751,7 +751,7 @@ class DiscordBot(discord.Client):
                         ),
                         templates.TemplateToken.MESSAGE: "",
                     },
-                ).strip()
+                )
                 username_pattern = re.escape(username_pattern).replace(name_identifier, ".*")
                 message_pattern = re.compile(r'(' + username_pattern + r')\s*(.*)')
                 match = message_pattern.match(sentence)
