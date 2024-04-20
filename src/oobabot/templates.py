@@ -28,6 +28,7 @@ class Templates(enum.Enum):
     PROMPT = "prompt"
     EXAMPLE_DIALOGUE = "example_dialogue"
     SECTION_SEPARATOR = "section_separator"
+    DATETIME_FORMAT = "datetime_format"
     USER_NAME = "user_name"
     BOT_NAME = "bot_name"
     SYSTEM_SEQUENCE_PREFIX = "system_sequence_prefix"
@@ -138,6 +139,11 @@ class TemplateStore:
             ],
             "Separator between different sections, if necessary. For example, to "
             "separate example dialogue from the main chat transcript.",
+            True,
+        ),
+        Templates.DATETIME_FORMAT: (
+            [],
+            "strftime-formatted string to render current timestamp.",
             True,
         ),
         Templates.USER_NAME: (
@@ -277,6 +283,9 @@ class TemplateStore:
         ),
         Templates.SECTION_SEPARATOR: textwrap.dedent(
             "***"
+        ),
+        Templates.DATETIME_FORMAT: textwrap.dedent(
+            "%B %d, %Y - %I:%M:%S %p"
         ),
         Templates.USER_NAME: textwrap.dedent(
             """

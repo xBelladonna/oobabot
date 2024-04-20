@@ -136,11 +136,15 @@ class PromptGenerator:
         self.max_history_chars = available_chars_for_history
 
     def get_datetime(self) -> str:
+        format = self.template_store.format(
+            templates.Templates.DATETIME_FORMAT,
+            {},
+        )
         if os.environ.get("TZ"):
             tz=ZoneInfo(os.environ.get("TZ")) # type: ignore
         else:
             tz=None
-        return datetime.datetime.now(tz=tz).strftime("%B %d, %Y - %I:%M:%S %p")
+        return datetime.datetime.now(tz=tz).strftime(format)
 
     async def _render_history(
         self,
