@@ -485,9 +485,9 @@ class DiscordBot(discord.Client):
             # members who posted most recently, up to the history limit
             recent_members = []
 
-            for message in recent_messages_list:
-                if not message.author_is_bot and message.author_name not in recent_members:
-                    recent_members.append(message.author_name)
+            for msg in recent_messages_list:
+                if not msg.author_is_bot and msg.author_name not in recent_members:
+                    recent_members.append(msg.author_name)
 
             for member_name in recent_members:
                 user_name = self.template_store.format(
@@ -501,12 +501,12 @@ class DiscordBot(discord.Client):
                     stopping_string = "\n" + canonicalized_name if len(canonicalized_name) > 3 else user_name
                 else:
                     user_prompt_prefix = self.template_store.format(
-                            templates.Templates.USER_PROMPT_HISTORY_BLOCK,
-                            {
-                                templates.TemplateToken.USER_NAME: user_name,
-                                templates.TemplateToken.MESSAGE: "",
-                            },
-                        ).strip()
+                        templates.Templates.USER_PROMPT_HISTORY_BLOCK,
+                        {
+                            templates.TemplateToken.USER_NAME: user_name,
+                            templates.TemplateToken.MESSAGE: "",
+                        },
+                    ).strip()
                     stopping_string = "\n" + user_prompt_prefix
                 stopping_strings.append(stopping_string)
 
