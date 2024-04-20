@@ -24,7 +24,9 @@ class Persona:
 
     # list of keys that, depending on the json/yaml schema, might
     # contain the AI's persona.  Take the first one found, in order.
-    PERSONA_KEYS = ["char_persona", "description", "context", "personality"]
+    DESCRIPTION_KEYS = ["description"]
+    PERSONALITY_KEYS = ["char_persona", "personality"]
+    SCENARIO_KEYS = ["context", "scenario"]
 
     def __init__(self, persona_settings: dict) -> None:
         self.ai_name: str = persona_settings["ai_name"]
@@ -118,9 +120,17 @@ class Persona:
             if name_key in json_data and json_data[name_key]:
                 self.ai_name = json_data[name_key]
                 break
-        for persona_key in Persona.PERSONA_KEYS:
-            if persona_key in json_data and json_data[persona_key]:
-                self.persona = self.substitute(json_data[persona_key])
+        for description_key in Persona.DESCRIPTION_KEYS:
+            if description_key in json_data and json_data[description_key]:
+                self.persona = self.substitute(json_data[description_key])
+                break
+        for personality_key in Persona.PERSONALITY_KEYS:
+            if personality_key in json_data and json_data[personality_key]:
+                self.persona += f"\n{self.ai_name}'s personality: " + self.substitute(json_data[personality_key])
+                break
+        for scenario_key in Persona.SCENARIO_KEYS:
+            if scenario_key in json_data and json_data[scenario_key]:
+                self.persona += f"\nScenario: " + self.substitute(json_data[scenario_key])
                 break
         if self.ai_name not in self.wakewords and self.ai_name:
             self.wakewords.append(self.ai_name)
