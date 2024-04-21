@@ -123,9 +123,10 @@ class DiscordBot(discord.Client):
             "History: %d lines ", self.prompt_generator.history_lines
         )
 
-        fancy_logger.get().debug(
-            "Stop markers: %s", ", ".join(self.stop_markers) or "<none>"
-        )
+        if self.stop_markers:
+            fancy_logger.get().debug(
+                "Stop markers: %s", ", ".join(self.stop_markers).replace("\n", "\\n")
+            )
 
         # log unsolicited_channel_cap
         cap = self.decide_to_respond.get_unsolicited_channel_cap()
