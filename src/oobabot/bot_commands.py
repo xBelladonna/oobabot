@@ -221,10 +221,10 @@ class BotCommands:
                 await discord_utils.fail_interaction(interaction)
                 return
 
+            channel = await get_messageable(interaction)
             # if reply_in_thread is True, we don't want our bot to
             # speak in guild channels, only threads and private messages
             if self.reply_in_thread:
-                channel = await get_messageable(interaction)
                 if channel is None or isinstance(channel, discord.TextChannel):
                     await discord_utils.fail_interaction(
                         interaction,
