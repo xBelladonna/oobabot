@@ -424,6 +424,19 @@ class Settings:
             )
         )
         self.discord_settings.add_setting(
+            oesp.ConfigSetting[bool](
+                name="ignore_bots",
+                default=True,
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        If set, the bot will not respond to other bots' messages.
+                        """
+                    )
+                ],
+            )
+        )
+        self.discord_settings.add_setting(
             oesp.ConfigSetting[list[str]](
                 name="ignore_prefixes",
                 default="",

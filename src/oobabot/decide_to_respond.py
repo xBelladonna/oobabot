@@ -68,6 +68,7 @@ class DecideToRespond:
             "disable_unsolicited_replies"
         ]
         self.ignore_dms = discord_settings["ignore_dms"]
+        self.ignore_bots = discord_settings["ignore_bots"]
         self.ignore_prefixes = discord_settings["ignore_prefixes"]
         self.self_response_allowed = False
         self.interrobang_bonus = interrobang_bonus
@@ -193,13 +194,13 @@ class DecideToRespond:
 
         # ignore messages from other bots, out of fear of infinite loops,
         # as well as world domination
-        if message.author_is_bot:
+        if message.author_is_bot and self.ignore_bots:
             return (False, False)
 
         # we do not want the bot to reply to itself.  This is redundant
         # with the previous check, except it won't be if someone decides
         # to run this under their own user token, rather than a proper
-        # bot token.
+        # bot token, or if they allow responding to other bots.
         if message.author_id == our_user_id:
             if self.self_response_allowed:
                 # Disallow self-responses, so this setting can't be accidentally latched on
