@@ -92,8 +92,11 @@ class AudioResponder:
             response_channel=self._channel.name
         )
 
-        response = await self._ooba_client.request_as_string(prompt_prefix)
-        fancy_logger.get().debug("received response: '%s'", response)
+        response = await self._ooba_client.request_as_string(
+            prompt_prefix,
+            [],
+        )
+        fancy_logger.get().debug("Received response: '%s'", response)
 
         # wait for silence before responding
         await self._transcript.silence_event.wait()

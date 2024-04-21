@@ -8,6 +8,7 @@ import datetime
 from zoneinfo import ZoneInfo
 import typing
 from oobabot import fancy_logger
+from oobabot import ooba_client
 from oobabot import persona
 from oobabot import templates
 from oobabot import types
@@ -48,15 +49,15 @@ class PromptGenerator:
         oobabooga_settings: dict,
         persona: persona.Persona,
         template_store: templates.TemplateStore,
+        ooba_client: ooba_client.OobaClient,
     ):
-        self.dont_split_responses = discord_settings["dont_split_responses"]
-        self.history_lines = discord_settings["history_lines"]
-        self.token_space = oobabooga_settings["request_params"]["truncation_length"]
-
         self.persona = persona
         self.template_store = template_store
-
+        self.ooba_client = ooba_client
+        self.dont_split_responses = discord_settings["dont_split_responses"]
         self.reply_in_thread = discord_settings["reply_in_thread"]
+        self.history_lines = discord_settings["history_lines"]
+        self.token_space = oobabooga_settings["request_params"]["truncation_length"]
 
         self.example_dialogue = self.template_store.format(
             templates.Templates.EXAMPLE_DIALOGUE,
@@ -88,7 +89,11 @@ class PromptGenerator:
             },
         )
 
-        self._init_history_available_chars()
+        if not self.ooba_client.use_generic_openai:
+            self.max_context_units = self.token_space - oobabooga_settings["request_params"]["max_tokens"]
+        else:
+            self._init_history_available_chars()
+
 
     def _init_history_available_chars(self) -> None:
         """
@@ -133,7 +138,7 @@ class PromptGenerator:
                 + " lines of history.",
                 required_history_size_chars - available_chars_for_history,
             )
-        self.max_history_chars = available_chars_for_history
+        self.max_context_units = available_chars_for_history
 
     def get_datetime(self) -> str:
         format = self.template_store.format(
@@ -153,10 +158,6 @@ class PromptGenerator:
         # add on more history, but only if we have room
         # if we don't have room, we'll just truncate the history
         # by discarding the oldest messages first
-        # this is s
-        # it will understand before ignore
-        #
-        prompt_len_remaining = self.max_history_chars
 
         # history_lines is newest first, so figure out
         # how many we can take, then append them in
@@ -169,6 +170,11 @@ class PromptGenerator:
                 templates.TemplateToken.AI_NAME: self.persona.ai_name,
             },
         )
+        prompt_without_history = self._generate("", self.image_request_made, guild_name="", response_channel="")
+        if not self.ooba_client.use_generic_openai:
+            prompt_units = await self.ooba_client.get_token_count(prompt_without_history)
+        else:
+            prompt_units = len(prompt_without_history)
 
         # first we process and append the chat transcript
         async for message in message_history:
@@ -213,40 +219,71 @@ class PromptGenerator:
                     {},
                 )
 
-            if len(line) > prompt_len_remaining:
+            if not self.ooba_client.use_generic_openai:
+                line_units = await self.ooba_client.get_token_count(line)
+            else:
+                line_units = len(line)
+
+            if line_units >= self.max_context_units - prompt_units:
+                context_full = True
                 num_discarded_lines = self.history_lines - len(history_lines)
                 fancy_logger.get().warning(
-                    "ran out of prompt space, discarding {%d} lines of chat history",
+                    "Ran out of context space, discarding %d lines of chat history.",
                     num_discarded_lines,
                 )
-                prompt_len_remaining = 0
                 break
 
-            prompt_len_remaining -= len(line)
+            context_full = False
+            prompt_units += line_units
             history_lines.append(line)
 
         # then we append the example dialogue, if it exists, and there's room in the message history
-        if len(self.example_dialogue) > 0 and prompt_len_remaining > len(section_separator):
-            remaining_lines = self.history_lines - len(history_lines)
+        if len(self.example_dialogue) > 0:
+            if not context_full:
+                if not self.ooba_client.use_generic_openai:
+                    separator_units = await self.ooba_client.get_token_count(section_separator)
+                else:
+                    separator_units = len(section_separator)
+                context_full = prompt_units + separator_units >= self.max_context_units
 
-            if remaining_lines > 0:
-                history_lines.append(section_separator + "\n") # append the section separator (and newline) to the top which becomes the bottom
-                prompt_len_remaining -= len(section_separator) # and subtract the character budget that consumed
-                # split example dialogue into lines
-                example_dialogue_lines = [line + "\n" for line in self.example_dialogue.split("\n")] # keep the newlines by rebuilding the list in a comprehension
+            if not context_full:
+                prompt_units += separator_units
+                remaining_lines = self.history_lines - len(history_lines)
 
-                # fill remaining quota of history lines with example dialogue lines
-                # this has the effect of gradually pushing them out as the chat exceeds the history limit
-                for i in range(remaining_lines):
-                    # start from the end of the list since the order is reversed
-                    if len(example_dialogue_lines[-1]) + len(section_separator) > prompt_len_remaining: # account for the number of characters in the section separator we will append last
-                        break
+                if remaining_lines > 0:
+                    history_lines.append(section_separator + "\n") # append the section separator (and newline) to the top which becomes the bottom
+                    # split example dialogue into lines
+                    example_dialogue_lines = [line + "\n" for line in self.example_dialogue.split("\n")] # keep the newlines by rebuilding the list in a comprehension
 
-                    prompt_len_remaining -= len(example_dialogue_lines[-1])
-                    history_lines.append(example_dialogue_lines.pop()) # pop the last item of the list into the transcript
-                    # and then break out of the loop once we run out of example dialogue
-                    if not example_dialogue_lines:
-                        break
+                    # fill remaining quota of history lines with example dialogue lines
+                    # this has the effect of gradually pushing them out as the chat exceeds the history limit
+                    for _ in range(remaining_lines):
+                        # start from the end of the list since the order is reversed
+                        example_line = example_dialogue_lines.pop()
+                        if not self.ooba_client.use_generic_openai:
+                            example_units = await self.ooba_client.get_token_count(example_line)
+                        else:
+                            example_units = len(example_line)
+                        if prompt_units + example_units > self.max_context_units:
+                            break
+
+                        prompt_units += example_units
+                        history_lines.append(example_line) # pop the last item of the list into the transcript
+                        # and then break out of the loop once we run out of example dialogue
+                        if not example_dialogue_lines:
+                            break
+
+        fancy_logger.get().debug(
+            "Number of history lines: %d.",
+            len(history_lines),
+        )
+        unit_type = "tokens" if not self.ooba_client.use_generic_openai else "characters"
+        fancy_logger.get().debug(
+            f"Total {unit_type} in prompt: %d. Max {unit_type} allowed: %d. Headroom: %d",
+            prompt_units,
+            self.max_context_units,
+            self.max_context_units - prompt_units,
+        )
 
         # then reverse the order of the list so it's in order again
         history_lines.reverse()

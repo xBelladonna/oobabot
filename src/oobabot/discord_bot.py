@@ -72,7 +72,7 @@ class DiscordBot(discord.Client):
         self.stream_responses_speed_limit = discord_settings["stream_responses_speed_limit"]
         self.vision_api_url = vision_api_settings["vision_api_url"]
         self.vision_api_key = vision_api_settings["vision_api_key"]
-        self.vision_model = vision_api_settings["model"]
+        self.vision_model = vision_api_settings["vision_model"]
         self.vision_max_tokens = vision_api_settings["max_tokens"]
         self.vision_max_image_size = vision_api_settings["max_image_size"]
         self.vision_fetch_urls = vision_api_settings["fetch_urls"]

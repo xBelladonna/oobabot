@@ -69,11 +69,6 @@ class Settings:
     User=customizable settings for the bot.  Reads from
     environment variables and command line arguments.
     """
-    # OpenAI settings
-    USE_OPENAI = "use_openai"
-    API_KEY = "api_key"
-    OPENAI_MODEL = "openai_model"
-    OPENAI_ENDPOINT = "openai_endpoint"
 
     ############################################################
     # This section is for constants which are not yet
@@ -230,8 +225,12 @@ class Settings:
                 name="config",
                 default="config.yml",
                 description_lines=[
-                    "Path to a config file to read settings from.",
-                    "Command line settings will override settings in this file.",
+                    textwrap.dedent(
+                        """
+                        Path to a config file to read settings from.
+                        Command line settings will override settings in this file.
+                        """
+                    )
                 ],
                 cli_args=["-c", "--config"],
             )
@@ -279,7 +278,11 @@ class Settings:
                 name="ai_name",
                 default="oobabot",
                 description_lines=[
-                    "Name the AI will use to refer to itself",
+                    textwrap.dedent(
+                        """
+                        Name the AI will use to refer to itself.
+                        """
+                    )
                 ],
             )
         )
@@ -457,8 +460,12 @@ class Settings:
                 name="log_level",
                 default="DEBUG",
                 description_lines=[
-                    "Set the log level.  Valid values are: ",
-                    "CRITICAL, ERROR, WARNING, INFO, DEBUG",
+                    textwrap.dedent(
+                        """
+                        Set the log level.  Valid values are:
+                        CRITICAL, ERROR, WARNING, INFO, DEBUG
+                        """
+                    )
                 ],
                 include_in_argparse=False,
             )
@@ -700,50 +707,13 @@ class Settings:
         self.setting_groups.append(self.oobabooga_settings)
         self.oobabooga_settings.add_setting(
             oesp.ConfigSetting[bool](
-               name=self.USE_OPENAI,
-               default=True,
-               description_lines=[
-                     "Use the OpenAI API instead of the Oobabooga API.",
-               ],
-            )
-        )
-        self.oobabooga_settings.add_setting(
-            oesp.ConfigSetting[str](
-               name=self.API_KEY,
-               default="awesome_api_key",
-               description_lines=[
-                     "OpenAI API key. Required if use_openai is True.",
-               ],
-            )
-        )
-        self.oobabooga_settings.add_setting(
-            oesp.ConfigSetting[str](
-               name=self.OPENAI_ENDPOINT,
-               default="http://localhost:5000/v1/completions",
-               description_lines=[
-                     "OpenAI API completions endpoint. Defaults to localhost. (seems to work with /v1/chat/completions endpoints, pls verify?)",
-               ],
-            )
-        )
-        self.oobabooga_settings.add_setting(
-            oesp.ConfigSetting[str](
-               name=self.OPENAI_MODEL,
-               default="",
-               description_lines=[
-                     "Model to use (supported by some endpoints), otherwise leave blank. Example for openrouter: mistralai/mistral-7b-instruct:free",
-               ],
-            )
-        )
-        self.oobabooga_settings.add_setting(
-            oesp.ConfigSetting[str](
-                name="base_url",
-                default="ws://localhost:5005",
+                name="use_generic_openai",
+                default=False,
                 description_lines=[
                     textwrap.dedent(
                         """
-                        Base URL for the oobabooga instance.  This should be
-                        ws://hostname[:port] for plain websocket connections,
-                        or wss://hostname[:port] for websocket connections over TLS.
+                        Mark the API as OpenAI-compatible. Disables internal features
+                        like real token count and generation stopping.
                         """
                     )
                 ],
@@ -751,14 +721,54 @@ class Settings:
         )
         self.oobabooga_settings.add_setting(
             oesp.ConfigSetting[str](
-                name="base_blocking",
+                name="base_url",
                 default="http://localhost:5000",
                 description_lines=[
                     textwrap.dedent(
                         """
-                        Base URL for the oobabooga instance.  This should be
-                        ws://hostname[:port] for plain websocket connections,
-                        or wss://hostname[:port] for websocket connections over TLS.
+                        Base URL for the oobabooga instance. This should be http://hostname[:port] for
+                        plain connections, or https://hostname[:port] for connections over TLS.
+                        """
+                    )
+                ],
+            )
+        )
+        self.oobabooga_settings.add_setting(
+            oesp.ConfigSetting[str](
+                name="api_key",
+                default="awesome_api_key",
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        OpenAI API key.
+                        """
+                    )
+                ],
+            )
+        )
+        self.oobabooga_settings.add_setting(
+            oesp.ConfigSetting[bool](
+                name="use_chat_completions",
+                default=False,
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        Use the OpenAI Chat Completions API endpoint
+                        instead of the legacy Completions API.
+                        """
+                    )
+                ],
+            )
+        )
+        self.oobabooga_settings.add_setting(
+            oesp.ConfigSetting[str](
+                name="model",
+                default="",
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        Model to use (supported by some endpoints), otherwise leave blank.
+                        Example for openrouter: mistralai/mistral-7b-instruct:free
                         """
                     )
                 ],
@@ -837,28 +847,28 @@ class Settings:
         self.setting_groups.append(self.vision_api_settings)
         self.vision_api_settings.add_setting(
             oesp.ConfigSetting[bool](
-               name="use_vision",
-               default=False,
-               description_lines=[
-                     textwrap.dedent(
-                           """
-                           Use the OpenAI-like Vision API to generate images.
-                           """
-                     )
-               ],
+                name="use_vision",
+                default=False,
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        Use the OpenAI-like Vision API to generate images.
+                        """
+                    )
+                ],
             )
         )
         self.vision_api_settings.add_setting(
             oesp.ConfigSetting[bool](
-               name="fetch_urls",
-               default=False,
-               description_lines=[
-                     textwrap.dedent(
-                           """
-                           Fetch images from URLs. Warning: this may lead to your
-                           host IP address being leaked to any sites that are accessed!
-                           """
-                     )
+                name="fetch_urls",
+                default=False,
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        Fetch images from URLs. Warning: this may lead to your
+                        host IP address being leaked to any sites that are accessed!
+                        """
+                    )
                ],
             )
         )
@@ -867,11 +877,11 @@ class Settings:
                name="vision_api_url",
                default="http://localhost:8000/v1/chat/completions",
                description_lines=[
-                     textwrap.dedent(
-                           """
-                           URL for the OpenAI-like Vision API. 
-                           """
-                     )
+                    textwrap.dedent(
+                        """
+                        URL for the OpenAI-like Vision API. 
+                        """
+                    )
                ],
             )
         )
@@ -880,24 +890,24 @@ class Settings:
                name="vision_api_key",
                default="notarealkey",
                description_lines=[
-                     textwrap.dedent(
-                           """
-                           API key for the OpenAI-like Vision API.
-                           """
-                     )
+                    textwrap.dedent(
+                        """
+                        API key for the OpenAI-like Vision API.
+                        """
+                    )
                ],
             )
         )
         self.vision_api_settings.add_setting(
             oesp.ConfigSetting[str](
-               name="model",
+               name="vision_model",
                default="gpt-4-vision-preview",
                description_lines=[
-                     textwrap.dedent(
-                           """
-                           Model to use for the vision API.
-                           """
-                     )
+                    textwrap.dedent(
+                        """
+                        Model to use for the vision API.
+                        """
+                    )
                ],
             )
         )
@@ -906,11 +916,11 @@ class Settings:
                name="max_tokens",
                default=300,
                description_lines=[
-                     textwrap.dedent(
-                           """
-                           Maximum number of tokens for the vision model to predict.
-                           """
-                     )
+                    textwrap.dedent(
+                        """
+                        Maximum number of tokens for the vision model to predict.
+                        """
+                    )
                ],
             )
         )
@@ -919,12 +929,12 @@ class Settings:
                name="max_image_size",
                default=1344,
                description_lines=[
-                     textwrap.dedent(
-                           """
-                           Maximum size for the longest side of the image. It will be
-                           downsampled to this size if necessary.
-                           """
-                     )
+                    textwrap.dedent(
+                        """
+                        Maximum size for the longest side of the image. It will be
+                        downsampled to this size if necessary.
+                        """
+                    )
                ],
             )
         )
@@ -995,9 +1005,11 @@ class Settings:
                 name="avatar_prompt",
                 default="",
                 description_lines=[
-                    """
-                    Prompt to send to Stable Diffusion to generate self-portrait if asked.
-                    """
+                    textwrap.dedent(
+                        """
+                        Prompt to send to Stable Diffusion to generate self-portrait if asked.
+                        """
+                    )
                 ],
             )
         )

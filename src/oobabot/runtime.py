@@ -95,6 +95,7 @@ class Runtime:
             oobabooga_settings=settings.oobabooga_settings.get_all(),
             persona=self.persona,
             template_store=self.template_store,
+            ooba_client=self.ooba_client,
         )
 
         # tracks of the time spent on responding, success rate, etc.

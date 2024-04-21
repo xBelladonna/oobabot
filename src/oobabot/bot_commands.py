@@ -127,6 +127,11 @@ class BotCommands:
             if interaction.channel_id is None:
                 await discord_utils.fail_interaction(interaction)
                 return
+            if self.ooba_client.use_generic_openai:
+                await discord_utils.fail_interaction(
+                    interaction,
+                    "Generic OpenAI-compatible API in use, cannot abort generation.",
+                )
             response = await self.ooba_client.stop()
             str_response = response if response is not None else "No response from server."
             await interaction.response.send_message(str_response)
