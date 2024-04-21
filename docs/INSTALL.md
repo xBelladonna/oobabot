@@ -68,7 +68,14 @@ You can install oobabot on any machine that can reach the oobabooga's text-gener
 Using python3.8, 3.9 or 3.10, install the `oobabot` package from PiPy, using your favorite package manager.  E.g.
 
 ```bash
-    pip install oobabot
+  $ pip install oobabot
+```
+
+or if you're after the latest version, clone this repository and install with Poetry:
+```bash
+  $ python -m venv .venv
+  $ source .venv/bin/activate
+  $ poetry install
 ```
 
 ## 5. Configure oobabot and have fun
