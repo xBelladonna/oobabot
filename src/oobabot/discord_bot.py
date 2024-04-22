@@ -6,11 +6,9 @@ be easily extracted into a cross-platform library.
 
 import asyncio
 import typing
-import base64
 import io
 import re
 import emoji
-import requests
 import discord
 from PIL import Image
 
@@ -40,8 +38,8 @@ class DiscordBot(discord.Client):
         bot_commands: bot_commands.BotCommands,
         decide_to_respond: decide_to_respond.DecideToRespond,
         discord_settings: dict,
-        vision_api_settings: typing.Dict[str, typing.Any],
         image_generator: typing.Optional[image_generator.ImageGenerator],
+        vision_client: typing.Optional[vision.VisionClient],
         ooba_client: ooba_client.OobaClient,
         persona: persona.Persona,
         template_store: templates.TemplateStore,
@@ -52,6 +50,7 @@ class DiscordBot(discord.Client):
         self.bot_commands = bot_commands
         self.decide_to_respond = decide_to_respond
         self.image_generator = image_generator
+        self.vision_client = vision_client
         self.ooba_client = ooba_client
         self.persona = persona
         self.template_store = template_store
@@ -60,7 +59,6 @@ class DiscordBot(discord.Client):
         self.response_stats = response_stats
 
         self.ai_user_id = -1
-        self.url_extractor = re.compile(r"(https?://\S+)")
 
         self.dont_split_responses = discord_settings["dont_split_responses"]
         self.ignore_dms = discord_settings["ignore_dms"]
@@ -70,13 +68,6 @@ class DiscordBot(discord.Client):
         self.prevent_impersonation = discord_settings["prevent_impersonation"]
         self.stream_responses = discord_settings["stream_responses"]
         self.stream_responses_speed_limit = discord_settings["stream_responses_speed_limit"]
-        self.vision_api_url = vision_api_settings["vision_api_url"]
-        self.vision_api_key = vision_api_settings["vision_api_key"]
-        self.vision_model = vision_api_settings["vision_model"]
-        self.vision_max_tokens = vision_api_settings["max_tokens"]
-        self.vision_max_image_size = vision_api_settings["max_image_size"]
-        self.vision_fetch_urls = vision_api_settings["fetch_urls"]
-        self.use_vision = vision_api_settings["use_vision"]
 
         # add stopping_strings to stop_markers
         self.stop_markers.extend(self.ooba_client.get_stopping_strings())
@@ -181,7 +172,6 @@ class DiscordBot(discord.Client):
         :param raw_message: The raw message from Discord.
         """
 
-
         # If the message is not a command, proceed with regular message handling
         try:
             message = discord_utils.discord_message_to_generic_message(raw_message)
@@ -191,54 +181,6 @@ class DiscordBot(discord.Client):
             if not should_respond:
                 return
 
-            image_descriptions = []
-            if self.use_vision:
-                if should_respond:
-                    if self.vision_fetch_urls:
-                        urls = self.url_extractor.findall(raw_message.content)
-                        if urls:
-                            for url in urls:
-                                r = requests.head(url)
-                                if r.headers["content-type"].startswith("image/"):
-                                    try:
-                                        description = await vision.get_image_description(url, vision_api_url=self.vision_api_url, vision_api_key=self.vision_api_key, model=self.vision_model, max_tokens=self.vision_max_tokens)
-                                        if description:
-                                            image_descriptions.append(description)
-                                    except Exception as e:
-                                        fancy_logger.get().error("Error processing image: %s", e, exc_info=True)
-                    if raw_message.attachments:
-                        for attachment in raw_message.attachments:
-                            if attachment.content_type and attachment.content_type.startswith("image/"):
-                                try:
-                                    # Create a BytesIO buffer
-                                    buffer = io.BytesIO()
-                                    # Save the attachment to the buffer
-                                    await attachment.save(buffer)
-                                    buffer.seek(0)  # Move to the start of the buffer
-                                    # Resample the image to something our image recognition model can handle, if necessary
-                                    image = Image.open(buffer)
-                                    buffer.flush()
-                                    if image.width > self.vision_max_image_size or image.height > self.vision_max_image_size:
-                                        # Resize image using its largest side as the baseline, preserving aspect ratio
-                                        if image.width > image.height:
-                                            height = int(image.height * (self.vision_max_image_size / image.width))
-                                            image = image.resize((self.vision_max_image_size, height), Image.LANCZOS)
-                                        else:
-                                            width = int(image.width * (self.vision_max_image_size / image.height))
-                                            image = image.resize((width, self.vision_max_image_size), Image.LANCZOS)
-                                    image.save(buffer, "PNG", optimize=True) # dump image data in PNG format
-                                    buffer.seek(0)
-                                    # Encode the image in base64
-                                    #image_base64 = "data:image/png;base64," # this doesn't work with LocalAI for some reason, someone save me
-                                    image_base64 = "data:image/jpeg;base64," # we lie to the API since it only accepts JPEG, but can decode PNG data anyway
-                                    image_base64 += base64.b64encode(buffer.read()).decode("utf-8")
-                                    # Now pass the base64-encoded image to the vision function
-                                    description = await vision.get_image_description(image_base64, vision_api_url=self.vision_api_url, vision_api_key=self.vision_api_key, model=self.vision_model, max_tokens=self.vision_max_tokens)
-                                    if description:
-                                        image_descriptions.append(description)
-                                except Exception as e:
-                                    fancy_logger.get().error("Error processing image: %s", e, exc_info=True)
-
             is_summon_in_public_channel = is_summon and isinstance(
                 message,
                 types.ChannelMessage,
@@ -246,7 +188,7 @@ class DiscordBot(discord.Client):
 
             async with raw_message.channel.typing():
                 await self._handle_response(
-                    message, raw_message, is_summon_in_public_channel, image_descriptions
+                    message, raw_message, is_summon_in_public_channel
                 )
         except discord.DiscordException as err:
             fancy_logger.get().error(
@@ -258,7 +200,6 @@ class DiscordBot(discord.Client):
         message: types.GenericMessage,
         raw_message: discord.Message,
         is_summon_in_public_channel: bool,
-        image_descriptions: typing.List[str],
         ) -> None:
         """
         Called when we've decided to respond to a message.
@@ -266,17 +207,47 @@ class DiscordBot(discord.Client):
         It decides if we're sending a text response, an image response,
         or both, and then sends the response(s).
         """
+        fancy_logger.get().debug(
+            "Request from %s in %s", message.author_name, message.channel_name
+        )
         image_prompt = None
         if self.image_generator is not None:
             # are we creating an image?
             image_prompt = self.image_generator.maybe_get_image_prompt(raw_message)
 
+        # Determine if there are images and get descriptions (if Vision is enabled)
+        images = []
+        image_descriptions = []
+        if self.vision_client:
+            if self.vision_client.fetch_urls:
+                urls = self.vision_client.url_extractor.findall(raw_message.content)
+                images += urls
+            if raw_message.attachments:
+                for attachment in raw_message.attachments:
+                    if attachment.content_type and attachment.content_type.startswith("image/"):
+                        try:
+                            # Open our image as a PIL Image object
+                            image = Image.open(io.BytesIO(await attachment.read()))
+                            # Pre-process the image for the Vision API
+                            image = self.vision_client.preprocess_image(image)
+                            images.append(image)
+                        except Exception as e:
+                            fancy_logger.get().error("Error pre-processing image: %s", e, exc_info=True)
+            for image in images:
+                try:
+                    fancy_logger.get().debug("Getting image description...")
+                    description = await self.vision_client.get_image_description(image)
+                    if description:
+                        image_descriptions.append(description)
+                except Exception as e:
+                    fancy_logger.get().error("Error processing image: %s", e, exc_info=True)
+
         result = await self._send_text_response(
-                message=message,
-                raw_message=raw_message,
-                image_requested=image_prompt is not None,
-                is_summon_in_public_channel=is_summon_in_public_channel,
-                image_descriptions=image_descriptions
+            message=message,
+            raw_message=raw_message,
+            image_descriptions=image_descriptions,
+            image_requested=image_prompt is not None,
+            is_summon_in_public_channel=is_summon_in_public_channel,
         )
         if result is None:
             # we failed to create a thread that the user could
@@ -296,13 +267,13 @@ class DiscordBot(discord.Client):
         image_task = None
         if self.image_generator is not None and image_prompt is not None:
             image_task = self.image_generator.generate_image(
-            image_prompt,
-            raw_message,
-            response_channel=response_channel,
+                image_prompt,
+                raw_message,
+                response_channel=response_channel,
             )
 
         response_tasks = [
-                task for task in [message_task, image_task] if task is not None
+            task for task in [message_task, image_task] if task is not None
         ]
 
         # Use asyncio.gather instead of asyncio.wait to properly handle exceptions
@@ -323,9 +294,9 @@ class DiscordBot(discord.Client):
         self,
         message: types.GenericMessage,
         raw_message: discord.Message,
+        image_descriptions: list[str],
         image_requested: bool,
         is_summon_in_public_channel: bool,
-        image_descriptions: typing.List[str],
     ) -> typing.Optional[typing.Tuple[asyncio.Task, discord.abc.Messageable]]:
         """
         Send a text response to a message.
@@ -342,7 +313,7 @@ class DiscordBot(discord.Client):
         response_channel = raw_message.channel
         if (
             self.reply_in_thread
-            and isinstance(response_channel, discord.TextChannel)
+            and isinstance(raw_message.channel, discord.TextChannel)
             and isinstance(raw_message.author, discord.Member)
         ):
             # we want to create a response thread, if possible
@@ -374,11 +345,11 @@ class DiscordBot(discord.Client):
         response_coro = self._send_text_response_in_channel(
             message=message,
             raw_message=raw_message,
+            image_descriptions=image_descriptions,
             image_requested=image_requested,
             is_summon_in_public_channel=is_summon_in_public_channel,
             response_channel=response_channel,
             response_channel_id=response_channel.id,
-            image_descriptions=image_descriptions,
         )
         response_task = asyncio.create_task(response_coro)
         return (response_task, response_channel)
@@ -387,11 +358,11 @@ class DiscordBot(discord.Client):
         self,
         message: types.GenericMessage,
         raw_message: discord.Message,
+        image_descriptions: list[str],
         image_requested: bool,
         is_summon_in_public_channel: bool,
         response_channel: discord.abc.Messageable,
         response_channel_id: int,
-        image_descriptions: typing.List[str],
     ) -> None:
         """
         Getting closer now!  This method is what actually gathers message
@@ -399,9 +370,6 @@ class DiscordBot(discord.Client):
         into individual messages, and then and then calls
         __send_response_message() to send each message.
         """
-        fancy_logger.get().debug(
-            "Request from %s in %s", message.author_name, message.channel_name
-        )
 
         repeated_id = self.repetition_tracker.get_throttle_message_id(
             response_channel_id
@@ -424,14 +392,20 @@ class DiscordBot(discord.Client):
             num_history_lines=self.prompt_generator.history_lines,
             stop_before_message_id=repeated_id,
             ignore_all_until_message_id=ignore_all_until_message_id,
-            image_descriptions=image_descriptions,
         )
 
         # Convert the recent messages into a list to modify it
         recent_messages_list = [msg async for msg in recent_messages]
 
-        # If there are image descriptions, create a new message with the user's name and prepend it
+        # Attach any image descriptions to the user's message
         if image_descriptions:
+            image_received = self.template_store.format(
+                templates.Templates.PROMPT_IMAGE_RECEIVED,
+                {
+                    templates.TemplateToken.AI_NAME: self.persona.ai_name,
+                    templates.TemplateToken.USER_NAME: message.author_name,
+                },
+            )
             description_text = ' '.join(f'[{message.author_name} posted an image and your image recognition system describes it to you: {desc}]' for desc in image_descriptions)
             for msg in recent_messages_list:
                 for ignore_prefix in self.ignore_prefixes:
@@ -443,16 +417,14 @@ class DiscordBot(discord.Client):
                     break
 
         # Convert the list back into an asynchronous iterator
-        async def list_to_async_iterator(lst):
-            for item in lst:
+        async def list_to_async_iterator(list):
+            for item in list:
                 yield item
         recent_messages_async_iter = list_to_async_iterator(recent_messages_list)
 
         # Generate the prompt prefix using the modified recent messages list
         if isinstance(response_channel, discord.abc.GuildChannel):
             guild_name = response_channel.guild.name
-        elif isinstance(response_channel, discord.GroupChannel):
-            guild_name = response_channel
         else:
             guild_name = "Direct Message"
         prompt_prefix = await self.prompt_generator.generate(
@@ -461,7 +433,6 @@ class DiscordBot(discord.Client):
             guild_name=str(guild_name),
             response_channel=str(response_channel),
         )
-
 
         this_response_stat = self.response_stats.log_request_arrived(prompt_prefix)
         # restrict the @mentions the AI is allowed to use in its response.
@@ -512,6 +483,7 @@ class DiscordBot(discord.Client):
                 stopping_strings.append(stopping_string)
 
         try:
+            fancy_logger.get().debug("Generating text response...")
             if self.stream_responses:
                 generator = self.ooba_client.request_as_grouped_tokens(
                     prompt_prefix,
@@ -880,10 +852,6 @@ class DiscordBot(discord.Client):
             fn_user_id_to_name = discord_utils.guild_user_id_to_name(
                 message.channel.guild,
             )
-        elif isinstance(message.channel, discord.GroupChannel):
-            fn_user_id_to_name = discord_utils.group_user_id_to_name(
-                message.channel,
-            )
         else:
             fn_user_id_to_name = discord_utils.dm_user_id_to_name(
                 self.ai_user_id,
@@ -987,7 +955,6 @@ class DiscordBot(discord.Client):
         stop_before_message_id: typing.Optional[int],
         ignore_all_until_message_id: typing.Optional[int],
         num_history_lines: int,
-        image_descriptions: typing.List[str],  # Add this parameter
     ) -> typing.AsyncIterator[types.GenericMessage]:
         max_messages_to_check = num_history_lines + self.MESSAGE_HISTORY_LOOKBACK_BONUS
         history = channel.history(limit=max_messages_to_check)

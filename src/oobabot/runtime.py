@@ -25,6 +25,7 @@ from oobabot import response_stats
 from oobabot import sd_client
 from oobabot import settings
 from oobabot import templates
+from oobabot import vision
 
 
 class OobabotRuntimeError(Exception):
@@ -116,6 +117,15 @@ class Runtime:
                 template_store=self.template_store,
             )
 
+        # converts images into text descriptions so the bot can understand the contents
+        self.vision = None
+        vision_settings = settings.vision_api_settings.get_all()
+        if vision_settings["use_vision"]:
+            self.vision = vision.VisionClient(
+                settings=vision_settings,
+                template_store=self.template_store
+            )
+
         # if a bot sees itself repeating a message over and over,
         # it will keep doing so forever.  This attempts to fix that.
         # by looking for repeated responses, and deciding how far
@@ -143,12 +153,12 @@ class Runtime:
             discord_settings=settings.discord_settings.get_all(),
             ooba_client=self.ooba_client,
             image_generator=self.image_generator,
+            vision_client=self.vision,
             persona=self.persona,
             template_store=self.template_store,
             prompt_generator=self.prompt_generator,
             repetition_tracker=self.repetition_tracker,
             response_stats=self.response_stats,
-            vision_api_settings=settings.vision_api_settings.get_all(),
         )
 
         self.discord_token = settings.discord_settings.get_str("discord_token")
