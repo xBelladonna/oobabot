@@ -275,14 +275,14 @@ class DiscordBot(discord.Client):
         image_prompt = None
         if self.image_generator is not None:
             # are we creating an image?
-            image_prompt = self.image_generator.maybe_get_image_prompt(raw_message)
+            image_prompt = self.image_generator.maybe_get_image_prompt(message.body_text)
 
         # Determine if there are images and get descriptions (if Vision is enabled)
         images = []
         image_descriptions = []
         if self.vision_client:
             if self.vision_client.fetch_urls:
-                urls = self.vision_client.url_extractor.findall(raw_message.content)
+                urls = self.vision_client.url_extractor.findall(message.body_text)
                 images += urls
             if raw_message.attachments:
                 for attachment in raw_message.attachments:
@@ -330,6 +330,7 @@ class DiscordBot(discord.Client):
         if self.image_generator is not None and image_prompt is not None:
             image_task = self.image_generator.generate_image(
                 image_prompt,
+                message,
                 raw_message,
                 response_channel=response_channel,
             )
@@ -384,14 +385,14 @@ class DiscordBot(discord.Client):
             perms = response_channel.permissions_for(raw_message.author)
             if perms.create_public_threads:
                 response_channel = await raw_message.create_thread(
-                    name=f"{self.persona.ai_name}, replying to "
-                    + f"{raw_message.author.display_name}",
+                    name=self.persona.ai_name + " replying to "
+                    + message.author_name,
                 )
                 fancy_logger.get().debug(
                     "Created response thread %s (%d) in %s",
                     response_channel.name,
                     response_channel.id,
-                    raw_message.channel.name,
+                    message.channel_name,
                 )
             else:
                 # This user can't create threads, so we won't respond.
@@ -447,7 +448,7 @@ class DiscordBot(discord.Client):
             # we can't use the message reference if we're starting a new thread
             if message.channel_id == response_channel_id:
                 reference = raw_message.to_reference()
-            ignore_all_until_message_id = raw_message.id
+            ignore_all_until_message_id = message.message_id
 
         recent_messages = await self._recent_messages_following_thread(
             channel=response_channel,
@@ -911,7 +912,7 @@ class DiscordBot(discord.Client):
                 self.ai_user_id,
                 self.persona.ai_name,
             )
-        elif isinstance(message.channel, discord.TextChannel):
+        elif isinstance(message.channel, discord.abc.GuildChannel):
             fn_user_id_to_name = discord_utils.guild_user_id_to_name(
                 message.channel.guild,
             )

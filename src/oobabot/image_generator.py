@@ -16,6 +16,7 @@ from oobabot import ooba_client
 from oobabot import prompt_generator
 from oobabot import sd_client
 from oobabot import templates
+from oobabot import types
 
 
 async def image_task_to_file(image_task: "asyncio.Task[bytes]", image_request: str):
@@ -285,6 +286,7 @@ class ImageGenerator:
     async def _generate_image(
         self,
         image_prompt: str,
+        message: types.GenericMessage,
         raw_message: discord.Message,
         response_channel: discord.abc.Messageable,
     ) -> discord.Message:
@@ -304,7 +306,7 @@ class ImageGenerator:
             error_message = self.template_store.format(
                 templates.Templates.IMAGE_GENERATION_ERROR,
                 {
-                    templates.TemplateToken.NAME: raw_message.author.display_name,
+                    templates.TemplateToken.NAME: message.author_name,
                     templates.TemplateToken.IMAGE_PROMPT: image_prompt,
                 },
             )
@@ -314,8 +316,8 @@ class ImageGenerator:
             self.stable_diffusion_client,
             is_channel_nsfw=is_channel_nsfw,
             image_prompt=image_prompt,
-            requesting_user_id=raw_message.author.id,
-            requesting_user_name=raw_message.author.display_name,
+            requesting_user_id=message.author_id,
+            requesting_user_name=message.author_name,
             timeout=self.timeout,
             template_store=self.template_store,
         )
@@ -337,10 +339,10 @@ class ImageGenerator:
         return image_message
 
     def maybe_get_image_prompt(
-        self, raw_message: discord.Message
+        self, message: str
     ) -> typing.Optional[str]:
         for image_pattern in self.image_patterns:
-            match = image_pattern.search(raw_message.content)
+            match = image_pattern.search(message)
             if match:
                 image_prompt = match.group(3)
                 if len(image_prompt) < self.MIN_IMAGE_PROMPT_LENGTH:
@@ -348,7 +350,7 @@ class ImageGenerator:
                 fancy_logger.get().debug("Found image prompt: %s", image_prompt)
                 # see if we're asked for our avatar and substitute in our avatar prompt
                 for avatar_pattern in self.avatar_patterns:
-                    match = avatar_pattern.search(raw_message.content)
+                    match = avatar_pattern.search(message)
                     if match:
                         fancy_logger.get().debug("Found request for self-portrait in image prompt, substituting avatar prompt.")
                         image_prompt = avatar_pattern.sub(f"{self.avatar_prompt}, ", image_prompt).strip(", ")
@@ -359,6 +361,7 @@ class ImageGenerator:
     async def generate_image(
         self,
         user_image_keywords: str,
+        message: types.GenericMessage,
         raw_message: discord.Message,
         response_channel: discord.abc.Messageable,
     ) -> "asyncio.Task[discord.Message]":
@@ -367,5 +370,5 @@ class ImageGenerator:
         and return message the image is posted in.
         """
         return asyncio.create_task(
-            self._generate_image(user_image_keywords, raw_message, response_channel)
+            self._generate_image(user_image_keywords, message, raw_message, response_channel)
         )
