@@ -216,6 +216,17 @@ class StableDiffusionImageView(discord.ui.View):
         """
         Only allow the requesting user to interact with this view.
         """
+        try:
+            user = await interaction.client.fetch_user(self.requesting_user_id)
+            if user.bot:
+                # if the requesting user is a bot, we allow the interaction otherwise
+                # the bot may not be able to interact and accept the image.
+                return True
+        except discord.errors.NotFound:
+            # if the user could not be found, it's probably a webhook post from
+            # a bot like PluralKit or Tupperbox. we just allow the interaction
+            # anyway because there's no sane way to perform the right checks.
+            return True
         if interaction.user.id == self.requesting_user_id:
             return True
         error_message = self._get_message(templates.Templates.IMAGE_UNAUTHORIZED)
@@ -350,8 +361,8 @@ class ImageGenerator:
                 fancy_logger.get().debug("Found image prompt: %s", image_prompt)
                 # see if we're asked for our avatar and substitute in our avatar prompt
                 for avatar_pattern in self.avatar_patterns:
-                    match = avatar_pattern.search(message)
-                    if match:
+                    avatar_match = avatar_pattern.search(message)
+                    if avatar_match:
                         fancy_logger.get().debug("Found request for self-portrait in image prompt, substituting avatar prompt.")
                         image_prompt = avatar_pattern.sub(f"{self.avatar_prompt}, ", image_prompt).strip(", ")
                         fancy_logger.get().debug("Final image prompt: %s", image_prompt)
