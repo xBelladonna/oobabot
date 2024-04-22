@@ -68,6 +68,8 @@ class DecideToRespond:
             "disable_unsolicited_replies"
         ]
         self.ignore_dms = discord_settings["ignore_dms"]
+        self.ignore_prefixes = discord_settings["ignore_prefixes"]
+        self.self_response_allowed = False
         self.interrobang_bonus = interrobang_bonus
         self.persona = persona
         self.time_vs_response_chance = time_vs_response_chance
@@ -199,7 +201,16 @@ class DecideToRespond:
         # to run this under their own user token, rather than a proper
         # bot token.
         if message.author_id == our_user_id:
+            if self.self_response_allowed:
+                # Disallow self-responses, so this setting can't be accidentally latched on
+                self.self_response_allowed = False
+                return (True, False)
             return (False, False)
+        
+        # ignore any messages explicitly flagged to be ignored
+        for ignore_prefix in self.ignore_prefixes:
+            if message.body_text.startswith(ignore_prefix):
+                return (False, False)
 
         if self.is_directly_mentioned(our_user_id, message):
             return (True, True)

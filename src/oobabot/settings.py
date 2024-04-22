@@ -423,6 +423,20 @@ class Settings:
                 ],
             )
         )
+        self.discord_settings.add_setting(
+            oesp.ConfigSetting[list[str]](
+                name="ignore_prefixes",
+                default="",
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        This is a list of strings that the bot will ignore if
+                        messages begin with any of them.
+                        """
+                    )
+                ],
+            )
+        )
         # log level
         self.discord_settings.add_setting(
             oesp.ConfigSetting[str](

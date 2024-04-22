@@ -37,6 +37,8 @@ class BotCommands:
         self.persona = persona
         self.include_lobotomize_response = discord_settings["include_lobotomize_response"]
         self.reply_in_thread = discord_settings["reply_in_thread"]
+        self.history_lines = discord_settings["history_lines"]
+        self.ignore_prefixes = discord_settings["ignore_prefixes"]
         self.template_store = template_store
         self.ooba_client = ooba_client
 
@@ -148,13 +150,19 @@ class BotCommands:
                 channel_name,
             )
 
-            async for message in channel.history(limit=1):
+            async for message in channel.history(limit=self.history_lines):
+                for ignore_prefix in self.ignore_prefixes:
+                    if message.content.startswith(ignore_prefix):
+                        continue
                 if message.author.id == client.user.id:
-                    return await discord_utils.fail_interaction(
-                    interaction,
-                    "I can't reply to my own messages.",
-                )
+                    self.decide_to_respond.self_response_allowed = True
                 await interaction.response.defer(ephemeral=True, thinking=False)
+                # log a fake mention so the bot considers responses
+                self.decide_to_respond.log_mention(
+                    channel_id=channel.id,
+                    send_timestamp=interaction.created_at.timestamp(),
+                )
+                # trigger a fake message request
                 client.dispatch("message", message)
                 return await interaction.delete_original_response()
 
@@ -176,11 +184,13 @@ class BotCommands:
                 channel_name,
             )
 
-            history_limit = 100
             bot_last_message = None
             user_last_message = None
 
-            async for message in channel.history(limit=history_limit):
+            async for message in channel.history(limit=self.history_lines):
+                for ignore_prefix in self.ignore_prefixes:
+                    if message.content.startswith(ignore_prefix):
+                        continue
                 if bot_last_message and message.author.id != client.user.id:
                     user_last_message = message
                     break
@@ -195,7 +205,7 @@ class BotCommands:
             else:
                 await discord_utils.fail_interaction(
                     interaction,
-                    "Can't find my last message in the last {history_limit} messages."
+                    f"Can't find my last message in the last {self.history_lines} messages."
                 )
 
         @discord.app_commands.command(
