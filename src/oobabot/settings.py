@@ -1002,6 +1002,20 @@ class Settings:
             )
         )
         self.stable_diffusion_settings.add_setting(
+            oesp.ConfigSetting[float](
+                name="timeout",
+                default=180.0,
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        Time in seconds that the generated image will be displayed without
+                        interaction before being deleted.
+                        """
+                    )
+                ],
+            )
+        )
+        self.stable_diffusion_settings.add_setting(
             oesp.ConfigSetting[oesp.SettingDictType](
                 name="request_params",
                 default=self.DEFAULT_SD_REQUEST_PARAMS,
