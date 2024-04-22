@@ -444,7 +444,8 @@ class Settings:
                     textwrap.dedent(
                         """
                         This is a list of strings that the bot will ignore if
-                        messages begin with any of them.
+                        messages begin with any of them. These messages will be
+                        hidden from the chat history.
                         """
                     )
                 ],
