@@ -153,6 +153,7 @@ class PromptGenerator:
 
     async def _render_history(
         self,
+        ai_user_id: int,
         message_history: typing.AsyncIterator[types.GenericMessage],
     ) -> str:
         # add on more history, but only if we have room
@@ -177,11 +178,12 @@ class PromptGenerator:
             prompt_units = len(prompt_without_history)
 
         # first we process and append the chat transcript
+        context_full = False
         async for message in message_history:
             if not message.body_text:
                 continue
 
-            if message.author_is_bot:
+            if message.author_is_bot and message.author_id is ai_user_id:
                 line = self.template_store.format(
                     templates.Templates.BOT_SEQUENCE_PREFIX,
                     {},
@@ -233,7 +235,6 @@ class PromptGenerator:
                 )
                 break
 
-            context_full = False
             prompt_units += line_units
             history_lines.append(line)
 
@@ -337,6 +338,7 @@ class PromptGenerator:
         self,
         message_history: typing.Optional[typing.AsyncIterator[types.GenericMessage]],
         image_requested: bool,
+        ai_user_id: int,
         guild_name: str,
         response_channel: str,
     ) -> str:
@@ -346,6 +348,7 @@ class PromptGenerator:
         message_history_txt = ""
         if message_history is not None:
             message_history_txt = await self._render_history(
+                ai_user_id,
                 message_history,
             )
         image_coming = self.image_request_made if image_requested else ""

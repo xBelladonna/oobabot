@@ -400,6 +400,23 @@ class Settings:
             )
         )
         self.discord_settings.add_setting(
+            oesp.ConfigSetting[int](
+                name="message_accumulation_period",
+                default=0,
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        Time in seconds that the bot will wait for additional
+                        messages before deciding to respond. Useful if people
+                        post messages shortly after each other, or for use
+                        with bots like PluralKit that proxy your messages
+                        as another username and delete the original message.
+                        """
+                    )
+                ],
+            )
+        )
+        self.discord_settings.add_setting(
             oesp.ConfigSetting[bool](
                 name="include_lobotomize_response",
                 default=True,

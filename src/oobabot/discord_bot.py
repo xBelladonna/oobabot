@@ -68,11 +68,14 @@ class DiscordBot(discord.Client):
         self.prevent_impersonation = discord_settings["prevent_impersonation"]
         self.stream_responses = discord_settings["stream_responses"]
         self.stream_responses_speed_limit = discord_settings["stream_responses_speed_limit"]
+        self.message_accumulation_period = discord_settings["message_accumulation_period"]
 
         # add stopping_strings to stop_markers
         self.stop_markers.extend(self.ooba_client.get_stopping_strings())
 
         super().__init__(intents=discord_utils.get_intents())
+
+        self.message_queue = []
 
     async def on_ready(self) -> None:
         guilds = self.guilds
@@ -174,6 +177,7 @@ class DiscordBot(discord.Client):
 
         # If the message is not a command, proceed with regular message handling
         try:
+            channel = raw_message.channel
             message = discord_utils.discord_message_to_generic_message(raw_message)
             should_respond, is_summon = self.decide_to_respond.should_reply_to_message(
                 self.ai_user_id, message
@@ -186,14 +190,72 @@ class DiscordBot(discord.Client):
                 types.ChannelMessage,
             )
 
-            async with raw_message.channel.typing():
-                await self._handle_response(
-                    message, raw_message, is_summon_in_public_channel
+            # Add the message to the queue
+            self.message_queue.append(
+                (message, raw_message, is_summon_in_public_channel)
+            )
+            # Start processing the message queue for the first message received
+            if len(self.message_queue) == 1:
+                self.loop.create_task(
+                    self.process_message_queue(channel, self.message_queue)
                 )
+
         except discord.DiscordException as err:
             fancy_logger.get().error(
                 "Exception while processing message: %s", err, exc_info=True
             )
+
+    async def process_message_queue(
+            self,
+            channel: typing.Union[
+                discord.abc.GuildChannel,
+                discord.DMChannel,
+                discord.Thread
+            ],
+            message_queue: list[
+                tuple[
+                    types.GenericMessage,
+                    discord.Message,
+                    bool
+                ]
+            ],
+        ) -> None:
+        # Wait if we're accumulating messages
+        if self.message_accumulation_period:
+            fancy_logger.get().debug(
+                "Waiting %d seconds to accumulate incoming messages...",
+                self.message_accumulation_period,
+            )
+            await asyncio.sleep(self.message_accumulation_period)
+
+        # Then process the latest message in our queue
+        if message_queue:
+            fancy_logger.get().debug("Finished accumulating messages. Responding to final message...")
+            latest_message = message_queue.pop()
+            message_queue.clear()
+
+            message = latest_message[0]
+            raw_message = latest_message[1]
+            is_summon_in_public_channel = latest_message[2]
+
+            # Sometimes it's the case where the message we got has already been deleted.
+            # This attempts to catch this and grab the latest message to reply to anyway.
+            try:
+                await channel.fetch_message(message.message_id)
+            except discord.errors.NotFound:
+                async for msg in channel.history(limit=self.prompt_generator.history_lines):
+                    if msg.content.startswith(self.ignore_prefix):
+                        continue
+                    raw_message = msg
+                    message = discord_utils.discord_message_to_generic_message(raw_message)
+                    break
+
+            async with channel.typing():
+                await self._handle_response(
+                    message,
+                    raw_message,
+                    is_summon_in_public_channel,
+                )
 
     async def _handle_response(
         self,
@@ -428,6 +490,7 @@ class DiscordBot(discord.Client):
         else:
             guild_name = "Direct Message"
         prompt_prefix = await self.prompt_generator.generate(
+            ai_user_id=self.ai_user_id,
             message_history=recent_messages_async_iter,
             image_requested=image_requested,
             guild_name=str(guild_name),
