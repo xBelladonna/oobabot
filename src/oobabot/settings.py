@@ -864,19 +864,6 @@ class Settings:
         self.setting_groups.append(self.vision_api_settings)
         self.vision_api_settings.add_setting(
             oesp.ConfigSetting[bool](
-                name="use_vision",
-                default=False,
-                description_lines=[
-                    textwrap.dedent(
-                        """
-                        Use the OpenAI-like Vision API to generate images.
-                        """
-                    )
-                ],
-            )
-        )
-        self.vision_api_settings.add_setting(
-            oesp.ConfigSetting[bool](
                 name="fetch_urls",
                 default=False,
                 description_lines=[
@@ -892,11 +879,12 @@ class Settings:
         self.vision_api_settings.add_setting(
             oesp.ConfigSetting[str](
                name="vision_api_url",
-               default="http://localhost:8000/v1/chat/completions",
+               default="",
                description_lines=[
                     textwrap.dedent(
                         """
-                        URL for the OpenAI-like Vision API. 
+                        URL for the OpenAI-like Vision API. Uses the OpenAI Chat Completions
+                        API specification, e.g. http://localhost:5000/v1/chat/completions
                         """
                     )
                ],
