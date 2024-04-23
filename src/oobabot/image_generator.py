@@ -189,8 +189,9 @@ class StableDiffusionImageView(discord.ui.View):
             await self.delete_image()
 
     def get_image_message_text(self) -> str:
-        timeout_string = f"{int(self.timeout / 60)} minutes" # type: ignore - timeout will always be a float
-        timeout_remainder = self.timeout - (int(self.timeout / 60) * 60) # type: ignore
+        # we truncate to zero using int() because we're calculating a remainder
+        timeout_string = f"{int(self.timeout / 60)} minutes"
+        timeout_remainder = self.timeout - (int(self.timeout / 60) * 60)
         if timeout_remainder > 0:
             timeout_string += f" and {timeout_remainder} seconds"
 

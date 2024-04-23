@@ -40,10 +40,10 @@ class VisionClient:
         if image.width > self.max_image_size or image.height > self.max_image_size:
             # Resize image using its largest side as the baseline, preserving aspect ratio
             if image.width > image.height:
-                height = int(image.height * (self.max_image_size / image.width))
+                height = round(image.height * (self.max_image_size / image.width))
                 image = image.resize((self.max_image_size, height), Image.Resampling.LANCZOS)
             else:
-                width = int(image.width * (self.max_image_size / image.height))
+                width = round(image.width * (self.max_image_size / image.height))
                 image = image.resize((width, self.max_image_size), Image.Resampling.LANCZOS)
 
         # Convert image to RGB only (JPEG doesn't support transparency)
