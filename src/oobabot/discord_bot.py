@@ -210,13 +210,14 @@ class DiscordBot(discord.Client):
             channel: typing.Union[
                 discord.abc.GuildChannel,
                 discord.DMChannel,
-                discord.Thread
+                discord.GroupChannel,
+                discord.Thread,
             ],
-            message_queue: list[
-                tuple[
+            message_queue: typing.List[
+                typing.Tuple[
                     types.GenericMessage,
                     discord.Message,
-                    bool
+                    bool,
                 ]
             ],
         ) -> None:
@@ -357,7 +358,7 @@ class DiscordBot(discord.Client):
         self,
         message: types.GenericMessage,
         raw_message: discord.Message,
-        image_descriptions: list[str],
+        image_descriptions: typing.List[str],
         image_requested: bool,
         is_summon_in_public_channel: bool,
     ) -> typing.Optional[typing.Tuple[asyncio.Task, discord.abc.Messageable]]:
@@ -421,7 +422,7 @@ class DiscordBot(discord.Client):
         self,
         message: types.GenericMessage,
         raw_message: discord.Message,
-        image_descriptions: list[str],
+        image_descriptions: typing.List[str],
         image_requested: bool,
         is_summon_in_public_channel: bool,
         response_channel: discord.abc.Messageable,
@@ -480,14 +481,16 @@ class DiscordBot(discord.Client):
                     break
 
         # Convert the list back into an asynchronous iterator
-        async def list_to_async_iterator(list):
-            for item in list:
+        async def list_to_async_iterator(lst):
+            for item in lst:
                 yield item
         recent_messages_async_iter = list_to_async_iterator(recent_messages_list)
 
         # Generate the prompt prefix using the modified recent messages list
         if isinstance(response_channel, discord.abc.GuildChannel):
             guild_name = response_channel.guild.name
+        elif isinstance(response_channel, discord.GroupChannel):
+            guild_name = f"Group Chat: {response_channel.name}"
         else:
             guild_name = "Direct Message"
         prompt_prefix = await self.prompt_generator.generate(
@@ -915,6 +918,10 @@ class DiscordBot(discord.Client):
         elif isinstance(message.channel, discord.abc.GuildChannel):
             fn_user_id_to_name = discord_utils.guild_user_id_to_name(
                 message.channel.guild,
+            )
+        elif isinstance(message.channel, discord.abc.GroupChannel):
+            fn_user_id_to_name = discord_utils.group_user_id_to_name(
+                message.channel,
             )
         else:
             fn_user_id_to_name = discord_utils.dm_user_id_to_name(
