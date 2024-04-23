@@ -107,22 +107,28 @@ class DecideToRespond:
 
         return False
 
-    def calc_base_chance_of_unsolicited_reply(
-        self, message: types.ChannelMessage
-    ) -> float:
+    def calc_interpolated_response_chance(
+        self,
+        time_since_last_mention: float,
+        time_vs_response_chance: typing.List[typing.Tuple[float, float]],
+    ):
         """
-        Calculate base chance of unsolicited reply using the
-        TIME_VS_RESPONSE_CHANCE table.
+        Calculates a linearly interpolated response chance between
+        the current and next calibration entries, based on the exact
+        duration since the last mention.
         """
-        # return a base chance that we'll respond to a message that wasn't
-        # addressed to us, based on the table in TIME_VS_RESPONSE_CHANCE.
-        # other factors might increase this chance.
-        time_since_last_send = self.last_reply_times.time_since_last_mention(message)
         response_chance = 0.0
-        for duration, chance in self.time_vs_response_chance:
-            if time_since_last_send < duration:
-                response_chance = chance
-                break
+        if time_vs_response_chance:
+            duration = 0
+            chance = time_vs_response_chance[0][1]
+            for next_duration, next_chance in time_vs_response_chance:
+                if duration <= time_since_last_mention <= next_duration:
+                    scaling_factor = (time_since_last_mention - duration) / (next_duration - duration)
+                    response_chance = chance + (next_chance - chance) * scaling_factor
+                    break
+                duration, chance = next_duration, next_chance
+        else:
+            response_chance = 1.0
         return response_chance
 
     def provide_unsolicited_reply_in_channel(
@@ -151,8 +157,12 @@ class DecideToRespond:
             return False
 
         # if we haven't posted to this channel recently, don't reply
-        response_chance = self.calc_base_chance_of_unsolicited_reply(message)
-        if response_chance == 0.0:
+        time_since_last_mention = self.last_reply_times.time_since_last_mention(message)
+        response_chance = self.calc_interpolated_response_chance(
+            time_since_last_mention,
+            self.time_vs_response_chance,
+        )
+        if not response_chance:
             return False
 
         # if the new message ends with a question mark, we'll respond
@@ -172,7 +182,7 @@ class DecideToRespond:
             response_chance * 100.0,
         )
 
-        if random.random() < response_chance:
+        if random.random() <= response_chance:
             return True
 
         return False
