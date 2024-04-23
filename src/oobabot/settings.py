@@ -55,7 +55,7 @@ def _console_wrapped(message):
 
 def _make_template_comment(
     tokens_desc_tuple: typing.Tuple[typing.List[templates.TemplateToken], str, bool],
-) -> typing.List[str]:
+) -> list[str]:
     return [
         tokens_desc_tuple[1],
         ".",
@@ -83,6 +83,12 @@ class Settings:
         (180.0, 0.99),
         (300.0, 0.70),
         (60.0 * 10, 0.50),
+    ]
+    VOICE_TIME_VS_RESPONSE_CHANCE: typing.List[typing.Tuple[float, float]] = [
+        # (seconds, base % chance of an unsolicited response)
+        (30.0,  0.95),
+        (60.0,  0.90),
+        (180.0, 0.85),
     ]
 
     # increased chance of responding to a message if it ends with
@@ -628,13 +634,30 @@ class Settings:
         )
         self.discord_settings.add_setting(
             oesp.ConfigSetting[list[str]](
-                name="response_chance_vs_time",
+                name="time_vs_response_chance",
                 default=[str(x) for x in self.TIME_VS_RESPONSE_CHANCE],
                 description_lines=[
                     textwrap.dedent(
                         """
-                        Response chance vs. time - calibration table
+                        Time vs. response chance - calibration table
                         List of tuples with time in seconds and response chance as float between 0-1
+                        """
+                    )
+                ],
+                include_in_argparse=False,
+            )
+        )
+        self.discord_settings.add_setting(
+            oesp.ConfigSetting[list[str]](
+                name="voice_time_vs_response_chance",
+                default=[str(x) for x in self.VOICE_TIME_VS_RESPONSE_CHANCE],
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        Same calibration table as above but for voice calls. The difference is that
+                        we use the last entry's response chance as a fallback instead of refusing
+                        to respond after the specified duration, since it's assumed all voice replies
+                        are solicited.
                         """
                     )
                 ],
@@ -688,9 +711,9 @@ class Settings:
         )
 
         self.discord_settings.add_setting(
-            oesp.ConfigSetting[str](
+            oesp.ConfigSetting[bool](
                 name="speak_voice_replies",
-                default="true",
+                default=True,
                 description_lines=[
                     textwrap.dedent(
                         """
@@ -703,14 +726,13 @@ class Settings:
             )
         )
         self.discord_settings.add_setting(
-            oesp.ConfigSetting[str](
+            oesp.ConfigSetting[bool](
                 name="post_voice_replies",
-                default="false",
+                default=False,
                 description_lines=[
                     textwrap.dedent(
                         """
                         FEATURE PREVIEW: Whether to reply in the voice-text channel of voice calls
-                           default: false
                         """
                     )
                 ],

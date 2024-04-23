@@ -16,6 +16,7 @@ import discord.types
 from discord.types import voice  # this is so pylint doesn't complain
 
 from oobabot import audio_responder
+from oobabot import decide_to_respond
 from oobabot import discrivener
 from oobabot import discrivener_message
 from oobabot import fancy_logger
@@ -45,6 +46,7 @@ class VoiceClient(discord.VoiceProtocol):
     discrivener_location: str
     discrivener_model_location: str
     inviter: str
+    decide_to_respond: decide_to_respond.DecideToRespond
     speak_voice_replies: bool
     post_voice_replies: bool
     current_instance: typing.Optional["VoiceClient"] = None
@@ -89,11 +91,16 @@ class VoiceClient(discord.VoiceProtocol):
         self._state: discord.state.ConnectionState = client._connection
         self._session_id = discord.utils.MISSING
         self._server_id = discord.utils.MISSING
-        self._transcript = transcript.Transcript(client.user.id, self.wakewords)
         self._guild_channel = channel
         self._user = client.user
+        self._transcript = transcript.Transcript(
+            self._user.id,
+            self.wakewords,
+            self.decide_to_respond
+        )
 
         self._audio_responder = audio_responder.AudioResponder(
+            self._user.id,
             channel,
             self._discrivener,
             self.ooba_client,
@@ -314,7 +321,7 @@ class VoiceClient(discord.VoiceProtocol):
             return False
         return self._discrivener_connected
 
-    def _handle_discrivener_output(self, message: "types.DiscrivenerMessage"):
+    def _handle_discrivener_output(self, message: types.DiscrivenerMessage):
         if message.type in (
             types.DiscrivenerMessageType.CONNECT,
             types.DiscrivenerMessageType.RECONNECT,

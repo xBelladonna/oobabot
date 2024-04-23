@@ -81,6 +81,7 @@ class BotCommands:
                 prompt_generator,
                 self.discrivener_location,
                 self.discrivener_model_location,
+                self.decide_to_respond,
                 self.speak_voice_replies,
                 self.post_voice_replies,
             )

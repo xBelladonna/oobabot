@@ -77,16 +77,28 @@ class Runtime:
 
         # decides which messages the bot will respond to
         time_vs_response_chance: typing.List[typing.Tuple[float, float]] = []
-        for x in settings.discord_settings.get_list("response_chance_vs_time"):
-            x = str(x).replace("(", "").replace(")", "").replace(",", " ")
-            x = list(map(float, x.split()))
-            row: typing.Tuple[float, float] = (x[0], x[1])
-            time_vs_response_chance.append(row)
+        voice_time_vs_response_chance: typing.List[typing.Tuple[float, float]] = []
+        for setting in "time_vs_response_chance", "voice_time_vs_response_chance":
+            for x in settings.discord_settings.get_list(setting):
+                x = str(x).replace("(", "").replace(")", "").replace(",", " ")
+                x = list(map(float, x.split()))
+                row: typing.Tuple[float, float] = (x[0], x[1])
+                for value in row:
+                    if value < 0:
+                        raise ValueError(
+                            "Durations and response chances in the time_vs_response_chance "
+                            + "calibration tables can't be negative! Please fix your configuration."
+                        )
+                if setting == "time_vs_response_chance":
+                    time_vs_response_chance.append(row)
+                else:
+                    voice_time_vs_response_chance.append(row)
         self.decide_to_respond = decide_to_respond.DecideToRespond(
             discord_settings=settings.discord_settings.get_all(),
             persona=self.persona,
             interrobang_bonus=float(settings.discord_settings.get_str("interrobang_bonus")),
             time_vs_response_chance=time_vs_response_chance,
+            voice_time_vs_response_chance=voice_time_vs_response_chance,
         )
 
         # once we decide to respond, this generates a prompt

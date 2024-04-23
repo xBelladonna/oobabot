@@ -5,11 +5,11 @@ Stores a transcript of a voice channel.
 import asyncio
 import datetime
 import random
-import re
 import typing
 
 from oobabot import discord_utils
 from oobabot import discrivener_message
+from oobabot import decide_to_respond
 from oobabot import fancy_logger
 from oobabot import types
 
@@ -25,6 +25,7 @@ class Transcript:
         self,
         bot_user_id: int,
         wakewords: typing.List[str],
+        decide_to_respond: decide_to_respond.DecideToRespond,
     ):
         self._bot_user_id = bot_user_id
         self._wakewords: typing.Set[str] = set(word.lower() for word in wakewords)
@@ -32,6 +33,7 @@ class Transcript:
         self.message_buffer = discord_utils.RingBuffer[types.VoiceMessage](
             self.NUM_LINES
         )
+        self.decide_to_respond = decide_to_respond
         self.silence_event = asyncio.Event()
         self.wakeword_event = asyncio.Event()
         self.last_mention = datetime.datetime.min
@@ -50,40 +52,37 @@ class Transcript:
 
         # todo: what about wakewords which span segments?
         wakeword_found = False
-        for word in re.split(r"[ .,!?\"']", message.text):
-            if word.lower() in self._wakewords:
+        for wakeword in self._wakewords:
+            if wakeword in message.text.lower():
                 wakeword_found = True
                 break
 
         now = datetime.datetime.now()
         if wakeword_found:
-            fancy_logger.get().info("transcript: wakeword detected! %s", message.text)
+            fancy_logger.get().info("transcript: wakeword detected in: %s", message.text)
             self.last_mention = now
             self.wakeword_event.set()
         else:
-            # chance of replying within 5 minutes of last reply
-            seconds_since_mention = (now - self.last_mention).seconds
-            if seconds_since_mention > 5 * 60:
-                chance = 0.05
+            if self.last_mention is datetime.datetime.min:
+                seconds_since_mention = 0
             else:
-                chance = 0.95 ** (1 - (seconds_since_mention / 60))
-            # also, divide chance by number of users
-            # in the message history
+                seconds_since_mention = (now - self.last_mention).seconds
             users = set()
             for msg in self.message_buffer.get():
                 if not msg.is_bot:
                     users.add(msg.user_id)
-            if len(users) == 1:
-                chance = 1.0
-            else:
-                chance /= 3 * len(users)
-            fancy_logger.get().debug(
-                "transcript: chance of replying: %f (+seconds: %d, users: %d)",
-                chance,
+            number_of_participants = len(users)
+            should_reply, response_chance = self.decide_to_respond.provide_voice_reply(
                 seconds_since_mention,
-                len(users),
+                number_of_participants,
             )
-            if chance > 0.0 and chance > random.random():
+            fancy_logger.get().debug(
+                "transcript: %d%% chance of replying after %d seconds (users: %d)",
+                round(response_chance * 100),
+                seconds_since_mention,
+                number_of_participants,
+            )
+            if should_reply:
                 self.wakeword_event.set()
 
     def on_channel_silent(

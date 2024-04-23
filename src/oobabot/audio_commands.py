@@ -12,6 +12,7 @@ from oobabot import ooba_client
 from oobabot import persona
 from oobabot import prompt_generator
 from oobabot import voice_client
+from oobabot import decide_to_respond
 
 
 class AudioCommands:
@@ -26,6 +27,7 @@ class AudioCommands:
         prompt_generator: prompt_generator.PromptGenerator,
         discrivener_location: str,
         discrivener_model_location: str,
+        decide_to_respond: decide_to_respond.DecideToRespond,
         speak_voice_replies: bool,
         post_voice_replies: bool,
     ):
@@ -37,6 +39,7 @@ class AudioCommands:
 
         voice_client.VoiceClient.discrivener_location = discrivener_location
         voice_client.VoiceClient.discrivener_model_location = discrivener_model_location
+        voice_client.VoiceClient.decide_to_respond = decide_to_respond
         voice_client.VoiceClient.speak_voice_replies = speak_voice_replies
         voice_client.VoiceClient.post_voice_replies = post_voice_replies
         voice_client.VoiceClient.persona = persona

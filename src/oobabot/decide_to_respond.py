@@ -63,6 +63,7 @@ class DecideToRespond:
         persona: persona.Persona,
         interrobang_bonus: float,
         time_vs_response_chance: typing.List[typing.Tuple[float, float]],
+        voice_time_vs_response_chance: typing.List[typing.Tuple[float, float]],
     ):
         self.disable_unsolicited_replies = discord_settings[
             "disable_unsolicited_replies"
@@ -73,7 +74,8 @@ class DecideToRespond:
         self.self_response_allowed = False
         self.interrobang_bonus = interrobang_bonus
         self.persona = persona
-        self.time_vs_response_chance = time_vs_response_chance
+        self.time_vs_response_chance = sorted(time_vs_response_chance)
+        self.voice_time_vs_response_chance = sorted(voice_time_vs_response_chance)
 
         last_reply_cache_timeout = max(time for time, _ in time_vs_response_chance)
         unsolicited_channel_cap = discord_settings["unsolicited_channel_cap"]
@@ -186,6 +188,36 @@ class DecideToRespond:
             return True
 
         return False
+
+    def provide_voice_reply(
+        self,
+        time_since_last_mention: float,
+        number_of_participants: int,
+    ) -> typing.Tuple[bool, float]:
+        """
+        Returns a tuple of (should_reply, response_chance).
+        Responses are guaranteed if in a 1:1 voice call, otherwise
+        the response chance is calculated normally and divided by
+        the number of call participants.
+        """
+        if number_of_participants is 1:
+            return (True, 1.0)
+        response_chance = self.calc_interpolated_response_chance(
+            time_since_last_mention,
+            self.voice_time_vs_response_chance,
+        )
+        if not response_chance:
+            # default to the response chance of the last duration in
+            # the calibration table.
+            response_chance = self.voice_time_vs_response_chance[-1][1]
+        # clamp the number of participants to a reasonable value
+        # otherwise the response chance may become too low with a
+        # very large number of participants
+        response_chance /= min(5, number_of_participants)
+        if random.random() <= response_chance:
+            return (True, response_chance)
+
+        return (False, response_chance)
 
     def should_reply_to_message(
         self, our_user_id: int, message: types.GenericMessage

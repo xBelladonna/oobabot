@@ -32,6 +32,7 @@ class AudioResponder:
 
     def __init__(
         self,
+        bot_user_id: int,
         channel: discord.VoiceChannel,
         discrivener: discrivener.Discrivener,
         ooba_client: ooba_client.OobaClient,
@@ -48,10 +49,11 @@ class AudioResponder:
         self._transcript = transcript
         self._task: typing.Optional[asyncio.Task] = None
 
+        self.bot_user_id = bot_user_id
         self.speak_voice_replies = speak_voice_replies
         self.post_voice_replies = post_voice_replies
         self.dialogue_extractor = re.compile(r"\s?\*(.*?)\*")
-        self.dialogue_cleaner = re.compile(r"\b[a-zA-Zé\d\s\'`\.,;!\?\-]+\b")
+        self.dialogue_cleaner = re.compile(r"\b[a-zA-Zé\d\s\'\.`,;!\?\-]+\b")
         self.emoticon_matcher = re.compile(r"\s+(:[\w]|[\^><\-;Tce]\w[\^><\-;Tce]|<3)\b")
 
     async def start(self):
@@ -59,7 +61,7 @@ class AudioResponder:
         self._task = asyncio.create_task(self._transcript_reply_task())
 
     async def stop(self):
-        if self._task is None:
+        if not self._task:
             return
 
         self._abort = True
@@ -86,6 +88,7 @@ class AudioResponder:
     async def _respond(self):
         transcript_history = self._transcript_history_iterator()
         prompt_prefix = await self._prompt_generator.generate(
+            ai_user_id=self.bot_user_id,
             message_history=transcript_history,
             image_requested=False,
             guild_name=self._channel.guild.name,
@@ -96,7 +99,7 @@ class AudioResponder:
             prompt_prefix,
             [],
         )
-        fancy_logger.get().debug("Received response: '%s'", response)
+        fancy_logger.get().debug("Received response: %s", response)
 
         # wait for silence before responding
         await self._transcript.silence_event.wait()
@@ -105,14 +108,16 @@ class AudioResponder:
         self._transcript.on_bot_response(response)
 
         if self.speak_voice_replies:
-            dialogue = self.dialogue_extractor.sub(".", response)
-            dialogue = self.emoticon_matcher.sub(".", dialogue)
-            dialogue = emoji.replace_emoji(dialogue, ".")
-            dialogue = re.sub(r"\s\.\b", ".", dialogue)
+            # extract sanitized dialogue from response
+            dialogue = self.dialogue_extractor.sub("", response) # suppress non-dialogue
+            dialogue = self.emoticon_matcher.sub("", dialogue) # remove "emoticons"
+            dialogue = emoji.replace_emoji(dialogue, "") # remove actual emoji
+            dialogue = re.sub(r"(\s|\n)+\b", " ", dialogue, re.MULTILINE) # collapse consecutive spaces/newlines into a single space
             dialogue = self.dialogue_cleaner.findall(dialogue)
-            response = " ".join(dialogue)
-            self._discrivener.speak(response)
+            dialogue = " ".join(dialogue).strip().strip("\n")
+            self._discrivener.speak(dialogue)
         if self.post_voice_replies:
+            # post raw response, if configured to do so
             await self._channel.send(response)
 
     def _transcript_history_iterator(
@@ -129,12 +134,12 @@ class AudioResponder:
                     message.user_id,
                     self._channel.guild,
                 )
-                if author is None:
-                    author_name = f"user #{message.user_id}"
-                    author_is_bot = message.is_bot
-                else:
+                if author:
                     author_name = author.author_name
                     author_is_bot = author.author_is_bot
+                else:
+                    author_name = f"user #{message.user_id}"
+                    author_is_bot = message.is_bot
                 yield types.GenericMessage(
                     author_id=message.user_id,
                     author_name=author_name,
