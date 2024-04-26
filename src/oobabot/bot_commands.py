@@ -274,6 +274,54 @@ class BotCommands:
             )
 
         @discord.app_commands.command(
+            name="edit",
+            description=f"Edit {self.persona.ai_name}'s most recent message in the channel "
+            + "with the provided message.",
+        )
+        @discord.app_commands.rename(text_to_send="message")
+        @discord.app_commands.describe(
+            text_to_send=f"Message to replace {self.persona.ai_name}'s last message with."
+        )
+        async def edit(interaction: discord.Interaction, text_to_send: str):
+            channel = await get_messageable(interaction)
+            if not channel:
+                await discord_utils.fail_interaction(interaction)
+                return
+
+            channel_name = discord_utils.get_channel_name(channel)
+            fancy_logger.get().debug(
+                "/%s called by user '%s' in channel #%s",
+                interaction.command.name,
+                interaction.user.name,
+                channel_name,
+            )
+            self.decide_to_respond.log_mention(
+                channel_id=interaction.channel_id,
+                send_timestamp=interaction.created_at.timestamp(),
+            )
+
+            bot_last_message = None
+            skip = False
+
+            async for message in channel.history(limit=self.history_lines):
+                for ignore_prefix in self.ignore_prefixes:
+                    if message.content.startswith(ignore_prefix):
+                        skip = True
+                        break
+                    skip = False
+                if skip:
+                    continue
+
+                if message.author.id == client.user.id:
+                    bot_last_message = message
+                    break
+
+            if bot_last_message:
+                await interaction.response.defer(ephemeral=True, thinking=False)
+                await bot_last_message.edit(content=text_to_send)
+                await interaction.delete_original_response()
+
+        @discord.app_commands.command(
             name="lobotomize",
             description=f"Erase {self.persona.ai_name}'s memory of any message "
             + "before now in this channel.",
@@ -324,6 +372,7 @@ class BotCommands:
         tree = discord.app_commands.CommandTree(client)
         tree.add_command(lobotomize)
         tree.add_command(say)
+        tree.add_command(edit)
         tree.add_command(stop)
         tree.add_command(poke)
         tree.add_command(regenerate)
