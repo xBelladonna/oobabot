@@ -11,7 +11,8 @@ from oobabot import templates
 
 class VisionClient:
     """
-    Client for the GPT Vision API. Generates image descriptions given a URL or base64-encoded image data.
+    Client for the GPT Vision API. Generates image descriptions given a URL
+    or base64-encoded image data.
     """
 
     def __init__(
@@ -20,7 +21,7 @@ class VisionClient:
             persona: persona.Persona,
             template_store: templates.TemplateStore,
         ):
-        
+
         self.fetch_urls = settings["fetch_urls"]
         self.api_url = settings["vision_api_url"]
         self.api_key = settings["vision_api_key"]
@@ -57,13 +58,16 @@ class VisionClient:
 
     async def get_image_description(self, image: str) -> typing.Optional[str]:
         """
-        Takes a base64-encoded image or URL and returns either a description of the image, or None if the API returns an empty response.
+        Takes a base64-encoded image or URL and returns either a description
+        of the image, or None if the API returns an empty response.
         """
         if self.url_extractor.match(image):
             if self.fetch_urls:
-                r = requests.head(image)
-                if not r.headers["content-type"].startswith("image/"): return
-            else: return
+                r = requests.head(image, allow_redirects=True, timeout=10)
+                if not r.headers["content-type"].startswith("image/"):
+                    return
+            else:
+                return
 
         system_prompt = self.template_store.format(
             templates.Templates.GPT_VISION_SYSTEM_PROMPT,
@@ -126,4 +130,3 @@ class VisionClient:
                     else: return
                 else:
                     response.raise_for_status()
-

@@ -30,7 +30,8 @@ class Persona:
 
     def __init__(self, persona_settings: dict) -> None:
         self.ai_name: str = persona_settings["ai_name"]
-        self.persona: str = persona_settings["persona"].replace(str(templates.TemplateToken.AI_NAME), self.ai_name)
+        self.persona: str = persona_settings["persona"].replace(
+            str(templates.TemplateToken.AI_NAME), self.ai_name)
         self.wakewords: typing.List[str] = persona_settings["wakewords"].copy()
 
         # if a json file is specified, load it and have
@@ -126,11 +127,12 @@ class Persona:
                 break
         for personality_key in Persona.PERSONALITY_KEYS:
             if personality_key in json_data and json_data[personality_key]:
-                self.persona += f"\n{self.ai_name}'s personality: " + self.substitute(json_data[personality_key])
+                self.persona += f"\n{self.ai_name}'s personality: " + \
+                    self.substitute(json_data[personality_key])
                 break
         for scenario_key in Persona.SCENARIO_KEYS:
             if scenario_key in json_data and json_data[scenario_key]:
-                self.persona += f"\nScenario: " + self.substitute(json_data[scenario_key])
+                self.persona += "\nScenario: " + self.substitute(json_data[scenario_key])
                 break
         if self.ai_name not in self.wakewords and self.ai_name:
             self.wakewords.append(self.ai_name)

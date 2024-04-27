@@ -105,7 +105,7 @@ class PromptGenerator:
             },
         )
 
-        if not self.ooba_client.use_generic_openai:
+        if self.ooba_client.api_type in ["oobabooga", "openai", "tabbyapi"]:
             self.max_context_units = self.token_space - \
                 oobabooga_settings["request_params"]["max_tokens"]
         else:
@@ -159,7 +159,7 @@ class PromptGenerator:
         self.max_context_units = available_chars_for_history
 
     def get_datetime(self) -> str:
-        format = self.template_store.format(
+        datetime_format = self.template_store.format(
             templates.Templates.DATETIME_FORMAT,
             {},
         )
@@ -167,7 +167,7 @@ class PromptGenerator:
             tz=ZoneInfo(os.environ.get("TZ")) # type: ignore
         else:
             tz=None
-        return datetime.now(tz=tz).strftime(format)
+        return datetime.now(tz=tz).strftime(datetime_format)
 
     async def _render_history(
         self,
@@ -191,7 +191,7 @@ class PromptGenerator:
         )
         prompt_without_history = self._generate(
             "", self.image_request_made, guild_name="", response_channel="")
-        if not self.ooba_client.use_generic_openai:
+        if self.ooba_client.api_type in ["oobabooga", "openai", "tabbyapi"] :
             prompt_units = await self.ooba_client.get_token_count(prompt_without_history)
         else:
             prompt_units = len(prompt_without_history)
@@ -240,7 +240,7 @@ class PromptGenerator:
                     {},
                 )
 
-            if not self.ooba_client.use_generic_openai:
+            if self.ooba_client.api_type in ["oobabooga", "openai", "tabbyapi"]:
                 line_units = await self.ooba_client.get_token_count(line)
             else:
                 line_units = len(line)
@@ -260,7 +260,7 @@ class PromptGenerator:
         # then we append the example dialogue, if it exists, and there's room in the message history
         if len(self.example_dialogue) > 0:
             if not context_full:
-                if not self.ooba_client.use_generic_openai:
+                if self.ooba_client.api_type in ["oobabooga", "openai", "tabbyapi"]:
                     separator_units = await self.ooba_client.get_token_count(section_separator)
                 else:
                     separator_units = len(section_separator)
@@ -284,7 +284,7 @@ class PromptGenerator:
                     for _ in range(remaining_lines):
                         # start from the end of the list since the order is reversed
                         example_line = example_dialogue_lines.pop()
-                        if not self.ooba_client.use_generic_openai:
+                        if self.ooba_client.api_type in ["oobabooga", "openai", "tabbyapi"]:
                             example_units = await self.ooba_client.get_token_count(example_line)
                         else:
                             example_units = len(example_line)
@@ -302,7 +302,10 @@ class PromptGenerator:
             "Number of history lines: %d.",
             len(history_lines),
         )
-        unit_type = "tokens" if not self.ooba_client.use_generic_openai else "characters"
+        if self.ooba_client.api_type in ["oobabooga", "openai", "tabbyapi"]:
+            unit_type = "tokens"
+        else:
+            unit_type = "characters"
         fancy_logger.get().debug(
             f"Total {unit_type} in prompt: %d. Max {unit_type} allowed: %d. Headroom: %d",
             prompt_units,

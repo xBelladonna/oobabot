@@ -135,8 +135,10 @@ class OobaClient(http_client.SerializedHttpClient):
 
 
     SERVICE_NAME = "Oobabooga"
-    OOBABOOGA_STOP_STREAM_URI_PATH: str = "/v1/internal/stop-generation"
-    OOBABOOGA_TOKENIZER_URI_PATH: str = "/v1/internal/encode"
+    OOBABOOGA_STOP_STREAM_URI_PATH: str = "/internal/stop-generation"
+    OOBABOOGA_TOKENIZER_URI_PATH: str = "/internal/encode"
+    TABBYAPI_TOKENIZER_URI_PATH: str = "/token/encode"
+    COHERE_TOKENIZER_URI_PATH: str = "/tokenize"
 
     def __init__(
         self,
@@ -151,11 +153,23 @@ class OobaClient(http_client.SerializedHttpClient):
         self.message_regex = settings["message_regex"]
         self.request_params = settings["request_params"]
         self.log_all_the_things = settings["log_all_the_things"]
-        self.use_generic_openai = settings["use_generic_openai"]
         self.base_url = settings["base_url"]
-        self.api_endpoint = "/v1/completions" if not settings["use_chat_completions"] else "/v1/chat/completions"
-        self.model = settings["model"]
+        self.api_type = settings["api_type"]
+        if self.api_type not in ["oobabooga", "openai", "tabbyapi", "cohere"]:
+            raise ValueError(
+                f"Unsupported API type '{self.api_type}'. Please fix your configuration."
+            )
+
+        if self.api_type in ["oobabooga", "openai", "tabbyapi"]:
+            if settings["use_chat_completions"]:
+                self.api_endpoint = "/chat/completions"
+            else:
+                self.api_endpoint = "/completions"
+        elif self.api_type == "cohere":
+            self.api_endpoint = "/chat"
+
         self.api_key = settings["api_key"]
+        self.model = settings["model"]
         if self.message_regex:
             self.fn_new_splitter = lambda: RegexSplitter(self.message_regex)
         else:
@@ -219,18 +233,33 @@ class OobaClient(http_client.SerializedHttpClient):
 
         request = { "text": prompt }
 
-        url = self.base_url + self.OOBABOOGA_TOKENIZER_URI_PATH
+        if self.api_type == "oobabooga":
+            url = self.base_url + self.OOBABOOGA_TOKENIZER_URI_PATH
+        elif self.api_type == "tabbyapi":
+            url = self.base_url + self.TABBYAPI_TOKENIZER_URI_PATH
+        elif self.api_type == "cohere":
+            url = self.base_url + self.COHERE_TOKENIZER_URI_PATH
+            request.update({ "model": self.model })
+        else:
+            # this shouldn't ever happen, unless someone forks the code,
+            # implements a new API type, and forgets to add that here
+            raise ValueError("Unsupported API type. Unable to encode tokens.")
+
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, headers=headers, json=request, verify_ssl=False) as response:
+            async with session.post(
+                url, headers=headers, json=request, verify_ssl=False
+            ) as response:
                 if response.status != 200:
                     response_text = await response.text()
                     raise http_client.OobaHttpClientError(
                         f"Request failed with status {response.status}: {response_text}"
                     )
                 result = await response.json()
-                return result.get("length") # should always be an int
+                return int(result.get("length")) # should always be an int but we cast just in case
 
-    async def request_by_message(self, prompt: str, stopping_strings: typing.List[str]) -> typing.AsyncIterator[str]:
+    async def request_by_message(
+        self, prompt: str, stopping_strings: typing.List[str]
+    ) -> typing.AsyncIterator[str]:
         """
         Yields individual messages from the response as it arrives.
         These can be split by a regex or by sentence.
@@ -250,9 +279,11 @@ class OobaClient(http_client.SerializedHttpClient):
         """
         for _tries in range(self.retries + 1): # add offset of 1 as range() is zero-indexed
             response = [token async for token in self.request_by_token(prompt, stopping_strings)]
-            if response:
+            if "".join(response).strip().strip("\n"):
                 break
-            fancy_logger.get().debug("Empty response received from text generation API! Trying again...")
+            fancy_logger.get().debug(
+                "Empty response received from text generation API! Trying again..."
+            )
         return "".join(response)
 
     async def request_as_grouped_tokens(
@@ -291,7 +322,9 @@ class OobaClient(http_client.SerializedHttpClient):
                 print(response_text)
                 return response_text
 
-    async def request_by_token(self, prompt: str, stopping_strings: typing.List[str]) -> typing.AsyncIterator[str]:
+    async def request_by_token(
+        self, prompt: str, stopping_strings: typing.List[str]
+    ) -> typing.AsyncIterator[str]:
         """
         Yields the response from the API token by token as it arrives.
         """
@@ -320,13 +353,19 @@ class OobaClient(http_client.SerializedHttpClient):
         # The real OpenAI Completions and Chat Completions API have a limit of 4 stop sequences
         if "api.openai.com" in self.base_url and len(request["stop"]) > 4:
             request["stop"] = request["stop"][:3] # list-slicing is fast anyway
-            fancy_logger.get().debug("Real OpenAI API in use, truncating to 4 stop sequences as per the API limit.")
+            fancy_logger.get().debug(
+                "Real OpenAI API in use, truncating to 4 stop sequences as per the API limit."
+            )
 
-        fancy_logger.get().debug("Using stop sequences: %s", ", ".join(request["stop"]).replace("\n", "\\n"))
+        fancy_logger.get().debug(
+            "Using stop sequences: %s", ", ".join(request["stop"]).replace("\n", "\\n")
+        )
 
         url = self.base_url + self.api_endpoint
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, headers=headers, json=request, verify_ssl=False) as response:
+            async with session.post(
+                url, headers=headers, json=request, verify_ssl=False
+            ) as response:
                 if response.status != 200:
                     response_text = await response.text()
                     raise http_client.OobaHttpClientError(

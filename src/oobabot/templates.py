@@ -351,12 +351,14 @@ class TemplateStore:
         ),
         Templates.GPT_VISION_SYSTEM_PROMPT: textwrap.dedent(
             """
-            A chat between a curious human and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the human's questions.
+            A chat between a curious human and an artificial intelligence assistant.
+            The assistant gives helpful, detailed, and polite answers to the human's questions.
             """
         ),
         Templates.GPT_VISION_PROMPT: textwrap.dedent(
             """
-            Describe the following image in as much detail as possible, including any relevant details while being concise.
+            Describe the following image in as much detail as possible,
+            including any relevant details while being concise.
             """
         ),
         Templates.PROMPT_IMAGE_RECEIVED: textwrap.dedent(

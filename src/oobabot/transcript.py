@@ -50,7 +50,6 @@ class Transcript:
     ) -> None:
         self.message_buffer.append(message)
 
-        # todo: what about wakewords which span segments?
         wakeword_found = False
         for wakeword in self._wakewords:
             if wakeword in message.text.lower():

@@ -648,8 +648,9 @@ class Settings:
                 description_lines=[
                     textwrap.dedent(
                         """
-                        Time vs. response chance - calibration table. 
-                        List of tuples with time in seconds and response chance as float between 0-1.
+                        Time vs. response chance - calibration table.
+                        List of tuples with time in seconds and response
+                        chance as float between 0-1.
                         """
                     )
                 ],
@@ -753,15 +754,17 @@ class Settings:
 
         self.oobabooga_settings = oesp.ConfigSettingGroup("Oobabooga")
         self.setting_groups.append(self.oobabooga_settings)
+
         self.oobabooga_settings.add_setting(
-            oesp.ConfigSetting[bool](
-                name="use_generic_openai",
-                default=False,
+            oesp.ConfigSetting[str](
+                name="base_url",
+                default="http://localhost:5000/v1",
                 description_lines=[
                     textwrap.dedent(
                         """
-                        Mark the API as OpenAI-compatible. Disables internal features
-                        like real token count and generation stopping.
+                        Base URL for the text generation API. This should be
+                        http://hostname[:port]/v1 for plain connections, or
+                        https://hostname[:port]/v1 for connections over TLS.
                         """
                     )
                 ],
@@ -769,15 +772,27 @@ class Settings:
         )
         self.oobabooga_settings.add_setting(
             oesp.ConfigSetting[str](
-                name="base_url",
-                default="http://localhost:5000",
+                name="api_type",
+                default="oobabooga",
                 description_lines=[
                     textwrap.dedent(
                         """
-                        Base URL for the oobabooga instance. This should be http://hostname[:port]
-                        for plain connections, or https://hostname[:port] for connections over TLS.
+                        API type for handling different API endpoints.
                         """
-                    )
+                    ),
+                    "Currently supported:",
+                    "  - oobabooga: Text Generation WebUI",
+                    "  - openai: Any generic OpenAI-compatible API - LocalAI, vLLM, "
+                    + "aphrodite-engine, etc",
+                    "  - tabbyapi: tabbyAPI - OpenAI-compatible exllamav2 API",
+                    "  - cohere: Official Cohere API (Command R+)",
+                    textwrap.dedent(
+                        """
+                        `oobabooga` and `tabbyapi` support accurate token counts using
+                        their respective API token encoding endpoints. This helps squeeze
+                        more context into the available context window.
+                        """
+                    ),
                 ],
             )
         )
@@ -818,7 +833,8 @@ class Settings:
                         Model to use (supported by some endpoints), otherwise leave blank.
                         Example for openrouter: mistralai/mistral-7b-instruct:free
                         """
-                    )
+                    ),
+                    "Required for Cohere API.",
                 ],
             )
         )
@@ -842,8 +858,9 @@ class Settings:
                 description_lines=[
                     textwrap.dedent(
                         """
-                        Maximum number of times we will re-query the text generation API to get a response. 
-                        Useful if the API returns an empty response occasionally.
+                        Maximum number of times we will re-query the text generation
+                        API to get a response. Useful if the API returns an empty
+                        response occasionally.
                         """
                     )
                 ],
@@ -907,6 +924,7 @@ class Settings:
         # Vision API Settings
         self.vision_api_settings = oesp.ConfigSettingGroup("Vision API")
         self.setting_groups.append(self.vision_api_settings)
+
         self.vision_api_settings.add_setting(
             oesp.ConfigSetting[bool](
                 name="fetch_urls",

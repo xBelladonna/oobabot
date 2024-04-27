@@ -140,7 +140,7 @@ class BotCommands:
                 channel_name,
             )
 
-            if self.ooba_client.use_generic_openai:
+            if self.ooba_client.api_type not in ["oobabooga", "openai", "tabbyapi"]:
                 await discord_utils.fail_interaction(
                     interaction,
                     "Generic OpenAI-compatible API in use, cannot abort generation.",
