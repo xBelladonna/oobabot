@@ -107,6 +107,9 @@ class AudioResponder:
         # shove response into history
         self._transcript.on_bot_response(response)
 
+        if self.post_voice_replies:
+            # post raw response, if configured to do so
+            await self._channel.send(response)
         if self.speak_voice_replies:
             # extract sanitized dialogue from response
             dialogue = self.dialogue_extractor.sub("", response) # suppress non-dialogue
@@ -117,9 +120,6 @@ class AudioResponder:
             dialogue = self.dialogue_cleaner.findall(dialogue)
             dialogue = " ".join(dialogue).strip().strip("\n")
             self._discrivener.speak(dialogue)
-        if self.post_voice_replies:
-            # post raw response, if configured to do so
-            await self._channel.send(response)
 
     def _transcript_history_iterator(
         self,

@@ -53,8 +53,8 @@ class AudioCommands:
             # if invoked from a guild channel, join the voice channel
             # the invoker is in, within that guild
             if (
-                interaction.user.voice is not None
-                and interaction.user.voice.channel is not None
+                interaction.user.voice
+                and interaction.user.voice.channel
                 and isinstance(interaction.user.voice.channel, discord.VoiceChannel)
             ):
                 return interaction.user.voice.channel
@@ -67,9 +67,9 @@ class AudioCommands:
             # get member of guild
             member = guild.get_member(interaction.user.id)
             if (
-                member is not None
-                and member.voice is not None
-                and member.voice.channel is not None
+                member
+                and member.voice
+                and member.voice.channel
                 and isinstance(member.voice.channel, discord.VoiceChannel)
             ):
                 return member.voice.channel
@@ -82,22 +82,23 @@ class AudioCommands:
             + "channel you are in right now.",
         )
         async def join_voice(interaction: discord.Interaction):
-            if interaction.user is None:
+            if not interaction.user:
                 await discord_utils.fail_interaction(interaction)
 
             fancy_logger.get().debug(
-                "/join_voice called by user '%s'", interaction.user.name
+                "%s called by user '%s'",
+                interaction.command.name, interaction.user.name,
             )
 
             voice_channel = self._discover_voice_channel(interaction)
-            if voice_channel is None:
+            if not voice_channel:
                 await discord_utils.fail_interaction(
                     interaction, "You must be in a voice channel to use this command"
                 )
                 return
 
             # are we already connected to a voice channel?  If so, disconnect
-            if self.voice_client is not None:
+            if self.voice_client:
                 fancy_logger.get().debug(
                     "disconnecting from voice channel #%s", self.voice_client.channel
                 )
@@ -116,14 +117,13 @@ class AudioCommands:
                 voice_client.VoiceClient.inviter = interaction.user.display_name
 
                 message = f"Joined voice channel #{voice_channel.name}"
-            except discord.DiscordException as err:
+            except (discord.DiscordException, voice_client.VoiceClientError) as err:
                 fancy_logger.get().error(
                     "Failed to connect to voice channel #%d: %s", voice_channel.id, err
                 )
                 message = (
                     f"Failed to connect to voice channel #{voice_channel.name}: {err}"
                 )
-                return
 
             await interaction.followup.send(message)
 
@@ -133,7 +133,7 @@ class AudioCommands:
             + "current voice channel.",
         )
         async def leave_voice(interaction: discord.Interaction):
-            if interaction.user is None:
+            if not interaction.user:
                 await discord_utils.fail_interaction(interaction)
 
             fancy_logger.get().debug(
@@ -141,7 +141,7 @@ class AudioCommands:
             )
 
             # are we already connected to a voice channel?  If so, disconnect
-            if self.voice_client is None:
+            if not self.voice_client:
                 await discord_utils.fail_interaction(
                     interaction, "Not connected to a voice channel"
                 )
