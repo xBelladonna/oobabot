@@ -63,6 +63,19 @@ class DiscordBot(discord.Client):
         self.dont_split_responses = discord_settings["dont_split_responses"]
         self.ignore_dms = discord_settings["ignore_dms"]
         self.ignore_prefixes = discord_settings["ignore_prefixes"]
+        self._allowed_mentions = discord_settings["allowed_mentions"]
+        for allowed_mention_type in self._allowed_mentions:
+            if allowed_mention_type not in ["everyone", "users", "roles"]:
+                raise ValueError(
+                    f"Unrecognised allowed mention type '{allowed_mention_type}'. "
+                    + "Please fix your configuration."
+                )
+        # build allowed mentions object from configuration
+        self._allowed_mentions = discord.AllowedMentions(
+            everyone="everyone" in self._allowed_mentions,
+            users="users" in self._allowed_mentions,
+            roles="roles" in self._allowed_mentions,
+        )
         self.reply_in_thread = discord_settings["reply_in_thread"]
         self.stop_markers = discord_settings["stop_markers"]
         self.prevent_impersonation = discord_settings["prevent_impersonation"]
@@ -250,12 +263,21 @@ class DiscordBot(discord.Client):
                         image_descriptions=[],
                         image_requested=False,
                         response_channel=channel,
-                        as_string=True,
+                        as_string=self.dont_split_responses,
                     )
 
                     if response:
-                        await raw_message.edit(content=response)
-                        response_stat.log_response_part()
+                        if self.dont_split_responses:
+                            await raw_message.edit(content=response)
+                            response_stat.log_response_part()
+                        else:
+                            await self._render_streaming_response(
+                                response,
+                                response_stat,
+                                channel,
+                                self._allowed_mentions,
+                                existing_message=raw_message,
+                            )
                         self.response_stats.log_response_success(response_stat)
                         response_stat.write_to_log(f"Response to {message.author_name} done!  ")
                     else:
@@ -710,16 +732,6 @@ class DiscordBot(discord.Client):
             ignore_all_until_message_id=ignore_all_until_message_id,
         )
 
-        # restrict the @mentions the AI is allowed to use in its response.
-        # this is to prevent another user from being able to trick the AI
-        # into @-pinging a large group and annoying them.
-        # Only the author of the original message may be @-pinged.
-        allowed_mentions = discord.AllowedMentions(
-            everyone=True,
-            users=True,
-            roles=True,
-        )
-
         # will be set to true when we abort the response because:
         #  it was empty
         #  it repeated a previous response and we're throttling it
@@ -741,7 +753,7 @@ class DiscordBot(discord.Client):
                     generator,
                     response_stat,
                     response_channel,
-                    allowed_mentions,
+                    self._allowed_mentions,
                     reference,
                 )
                 if last_sent_message:
@@ -764,7 +776,7 @@ class DiscordBot(discord.Client):
                         response,
                         response_stat,
                         response_channel,
-                        allowed_mentions,
+                        self._allowed_mentions,
                         reference,
                     )
                     if last_sent_message:
@@ -788,8 +800,8 @@ class DiscordBot(discord.Client):
                             sentence,
                             response_stat,
                             response_channel,
-                            allowed_mentions=allowed_mentions,
-                            reference=reference,
+                            self._allowed_mentions,
+                            reference,
                         )
                         if sent_message:
                             last_sent_message = sent_message
@@ -875,9 +887,10 @@ class DiscordBot(discord.Client):
         response_channel: discord.abc.Messageable,
         allowed_mentions: discord.AllowedMentions,
         reference: typing.Optional[discord.MessageReference],
+        existing_message: typing.Optional[discord.Message] = None,
     ) -> typing.Optional[discord.Message]:
         response = ""
-        last_message = None
+        last_message = existing_message if existing_message else None
         async for token in response_iterator:
             if "" == token:
                 continue

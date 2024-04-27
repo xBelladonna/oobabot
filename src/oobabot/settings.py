@@ -463,7 +463,7 @@ class Settings:
             )
         )
         self.discord_settings.add_setting(
-            oesp.ConfigSetting[list[str]](
+            oesp.ConfigSetting[typing.List[str]](
                 name="ignore_prefixes",
                 default="",
                 description_lines=[
@@ -472,6 +472,31 @@ class Settings:
                         This is a list of strings that the bot will ignore if
                         messages begin with any of them. These messages will be
                         hidden from the chat history.
+                        """
+                    )
+                ],
+            )
+        )
+        self.discord_settings.add_setting(
+            oesp.ConfigSetting[typing.List[str]](
+                name="allowed_mentions",
+                default=[],
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        This is a list of allowed @-mention types. Used to limit what
+                        the bot can mention, e.g. to prevent users from tricking the
+                        bot into @-mentioning large groups of people and annoying them.
+                        """
+                    ),
+                    "There are 3 possible types:",
+                    "  - `everyone`: the @everyone role",
+                    "  - `users`: enables @-mentioning users directly",
+                    "  - `roles`: enables @-mentioning roles",
+                    textwrap.dedent(
+                        """
+                        If none of these options are selected, only the original author
+                        may be @-mentioned.
                         """
                     )
                 ],
@@ -647,7 +672,7 @@ class Settings:
             )
         )
         self.discord_settings.add_setting(
-            oesp.ConfigSetting[list[str]](
+            oesp.ConfigSetting[typing.List[str]](
                 name="time_vs_response_chance",
                 default=[str(x) for x in self.TIME_VS_RESPONSE_CHANCE],
                 description_lines=[
@@ -663,7 +688,7 @@ class Settings:
             )
         )
         self.discord_settings.add_setting(
-            oesp.ConfigSetting[list[str]](
+            oesp.ConfigSetting[typing.List[str]](
                 name="voice_time_vs_response_chance",
                 default=[str(x) for x in self.VOICE_TIME_VS_RESPONSE_CHANCE],
                 description_lines=[
