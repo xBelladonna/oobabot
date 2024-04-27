@@ -526,33 +526,38 @@ class Settings:
             )
         )
         self.discord_settings.add_setting(
-            oesp.ConfigSetting[int](
+            oesp.ConfigSetting[str](
                 name="prevent_impersonation",
-                default=0,
+                default="disabled",
                 description_lines=[
                     textwrap.dedent(
                         """
-                        Prevent impersonation by automatically adding the display names
-                        of the members in the recent message cache (up to the history
-                        limit, or 4 sequences if using the real OpenAI API).
+                        Prevent impersonation by automatically adding the display names of
+                        the members in the recent message cache (up to the history limit,
+                        or 4 sequences if using OpenAI) to the list of stop sequences.
                         """
                     ),
-                    "There are three options:",
-                    "0: None, the feature is disabled",
-                    "1: Standard, using the fully templated user prompt prefix",
+                    "There are 4 options:",
+                    "disabled: None, the feature is disabled",
                     textwrap.dedent(
                         """
-                        2: Aggressive, using just the "canonicalized" user display name
+                        standard: Uses the fully templated user prompt prefix from the
+                        user history block.
+                        """
+                    ),
+                    textwrap.dedent(
+                        """
+                        aggressive: Uses just the "canonical" user display name
                         (for models that use "narrative voice"). This is the "common sense"
-                        transformation of any given name, i.e. using only the first name,
-                        and removing any emojis, etc.
+                        transformation of any given name, i.e. using only the first name in
+                        capitalized form, removing any emojis, etc.
                         """
                     ),
                     textwrap.dedent(
                         """
-                        3: Comprehensive, combining both modes 1 and 2. Keep in mind the
-                        sequence limit if you are using the OpenAI API, as they will be
-                        truncated at 4 sequences even if there otherwise would be more.
+                        comprehensive: Combines both standard and aggressive modes. Keep
+                        in mind the sequence limit if you are using OpenAI, as they will
+                        be truncated at 4 sequences even if there otherwise would be more.
                         """
                     ),
                 ],

@@ -66,6 +66,11 @@ class DiscordBot(discord.Client):
         self.reply_in_thread = discord_settings["reply_in_thread"]
         self.stop_markers = discord_settings["stop_markers"]
         self.prevent_impersonation = discord_settings["prevent_impersonation"]
+        if self.prevent_impersonation not in ["standard", "aggressive", "comprehensive"]:
+            raise ValueError(
+                f"Unknown value '{self.prevent_impersonation}' for `prevent_impersonation`. "
+                + "Please fix your configuration"
+            )
         self.stream_responses = discord_settings["stream_responses"]
         self.stream_responses_speed_limit = discord_settings["stream_responses_speed_limit"]
         self.message_accumulation_period = discord_settings["message_accumulation_period"]
@@ -543,19 +548,16 @@ class DiscordBot(discord.Client):
         response_stat = self.response_stats.log_request_arrived(prompt_prefix)
 
         stopping_strings = []
-        if self.prevent_impersonation:
+        if self.prevent_impersonation and self.prevent_impersonation != "disabled":
             # Populate a list of stopping strings using the display names of the members
             # who posted most recently, up to the history limit. We do this with a list
             # comprehension which both preserves order, and has linear time complexity
             # vs. quadratic time complexity for loops. We also use a dictionary conversion
             # to de-duplicate instead of checking list membership, as this has constant
-            # time complexity vs. linear.
-            recent_members = dict.fromkeys(
-                [
-                    msg.author_name for msg in recent_messages_list
-                    if msg.author_id != self.ai_user_id
-                ]
-            ).keys()
+            # time complexity vs. linear and also preserves order.
+            recent_members = dict.fromkeys([msg.author_name for msg in recent_messages_list])
+            recent_members.pop(self.user.display_name, None) # we don't want our own name
+            recent_members = recent_members.keys()
 
             # utility functions to avoid code-duplication and only evaluate when required
             # avoids populating unneeded variables and improves performance very slightly
@@ -581,13 +583,13 @@ class DiscordBot(discord.Client):
                         templates.TemplateToken.NAME: member_name,
                     },
                 )
-                if self.prevent_impersonation == 2:
+                if self.prevent_impersonation == "standard":
+                    stopping_strings.append(_get_user_prompt_prefix(user_name))
+                elif self.prevent_impersonation == "aggressive":
                     stopping_strings.append("\n" + _get_canonicalized_name(user_name))
-                elif self.prevent_impersonation >= 3:
+                elif self.prevent_impersonation == "comprehensive":
                     stopping_strings.append(_get_user_prompt_prefix(user_name))
                     stopping_strings.append("\n" + _get_canonicalized_name(user_name))
-                else:
-                    stopping_strings.append(_get_user_prompt_prefix(user_name))
 
         fancy_logger.get().debug("Generating text response...")
         if as_string or self.dont_split_responses:
