@@ -206,6 +206,62 @@ class DiscordBot(discord.Client):
                 "Exception while processing message: %s", err, exc_info=True
             )
 
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent) -> None:
+        channel = await self.fetch_channel(payload.channel_id)
+        raw_message = await channel.fetch_message(payload.message_id)
+
+        # only process the reaction if it was on one of our messages
+        if raw_message.author.id != self.ai_user_id:
+            return
+
+        if payload.emoji.name == "❌":
+            fancy_logger.get().debug(
+                "Received message deletion request from %s. Deleting message...",
+                payload.member.display_name,
+            )
+            await raw_message.delete()
+            fancy_logger.get().debug("Message deleted.")
+
+        elif payload.emoji.name == "🔁":
+            message = discord_utils.discord_message_to_generic_message(raw_message)
+            fancy_logger.get().debug(
+                "Received message regeneration request from %s. Regenerating message...",
+                payload.member.name,
+            )
+
+            try:
+                async with channel.typing():
+                    repeated_id = self.repetition_tracker.get_throttle_message_id(
+                        payload.channel_id
+                    )
+                    recent_messages = await self._recent_messages_following_thread(
+                        channel=channel,
+                        num_history_lines=self.prompt_generator.history_lines,
+                        stop_before_message_id=repeated_id,
+                        ignore_all_until_message_id=payload.message_id,
+                    )
+                    response = await self._generate_response(
+                        message=message,
+                        raw_message=raw_message,
+                        recent_messages=recent_messages,
+                        image_descriptions=[],
+                        image_requested=False,
+                        response_channel=channel,
+                        as_string=True,
+                    )
+                    this_response_stat = self.this_response_stat
+
+                    await raw_message.edit(content=response)
+
+                await raw_message.remove_reaction(payload.emoji, payload.member)
+                this_response_stat.write_to_log(f"Response to {message.author_name} done!  ")
+                self.response_stats.log_response_success(this_response_stat)
+
+            except discord.DiscordException as err:
+                fancy_logger.get().error("Error: %s", err, exc_info=True)
+                self.response_stats.log_response_failure()
+                return
+
     async def process_message_queue(
             self,
             channel: typing.Union[
@@ -375,7 +431,7 @@ class DiscordBot(discord.Client):
         image_descriptions: typing.List[str],
         image_requested: bool,
         response_channel: discord.abc.Messageable,
-        as_string: bool,
+        as_string: bool = False,
     ) -> typing.Union[typing.AsyncIterator, str]:
         """
         This method is what actually gathers message history,
