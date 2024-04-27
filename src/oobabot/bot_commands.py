@@ -140,7 +140,7 @@ class BotCommands:
 
         @discord.app_commands.command(
             name="poke",
-            description=f"Prompt {self.persona.ai_name} to write a response to the last message, if posted by a user."
+            description=f"Prompt {self.persona.ai_name} to write a response to the last message."
         )
         async def poke(interaction: discord.Interaction):
             channel = await get_messageable(interaction)
@@ -160,17 +160,17 @@ class BotCommands:
                 for ignore_prefix in self.ignore_prefixes:
                     if message.content.startswith(ignore_prefix):
                         continue
-                if message.author.id == client.user.id:
-                    self.decide_to_respond.self_response_allowed = True
                 await interaction.response.defer(ephemeral=True, thinking=False)
-                # log a fake mention so the bot considers responses
+                await interaction.delete_original_response()
+                # respond with certainty
+                self.decide_to_respond.guaranteed_response = True
+                # log a fake mention so the bot considers responses from now on
                 self.decide_to_respond.log_mention(
                     channel_id=channel.id,
                     send_timestamp=interaction.created_at.timestamp(),
                 )
                 # trigger a fake message request
-                client.dispatch("message", message)
-                return await interaction.delete_original_response()
+                return client.dispatch("message", message)
 
         @discord.app_commands.command(
             name="regenerate",
@@ -206,8 +206,13 @@ class BotCommands:
             if bot_last_message and user_last_message:
                 await interaction.response.defer(ephemeral=True, thinking=False)
                 await bot_last_message.delete()
-                client.dispatch("message", user_last_message)
                 await interaction.delete_original_response()
+                self.decide_to_respond.guaranteed_response = True
+                self.decide_to_respond.log_mention(
+                    channel_id=channel.id,
+                    send_timestamp=interaction.created_at.timestamp(),
+                )
+                return client.dispatch("message", user_last_message)
             else:
                 await discord_utils.fail_interaction(
                     interaction,

@@ -272,7 +272,8 @@ class ImageGenerator:
 
         self.image_patterns = [
             re.compile(
-                r"^.*\b" + image_word + r"\b\s*((as?|of|the|with)\s)*:?([\w\s,:\"\'\-\(\)\[\]]+)[^\w]*$",
+                r"^.*\b" + image_word
+                + r"\b\s*((as?|of|the|with)\s)*:?([\w\s,:\"\'\-\(\)\[\]]+)[^\w]*$",
                 re.IGNORECASE,
             )
             for image_word in self.image_words
@@ -364,8 +365,13 @@ class ImageGenerator:
                 for avatar_pattern in self.avatar_patterns:
                     avatar_match = avatar_pattern.search(message)
                     if avatar_match:
-                        fancy_logger.get().debug("Found request for self-portrait in image prompt, substituting avatar prompt.")
-                        image_prompt = avatar_pattern.sub(f"{self.avatar_prompt}, ", image_prompt).strip(", ")
+                        fancy_logger.get().debug(
+                            "Found request for self-portrait in image prompt, "
+                            + "substituting avatar prompt."
+                        )
+                        image_prompt = avatar_pattern.sub(
+                            f"{self.avatar_prompt}, ", image_prompt
+                        ).strip(", ")
                         fancy_logger.get().debug("Final image prompt: %s", image_prompt)
                 return image_prompt
         return None

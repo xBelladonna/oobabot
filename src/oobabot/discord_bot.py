@@ -59,6 +59,7 @@ class DiscordBot(discord.Client):
         self.response_stats = response_stats
 
         self.ai_user_id = -1
+        self.this_response_stat = None
 
         self.dont_split_responses = discord_settings["dont_split_responses"]
         self.ignore_dms = discord_settings["ignore_dms"]
@@ -220,43 +221,53 @@ class DiscordBot(discord.Client):
                     bool,
                 ]
             ],
+            immediate: bool = False,
         ) -> None:
         # Wait if we're accumulating messages
-        if self.message_accumulation_period:
+        if self.message_accumulation_period and not immediate:
             fancy_logger.get().debug(
-                "Waiting %d seconds to accumulate incoming messages...",
+                "Waiting %.1f seconds to accumulate incoming messages...",
                 self.message_accumulation_period,
             )
             await asyncio.sleep(self.message_accumulation_period)
-
-        # Then process the latest message in our queue
-        if message_queue:
-            fancy_logger.get().debug("Finished accumulating messages. Responding to final message...")
-            latest_message = message_queue.pop()
-            message_queue.clear()
-
-            message = latest_message[0]
-            raw_message = latest_message[1]
-            is_summon_in_public_channel = latest_message[2]
-
-            # Sometimes it's the case where the message we got has already been deleted.
-            # This attempts to catch this and grab the latest message to reply to anyway.
-            try:
-                await channel.fetch_message(message.message_id)
-            except discord.errors.NotFound:
-                async for msg in channel.history(limit=self.prompt_generator.history_lines):
-                    if msg.content.startswith(self.ignore_prefix):
-                        continue
-                    raw_message = msg
-                    message = discord_utils.discord_message_to_generic_message(raw_message)
-                    break
-
-            async with channel.typing():
-                await self._handle_response(
-                    message,
-                    raw_message,
-                    is_summon_in_public_channel,
+            if not message_queue:
+                fancy_logger.get().debug(
+                    "Finished accumulating messages, but none were found in the queue."
                 )
+                return
+            fancy_logger.get().debug(
+                "Finished accumulating messages. Responding to final message..."
+            )
+
+        if not message_queue:
+            return
+
+        # then process the latest message in our queue
+        latest_message = message_queue.pop()
+        message_queue.clear()
+
+        message = latest_message[0]
+        raw_message = latest_message[1]
+        is_summon_in_public_channel = latest_message[2]
+
+        # Sometimes it's the case where the message we got has already been deleted.
+        # This attempts to catch this and grab the latest message to reply to anyway.
+        try:
+            await channel.fetch_message(message.message_id)
+        except discord.errors.NotFound:
+            async for msg in channel.history(limit=self.prompt_generator.history_lines):
+                if msg.content.startswith(self.ignore_prefix):
+                    continue
+                raw_message = msg
+                message = discord_utils.discord_message_to_generic_message(raw_message)
+                break
+
+        async with channel.typing():
+            await self._handle_response(
+                message,
+                raw_message,
+                is_summon_in_public_channel,
+            )
 
     async def _handle_response(
         self,
@@ -295,7 +306,9 @@ class DiscordBot(discord.Client):
                             image = self.vision_client.preprocess_image(image)
                             images.append(image)
                         except Exception as e:
-                            fancy_logger.get().error("Error pre-processing image: %s", e, exc_info=True)
+                            fancy_logger.get().error(
+                                "Error pre-processing image: %s", e, exc_info=True
+                            )
             for image in images:
                 try:
                     fancy_logger.get().debug("Getting image description...")
@@ -353,6 +366,117 @@ class DiscordBot(discord.Client):
                         stack_info=True,
                     )
                     raise task.exception()
+
+    async def _generate_response(
+        self,
+        message: types.GenericMessage,
+        raw_message: discord.Message,
+        recent_messages: typing.AsyncIterator,
+        image_descriptions: typing.List[str],
+        image_requested: bool,
+        response_channel: discord.abc.Messageable,
+        as_string: bool,
+    ) -> typing.Union[typing.AsyncIterator, str]:
+        """
+        This method is what actually gathers message history,
+        queries the AI for a text response, breaks the response
+        into individual messages, and then returns either a
+        generator or string, depending on if we're spliiting
+        responses or not.
+        """
+        fancy_logger.get().debug("Generating prompt...")
+
+        # Convert the recent messages into a list to modify it
+        recent_messages_list = [msg async for msg in recent_messages]
+        # Attach any image descriptions to the user's message
+        if image_descriptions:
+            image_received = self.template_store.format(
+                templates.Templates.PROMPT_IMAGE_RECEIVED,
+                {
+                    templates.TemplateToken.AI_NAME: self.persona.ai_name,
+                    templates.TemplateToken.USER_NAME: message.author_name,
+                },
+            )
+            description_text = "\n".join(image_received + desc for desc in image_descriptions)
+            for msg in recent_messages_list:
+                for ignore_prefix in self.ignore_prefixes:
+                    if message.body_text.startswith(ignore_prefix):
+                        continue
+                if msg.author_id == message.author_id:
+                    # Append the image descriptions to the body text of the user's last message
+                    msg.body_text += "\n" + description_text
+                    break
+        # Convert the list back into an asynchronous iterator
+        async def list_to_async_iterator(lst):
+            for item in lst:
+                yield item
+        recent_messages_async_iter = list_to_async_iterator(recent_messages_list)
+
+        # Generate the prompt prefix using the modified recent messages list
+        if isinstance(response_channel, (discord.abc.GuildChannel, discord.Thread)):
+            guild_name = response_channel.guild.name
+        elif isinstance(response_channel, discord.GroupChannel):
+            guild_name = f"Group Chat: {response_channel.name}"
+        else:
+            guild_name = "Direct Message"
+        prompt_prefix = await self.prompt_generator.generate(
+            ai_user_id=self.ai_user_id,
+            message_history=recent_messages_async_iter,
+            image_requested=image_requested,
+            guild_name=guild_name,
+            response_channel=response_channel.name,
+        )
+        self.this_response_stat = self.response_stats.log_request_arrived(prompt_prefix)
+
+        stopping_strings = []
+        if self.prevent_impersonation:
+            # Populate a list of stopping strings using the display names of the
+            # members who posted most recently, up to the history limit
+            recent_members = set()
+
+            for msg in recent_messages_list:
+                if raw_message.author.id is not self.user.id:
+                    recent_members.add(msg.author_name)
+
+            for member_name in recent_members:
+                user_name = self.template_store.format(
+                    templates.Templates.USER_NAME,
+                    {
+                        templates.TemplateToken.NAME: member_name,
+                    },
+                )
+                if self.prevent_impersonation > 1:
+                    canonicalized_name = emoji.replace_emoji(user_name.split()[0], "").strip()
+                    stopping_string = "\n" + \
+                        canonicalized_name if len(canonicalized_name) > 3 else user_name
+                else:
+                    user_prompt_prefix = self.template_store.format(
+                        templates.Templates.USER_PROMPT_HISTORY_BLOCK,
+                        {
+                            templates.TemplateToken.USER_NAME: user_name,
+                            templates.TemplateToken.MESSAGE: "",
+                        },
+                    ).strip()
+                    stopping_string = "\n" + user_prompt_prefix
+                stopping_strings.append(stopping_string)
+
+        fancy_logger.get().debug("Generating text response...")
+        if as_string or self.dont_split_responses:
+            response = await self.ooba_client.request_as_string(prompt_prefix, stopping_strings)
+            return response
+        if self.stream_responses:
+            generator = self.ooba_client.request_as_grouped_tokens(
+                prompt_prefix,
+                stopping_strings,
+                interval=self.stream_responses_speed_limit,
+            )
+        else:
+            generator = self.ooba_client.request_by_message(
+                prompt_prefix,
+                stopping_strings,
+            )
+
+        return generator
 
     async def _send_text_response(
         self,
@@ -429,10 +553,9 @@ class DiscordBot(discord.Client):
         response_channel_id: int,
     ) -> None:
         """
-        Getting closer now!  This method is what actually gathers message
-        history, queries the AI for a text response, breaks the response
-        into individual messages, and then and then calls
-        __send_response_message() to send each message.
+        Getting closer now! This method takes the generator from
+        _generate_response() and then calls _send_response_message()
+        to send each message.
         """
 
         repeated_id = self.repetition_tracker.get_throttle_message_id(
@@ -444,12 +567,12 @@ class DiscordBot(discord.Client):
         # that we can ignore all messages sent after it (as not to
         # confuse the AI about what to reply to)
         reference = None
-        ignore_all_until_message_id = None
+        # ignore_all_until_message_id = None
         if is_summon_in_public_channel:
             # we can't use the message reference if we're starting a new thread
             if message.channel_id == response_channel_id:
                 reference = raw_message.to_reference()
-            ignore_all_until_message_id = message.message_id
+        ignore_all_until_message_id = message.message_id
 
         recent_messages = await self._recent_messages_following_thread(
             channel=response_channel,
@@ -458,50 +581,6 @@ class DiscordBot(discord.Client):
             ignore_all_until_message_id=ignore_all_until_message_id,
         )
 
-        # Convert the recent messages into a list to modify it
-        recent_messages_list = [msg async for msg in recent_messages]
-
-        # Attach any image descriptions to the user's message
-        if image_descriptions:
-            image_received = self.template_store.format(
-                templates.Templates.PROMPT_IMAGE_RECEIVED,
-                {
-                    templates.TemplateToken.AI_NAME: self.persona.ai_name,
-                    templates.TemplateToken.USER_NAME: message.author_name,
-                },
-            )
-            description_text = "\n".join(image_received + desc for desc in image_descriptions)
-            for msg in recent_messages_list:
-                for ignore_prefix in self.ignore_prefixes:
-                    if message.body_text.startswith(ignore_prefix):
-                        continue
-                if msg.author_id == message.author_id:
-                    # Append the image descriptions to the body text of the user's last message
-                    msg.body_text += "\n" + description_text
-                    break
-
-        # Convert the list back into an asynchronous iterator
-        async def list_to_async_iterator(lst):
-            for item in lst:
-                yield item
-        recent_messages_async_iter = list_to_async_iterator(recent_messages_list)
-
-        # Generate the prompt prefix using the modified recent messages list
-        if isinstance(response_channel, discord.abc.GuildChannel):
-            guild_name = response_channel.guild.name
-        elif isinstance(response_channel, discord.GroupChannel):
-            guild_name = f"Group Chat: {response_channel.name}"
-        else:
-            guild_name = "Direct Message"
-        prompt_prefix = await self.prompt_generator.generate(
-            ai_user_id=self.ai_user_id,
-            message_history=recent_messages_async_iter,
-            image_requested=image_requested,
-            guild_name=str(guild_name),
-            response_channel=str(response_channel),
-        )
-
-        this_response_stat = self.response_stats.log_request_arrived(prompt_prefix)
         # restrict the @mentions the AI is allowed to use in its response.
         # this is to prevent another user from being able to trick the AI
         # into @-pinging a large group and annoying them.
@@ -518,45 +597,22 @@ class DiscordBot(discord.Client):
         aborted_by_us = False
         sent_message_count = 0
 
-        stopping_strings = []
-        if self.prevent_impersonation:
-            # Populate a list of stopping strings using the display names of the
-            # members who posted most recently, up to the history limit
-            recent_members = []
-
-            for msg in recent_messages_list:
-                if not msg.author_is_bot and msg.author_name not in recent_members:
-                    recent_members.append(msg.author_name)
-
-            for member_name in recent_members:
-                user_name = self.template_store.format(
-                    templates.Templates.USER_NAME,
-                    {
-                        templates.TemplateToken.NAME: member_name,
-                    },
-                )
-                if self.prevent_impersonation > 1:
-                    canonicalized_name = emoji.replace_emoji(user_name.split()[0], "").strip()
-                    stopping_string = "\n" + canonicalized_name if len(canonicalized_name) > 3 else user_name
-                else:
-                    user_prompt_prefix = self.template_store.format(
-                        templates.Templates.USER_PROMPT_HISTORY_BLOCK,
-                        {
-                            templates.TemplateToken.USER_NAME: user_name,
-                            templates.TemplateToken.MESSAGE: "",
-                        },
-                    ).strip()
-                    stopping_string = "\n" + user_prompt_prefix
-                stopping_strings.append(stopping_string)
-
         try:
             fancy_logger.get().debug("Generating text response...")
             if self.stream_responses:
-                generator = self.ooba_client.request_as_grouped_tokens(
-                    prompt_prefix,
-                    stopping_strings,
-                    interval=self.stream_responses_speed_limit,
+                # will always return a generator
+                generator = self._generate_response(
+                    message=message,
+                    raw_message=raw_message,
+                    recent_messages=recent_messages,
+                    image_descriptions=image_descriptions,
+                    image_requested=image_requested,
+                    response_channel=response_channel,
+                    as_string=False,
                 )
+                # set up stats logging after the response has been generated,
+                # as we need the prompt prefix in order to calculate them.
+                this_response_stat = self.this_response_stat
                 last_sent_message = await self._render_streaming_response(
                     generator,
                     this_response_stat,
@@ -569,7 +625,17 @@ class DiscordBot(discord.Client):
                     sent_message_count = 1
             else:
                 if self.dont_split_responses:
-                    response = await self.ooba_client.request_as_string(prompt_prefix, stopping_strings)
+                    # will always return a string
+                    response = await self._generate_response(
+                        message=message,
+                        raw_message=raw_message,
+                        recent_messages=recent_messages,
+                        image_descriptions=image_descriptions,
+                        image_requested=image_requested,
+                        response_channel=response_channel,
+                        as_string=True,
+                    )
+                    this_response_stat = self.this_response_stat
                     (
                         last_sent_message,
                         aborted_by_us,
@@ -586,10 +652,17 @@ class DiscordBot(discord.Client):
                 else:
                     sent_message_count = 0
                     last_sent_message = None
-                    async for sentence in self.ooba_client.request_by_message(
-                        prompt_prefix,
-                        stopping_strings,
-                    ):
+                    generator = self._generate_response(
+                        message=message,
+                        raw_message=raw_message,
+                        recent_messages=recent_messages,
+                        image_descriptions=image_descriptions,
+                        image_requested=image_requested,
+                        response_channel=response_channel,
+                        as_string=False,
+                    )
+                    this_response_stat = self.this_response_stat
+                    async for sentence in generator:
                         (
                             sent_message,
                             abort_response,
@@ -821,14 +894,19 @@ class DiscordBot(discord.Client):
                         },
                     ).strip()
 
-                    if username_sequence in bot_display_name_prompt or username_sequence in ai_name_prompt:
-                        # If the username matches the bot's name, trim the username portion and keep the remaining text
+                    if (
+                        username_sequence in bot_display_name_prompt or
+                        username_sequence in ai_name_prompt
+                    ):
+                        # If the username matches the bot's name, trim the username portion
+                        # and keep the remaining text
                         fancy_logger.get().warning(
                             "Filtered out %s from response, continuing", sentence
                         )
                         sentence = remaining_text  # Trim and keep the rest of the sentence
                     else:
-                        # If the username is not the bot's username, abort the response for breaking immersion
+                        # If the username is not the bot's username, abort the response for
+                        # breaking immersion
                         fancy_logger.get().warning(
                             'Filtered out "%s" from response, aborting', sentence
                         )
@@ -915,13 +993,13 @@ class DiscordBot(discord.Client):
                 self.ai_user_id,
                 self.persona.ai_name,
             )
+        elif isinstance(message.channel, discord.GroupChannel):
+            fn_user_id_to_name = discord_utils.group_user_id_to_name(
+                message.channel,
+            )
         elif isinstance(message.channel, discord.abc.GuildChannel):
             fn_user_id_to_name = discord_utils.guild_user_id_to_name(
                 message.channel.guild,
-            )
-        elif isinstance(message.channel, discord.abc.GroupChannel):
-            fn_user_id_to_name = discord_utils.group_user_id_to_name(
-                message.channel,
             )
         else:
             fn_user_id_to_name = discord_utils.dm_user_id_to_name(

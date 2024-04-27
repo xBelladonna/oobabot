@@ -71,7 +71,7 @@ class DecideToRespond:
         self.ignore_dms = discord_settings["ignore_dms"]
         self.ignore_bots = discord_settings["ignore_bots"]
         self.ignore_prefixes = discord_settings["ignore_prefixes"]
-        self.self_response_allowed = False
+        self.guaranteed_response = False
         self.interrobang_bonus = interrobang_bonus
         self.persona = persona
         self.time_vs_response_chance = sorted(time_vs_response_chance)
@@ -125,7 +125,8 @@ class DecideToRespond:
             chance = time_vs_response_chance[0][1]
             for next_duration, next_chance in time_vs_response_chance:
                 if duration <= time_since_last_mention <= next_duration:
-                    scaling_factor = (time_since_last_mention - duration) / (next_duration - duration)
+                    scaling_factor = (time_since_last_mention -
+                                      duration) / (next_duration - duration)
                     response_chance = chance + (next_chance - chance) * scaling_factor
                     break
                 duration, chance = next_duration, next_chance
@@ -200,7 +201,7 @@ class DecideToRespond:
         the response chance is calculated normally and divided by
         the number of call participants.
         """
-        if number_of_participants is 1:
+        if number_of_participants == 1:
             return (True, 1.0)
         response_chance = self.calc_interpolated_response_chance(
             time_since_last_mention,
@@ -234,6 +235,12 @@ class DecideToRespond:
         we create, not the channel the message was posted in.
         """
 
+        # a response has been explicitly guaranteed
+        if self.guaranteed_response:
+            # Set this to false so it can't be accidentally latched on
+            self.guaranteed_response = False
+            return (True, False)
+
         # ignore messages from other bots, out of fear of infinite loops,
         # as well as world domination
         if message.author_is_bot and self.ignore_bots:
@@ -244,12 +251,8 @@ class DecideToRespond:
         # to run this under their own user token, rather than a proper
         # bot token, or if they allow responding to other bots.
         if message.author_id == our_user_id:
-            if self.self_response_allowed:
-                # Disallow self-responses, so this setting can't be accidentally latched on
-                self.self_response_allowed = False
-                return (True, False)
             return (False, False)
-        
+
         # ignore any messages explicitly flagged to be ignored
         for ignore_prefix in self.ignore_prefixes:
             if message.body_text.startswith(ignore_prefix):

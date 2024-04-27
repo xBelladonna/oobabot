@@ -406,9 +406,9 @@ class Settings:
             )
         )
         self.discord_settings.add_setting(
-            oesp.ConfigSetting[int](
+            oesp.ConfigSetting[float](
                 name="message_accumulation_period",
-                default=0,
+                default=0.0,
                 description_lines=[
                     textwrap.dedent(
                         """
@@ -656,8 +656,8 @@ class Settings:
                         """
                         Same calibration table as above but for voice calls. The difference is that
                         we use the last entry's response chance as a fallback instead of refusing
-                        to respond after the specified duration, since it's assumed all voice replies
-                        are solicited.
+                        to respond after the specified duration, since it's assumed all voice
+                        replies are solicited.
                         """
                     )
                 ],
@@ -765,8 +765,8 @@ class Settings:
                 description_lines=[
                     textwrap.dedent(
                         """
-                        Base URL for the oobabooga instance. This should be http://hostname[:port] for
-                        plain connections, or https://hostname[:port] for connections over TLS.
+                        Base URL for the oobabooga instance. This should be http://hostname[:port]
+                        for plain connections, or https://hostname[:port] for connections over TLS.
                         """
                     )
                 ],
