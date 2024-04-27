@@ -282,7 +282,6 @@ class DiscordBot(discord.Client):
                     bool,
                 ]
             ],
-            immediate: bool = False,
         ) -> None:
         """
         Pops the latest message from the queue and handles a response to it.
@@ -295,7 +294,7 @@ class DiscordBot(discord.Client):
             self.decide_to_respond.guaranteed_response = False
 
         # Wait if we're accumulating messages
-        if self.message_accumulation_period and not immediate:
+        if self.message_accumulation_period and not guaranteed_response:
             fancy_logger.get().debug(
                 "Received message, waiting %.1f seconds to accumulate incoming messages...",
                 self.message_accumulation_period,
