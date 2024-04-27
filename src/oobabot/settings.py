@@ -543,9 +543,18 @@ class Settings:
                     textwrap.dedent(
                         """
                         2: Aggressive, using just the "canonicalized" user display name
-                        (for models that use "narrative voice")
+                        (for models that use "narrative voice"). This is the "common sense"
+                        transformation of any given name, i.e. using only the first name,
+                        and removing any emojis, etc.
                         """
-                    )
+                    ),
+                    textwrap.dedent(
+                        """
+                        3: Comprehensive, combining both modes 1 and 2. Keep in mind the
+                        sequence limit if you are using the OpenAI API, as they will be
+                        truncated at 4 sequences even if there otherwise would be more.
+                        """
+                    ),
                 ],
             )
         )
@@ -639,8 +648,8 @@ class Settings:
                 description_lines=[
                     textwrap.dedent(
                         """
-                        Time vs. response chance - calibration table
-                        List of tuples with time in seconds and response chance as float between 0-1
+                        Time vs. response chance - calibration table. 
+                        List of tuples with time in seconds and response chance as float between 0-1.
                         """
                     )
                 ],

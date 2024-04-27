@@ -5,8 +5,12 @@ Generates images from Stable Diffusion
 
 import asyncio
 import io
+import os
 import re
 import typing
+
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import discord
 
@@ -19,12 +23,19 @@ from oobabot import templates
 from oobabot import types
 
 
-async def image_task_to_file(image_task: "asyncio.Task[bytes]", image_request: str):
+async def image_task_to_file(
+    image_task: asyncio.Task[bytes], image_request: str, send_timestamp: float
+):
     await image_task
     img_bytes = image_task.result()
     file_of_bytes = io.BytesIO(img_bytes)
     file = discord.File(file_of_bytes)
-    file.filename = "photo.png"
+    if os.environ.get("TZ"):
+        tz=ZoneInfo(os.environ.get("TZ"))
+    else:
+        tz=None
+    timestamp = datetime.fromtimestamp(send_timestamp, tz=tz).strftime("%y%m%d_%H%M%S_%Z")
+    file.filename = f"{timestamp}.png"
     file.description = f"image generated from '{image_request}'"
     return file
 
@@ -52,8 +63,7 @@ class StableDiffusionImageView(discord.ui.View):
         stable_diffusion_client: sd_client.StableDiffusionClient,
         is_channel_nsfw: bool,
         image_prompt: str,
-        requesting_user_id: int,
-        requesting_user_name: str,
+        message: types.GenericMessage,
         timeout: float,
         template_store: templates.TemplateStore,
     ):
@@ -64,8 +74,9 @@ class StableDiffusionImageView(discord.ui.View):
 
         # only the user who requested generation of the image
         # can have it replaced
-        self.requesting_user_id = requesting_user_id
-        self.requesting_user_name = requesting_user_name
+        self.requesting_user_id = message.author_id
+        self.requesting_user_name = message.author_name
+        self.send_timestamp = message.send_timestamp
         self.image_prompt = image_prompt
         self.photo_accepted = False
 
@@ -104,7 +115,7 @@ class StableDiffusionImageView(discord.ui.View):
                 regen_task = stable_diffusion_client.generate_image(
                     image_prompt, is_channel_nsfw
                 )
-                regen_file = await image_task_to_file(regen_task, image_prompt)
+                regen_file = await image_task_to_file(regen_task, image_prompt, self.send_timestamp)
 
                 btn_try_again.label = self.LABEL_TRY_AGAIN
                 btn_try_again.disabled = False
@@ -273,7 +284,7 @@ class ImageGenerator:
         self.image_patterns = [
             re.compile(
                 r"^.*\b" + image_word
-                + r"\b\s*((as?|of|the|with)\s)*:?([\w\s,:\"\'\-\(\)\[\]]+)[^\w]*$",
+                + r"\b\s*((as?|of|the|with)\s)*:?([\w\s,.:!=\"\'\-\(\)\[\]]+)[^\w]*$",
                 re.IGNORECASE,
             )
             for image_word in self.image_words
@@ -312,8 +323,10 @@ class ImageGenerator:
         image_task = self.stable_diffusion_client.generate_image(
             image_prompt, is_channel_nsfw=is_channel_nsfw
         )
+        send_timestamp = message.send_timestamp
+
         try:
-            file = await image_task_to_file(image_task, image_prompt)
+            file = await image_task_to_file(image_task, image_prompt, send_timestamp)
         except (http_client.OobaHttpClientError, discord.DiscordException) as err:
             fancy_logger.get().error("Could not generate image: %s", err, exc_info=True)
             error_message = self.template_store.format(
@@ -329,8 +342,7 @@ class ImageGenerator:
             self.stable_diffusion_client,
             is_channel_nsfw=is_channel_nsfw,
             image_prompt=image_prompt,
-            requesting_user_id=message.author_id,
-            requesting_user_name=message.author_name,
+            message=message,
             timeout=self.timeout,
             template_store=self.template_store,
         )
@@ -363,18 +375,19 @@ class ImageGenerator:
                 fancy_logger.get().debug("Found image prompt: %s", image_prompt)
                 # see if we're asked for our avatar and substitute in our avatar prompt
                 for avatar_pattern in self.avatar_patterns:
-                    avatar_match = avatar_pattern.search(message)
-                    if avatar_match:
+                    match = avatar_pattern.search(image_prompt)
+                    if match:
                         fancy_logger.get().debug(
-                            "Found request for self-portrait in image prompt, "
-                            + "substituting avatar prompt."
+                            "Found request for self-portrait ('%s') in image prompt, "
+                            + "substituting avatar prompt.",
+                            match.group(0),
                         )
                         image_prompt = avatar_pattern.sub(
                             f"{self.avatar_prompt}, ", image_prompt
                         ).strip(", ")
                         fancy_logger.get().debug("Final image prompt: %s", image_prompt)
                 return image_prompt
-        return None
+        return
 
     async def generate_image(
         self,

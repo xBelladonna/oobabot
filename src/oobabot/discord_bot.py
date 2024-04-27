@@ -59,7 +59,6 @@ class DiscordBot(discord.Client):
         self.response_stats = response_stats
 
         self.ai_user_id = -1
-        self.this_response_stat = None
 
         self.dont_split_responses = discord_settings["dont_split_responses"]
         self.ignore_dms = discord_settings["ignore_dms"]
@@ -138,7 +137,7 @@ class DiscordBot(discord.Client):
 
         self.ooba_client.on_ready()
 
-        if self.image_generator is None:
+        if not self.image_generator:
             fancy_logger.get().debug("Stable Diffusion: disabled")
         else:
             self.image_generator.on_ready()
@@ -203,7 +202,7 @@ class DiscordBot(discord.Client):
 
         except discord.DiscordException as err:
             fancy_logger.get().error(
-                "Exception while processing message: %s", err, exc_info=True
+                "Error while queueing message for processing: %s", err, exc_info=True
             )
 
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent) -> None:
@@ -240,25 +239,31 @@ class DiscordBot(discord.Client):
                         stop_before_message_id=repeated_id,
                         ignore_all_until_message_id=payload.message_id,
                     )
-                    response = await self._generate_response(
+                    response, response_stat = await self._generate_response(
                         message=message,
-                        raw_message=raw_message,
                         recent_messages=recent_messages,
                         image_descriptions=[],
                         image_requested=False,
                         response_channel=channel,
                         as_string=True,
                     )
-                    this_response_stat = self.this_response_stat
 
-                    await raw_message.edit(content=response)
-
-                await raw_message.remove_reaction(payload.emoji, payload.member)
-                this_response_stat.write_to_log(f"Response to {message.author_name} done!  ")
-                self.response_stats.log_response_success(this_response_stat)
+                    if response:
+                        await raw_message.edit(content=response)
+                        response_stat.log_response_part()
+                        self.response_stats.log_response_success(response_stat)
+                        response_stat.write_to_log(f"Response to {message.author_name} done!  ")
+                    else:
+                        fancy_logger.get().warning(
+                            "An empty response was received from Oobabooga.  Please check that "
+                            + "the AI is running properly on the Oobabooga server at %s.",
+                            self.ooba_client.base_url,
+                        )
+                        self.response_stats.log_response_failure()
+                    await raw_message.remove_reaction(payload.emoji, payload.member)
 
             except discord.DiscordException as err:
-                fancy_logger.get().error("Error: %s", err, exc_info=True)
+                fancy_logger.get().error("Error while processing reaction: %s", err, exc_info=True)
                 self.response_stats.log_response_failure()
                 return
 
@@ -279,10 +284,20 @@ class DiscordBot(discord.Client):
             ],
             immediate: bool = False,
         ) -> None:
+        """
+        Pops the latest message from the queue and handles a response to it.
+        """
+        # Did we guarantee a response? If so, take note of the state and immediately
+        # reset the flag. This is crucial to remember to do otherwise we will get into
+        # an infinite recursive loop of responding to ourselves.
+        guaranteed_response = self.decide_to_respond.guaranteed_response
+        if guaranteed_response:
+            self.decide_to_respond.guaranteed_response = False
+
         # Wait if we're accumulating messages
         if self.message_accumulation_period and not immediate:
             fancy_logger.get().debug(
-                "Waiting %.1f seconds to accumulate incoming messages...",
+                "Received message, waiting %.1f seconds to accumulate incoming messages...",
                 self.message_accumulation_period,
             )
             await asyncio.sleep(self.message_accumulation_period)
@@ -292,37 +307,77 @@ class DiscordBot(discord.Client):
                 )
                 return
             fancy_logger.get().debug(
-                "Finished accumulating messages. Responding to final message..."
+                "Finished accumulating messages."
             )
 
         if not message_queue:
             return
 
         # then process the latest message in our queue
-        latest_message = message_queue.pop()
-        message_queue.clear()
+        def get_latest_message(
+            message_queue: typing.List[
+                typing.Tuple[
+                    types.GenericMessage,
+                    discord.Message,
+                    bool,
+                ]
+            ],
+        ):
+            latest_message = message_queue.pop()
+            message_queue.clear()
+            return latest_message
 
-        message = latest_message[0]
-        raw_message = latest_message[1]
-        is_summon_in_public_channel = latest_message[2]
+        message, raw_message, is_summon_in_public_channel = get_latest_message(message_queue)
 
         # Sometimes it's the case where the message we got has already been deleted.
         # This attempts to catch this and grab the latest message to reply to anyway.
         try:
             await channel.fetch_message(message.message_id)
         except discord.errors.NotFound:
-            async for msg in channel.history(limit=self.prompt_generator.history_lines):
-                if msg.content.startswith(self.ignore_prefix):
-                    continue
-                raw_message = msg
+            # first check the message queue again, in case we only just missed one
+            if message_queue:
+                message, raw_message, is_summon_in_public_channel = get_latest_message(
+                    message_queue)
+            else:
+                # otherwise just get the latest visible message from the channel
+                skip = False
+                async for msg in channel.history(limit=self.prompt_generator.history_lines):
+                    for ignore_prefix in self.ignore_prefixes:
+                        if msg.content.startswith(ignore_prefix):
+                            skip = True
+                            break
+                        skip = False
+                    if skip:
+                        continue
+                    raw_message = msg
+                    break
                 message = discord_utils.discord_message_to_generic_message(raw_message)
-                break
 
-        async with channel.typing():
-            await self._handle_response(
-                message,
-                raw_message,
-                is_summon_in_public_channel,
+        # If the message is hidden, abort response. We do this here instead of in
+        # decide_to_respond, in case the user is using something like PluralKit or
+        # Tupperbox and the original message (which was deleted) began with a different
+        # sequence. This ensures the deleted message doesn't trigger a response to
+        # whatever the latest message ends up being. Produces chattier logs than
+        # silently aborting in decide_to_respond, but catches more edge-cases
+        if not guaranteed_response:
+            for ignore_prefix in self.ignore_prefixes:
+                if message.body_text.startswith(ignore_prefix):
+                    fancy_logger.get().debug(
+                        "Message is hidden (begins with ignore prefix '%s'), aborting response.",
+                        ignore_prefix,
+                    )
+                    return
+
+        try:
+            async with channel.typing():
+                await self._handle_response(
+                    message,
+                    raw_message,
+                    is_summon_in_public_channel,
+                )
+        except discord.DiscordException as err:
+            fancy_logger.get().error(
+                "Error while processing message: %s", err, exc_info=True
             )
 
     async def _handle_response(
@@ -341,7 +396,7 @@ class DiscordBot(discord.Client):
             "Request from %s in %s", message.author_name, message.channel_name
         )
         image_prompt = None
-        if self.image_generator is not None:
+        if self.image_generator:
             # are we creating an image?
             image_prompt = self.image_generator.maybe_get_image_prompt(message.body_text)
 
@@ -381,7 +436,7 @@ class DiscordBot(discord.Client):
             image_requested=image_prompt is not None,
             is_summon_in_public_channel=is_summon_in_public_channel,
         )
-        if result is None:
+        if not result:
             # we failed to create a thread that the user could
             # read our response in, so we're done here.  Abort!
             return
@@ -397,7 +452,7 @@ class DiscordBot(discord.Client):
                 )
 
         image_task = None
-        if self.image_generator is not None and image_prompt is not None:
+        if self.image_generator and image_prompt:
             image_task = self.image_generator.generate_image(
                 image_prompt,
                 message,
@@ -406,12 +461,12 @@ class DiscordBot(discord.Client):
             )
 
         response_tasks = [
-            task for task in [message_task, image_task] if task is not None
+            task for task in [message_task, image_task] if task
         ]
 
         # Use asyncio.gather instead of asyncio.wait to properly handle exceptions
         if response_tasks:
-            done, pending = await asyncio.wait(response_tasks, return_when=asyncio.ALL_COMPLETED)
+            done, _pending = await asyncio.wait(response_tasks, return_when=asyncio.ALL_COMPLETED)
             # Check for exceptions in the tasks that have completed
             for task in done:
                 if task.exception():
@@ -426,7 +481,6 @@ class DiscordBot(discord.Client):
     async def _generate_response(
         self,
         message: types.GenericMessage,
-        raw_message: discord.Message,
         recent_messages: typing.AsyncIterator,
         image_descriptions: typing.List[str],
         image_requested: bool,
@@ -434,11 +488,10 @@ class DiscordBot(discord.Client):
         as_string: bool = False,
     ) -> typing.Union[typing.AsyncIterator, str]:
         """
-        This method is what actually gathers message history,
-        queries the AI for a text response, breaks the response
-        into individual messages, and then returns either a
-        generator or string, depending on if we're spliiting
-        responses or not.
+        This method is what actually gathers message history, queries the AI for a
+        text response, breaks the response into individual messages, and then returns
+        a tuple containing either a generator or string, depending on if we're
+        spliiting responses or not, and a response stat object.
         """
         fancy_logger.get().debug("Generating prompt...")
 
@@ -454,46 +507,74 @@ class DiscordBot(discord.Client):
                 },
             )
             description_text = "\n".join(image_received + desc for desc in image_descriptions)
+            skip = False
             for msg in recent_messages_list:
                 for ignore_prefix in self.ignore_prefixes:
                     if message.body_text.startswith(ignore_prefix):
-                        continue
-                if msg.author_id == message.author_id:
+                        skip = True
+                        break
+                    skip = False
+                if not skip and msg.author_id == message.author_id:
                     # Append the image descriptions to the body text of the user's last message
                     msg.body_text += "\n" + description_text
                     break
-        # Convert the list back into an asynchronous iterator
-        async def list_to_async_iterator(lst):
+        # Convert the list back into an async generator
+        async def _list_to_async_gen(lst: typing.List) -> typing.AsyncGenerator:
             for item in lst:
                 yield item
-        recent_messages_async_iter = list_to_async_iterator(recent_messages_list)
+        recent_messages_async_gen = _list_to_async_gen(recent_messages_list)
 
-        # Generate the prompt prefix using the modified recent messages list
+        # Generate the prompt prefix using the modified recent messages
         if isinstance(response_channel, (discord.abc.GuildChannel, discord.Thread)):
             guild_name = response_channel.guild.name
+            response_channel_name = response_channel.name
         elif isinstance(response_channel, discord.GroupChannel):
-            guild_name = f"Group Chat: {response_channel.name}"
+            guild_name = "Group Chat"
+            response_channel_name = response_channel.name
         else:
             guild_name = "Direct Message"
+            response_channel_name = "None"
         prompt_prefix = await self.prompt_generator.generate(
             ai_user_id=self.ai_user_id,
-            message_history=recent_messages_async_iter,
+            message_history=recent_messages_async_gen,
             image_requested=image_requested,
             guild_name=guild_name,
-            response_channel=response_channel.name,
+            response_channel=response_channel_name,
         )
-        self.this_response_stat = self.response_stats.log_request_arrived(prompt_prefix)
+        response_stat = self.response_stats.log_request_arrived(prompt_prefix)
 
         stopping_strings = []
         if self.prevent_impersonation:
-            # Populate a list of stopping strings using the display names of the
-            # members who posted most recently, up to the history limit
-            recent_members = set()
+            # Populate a list of stopping strings using the display names of the members
+            # who posted most recently, up to the history limit. We do this with a list
+            # comprehension which both preserves order, and has linear time complexity
+            # vs. quadratic time complexity for loops. We also use a dictionary conversion
+            # to de-duplicate instead of checking list membership, as this has constant
+            # time complexity vs. linear.
+            recent_members = dict.fromkeys(
+                [
+                    msg.author_name for msg in recent_messages_list
+                    if msg.author_id != self.ai_user_id
+                ]
+            ).keys()
 
-            for msg in recent_messages_list:
-                if raw_message.author.id is not self.user.id:
-                    recent_members.add(msg.author_name)
+            # utility functions to avoid code-duplication and only evaluate when required
+            # avoids populating unneeded variables and improves performance very slightly
+            def _get_user_prompt_prefix(user_name: str) -> str:
+                return self.template_store.format(
+                    templates.Templates.USER_PROMPT_HISTORY_BLOCK,
+                    {
+                        templates.TemplateToken.USER_NAME: user_name,
+                        templates.TemplateToken.MESSAGE: "",
+                    },
+                ).strip("\n")
+            def _get_canonicalized_name(user_name: str) -> str:
+                canonicalized_name = emoji.replace_emoji(
+                    user_name.split()[0], ""
+                ).strip().capitalize()
+                return canonicalized_name if len(canonicalized_name) >= 3 else user_name
 
+            # TODO: O(n^2) time complexity... figure out how to make this faster
             for member_name in recent_members:
                 user_name = self.template_store.format(
                     templates.Templates.USER_NAME,
@@ -501,25 +582,18 @@ class DiscordBot(discord.Client):
                         templates.TemplateToken.NAME: member_name,
                     },
                 )
-                if self.prevent_impersonation > 1:
-                    canonicalized_name = emoji.replace_emoji(user_name.split()[0], "").strip()
-                    stopping_string = "\n" + \
-                        canonicalized_name if len(canonicalized_name) > 3 else user_name
+                if self.prevent_impersonation == 2:
+                    stopping_strings.append("\n" + _get_canonicalized_name(user_name))
+                elif self.prevent_impersonation >= 3:
+                    stopping_strings.append(_get_user_prompt_prefix(user_name))
+                    stopping_strings.append("\n" + _get_canonicalized_name(user_name))
                 else:
-                    user_prompt_prefix = self.template_store.format(
-                        templates.Templates.USER_PROMPT_HISTORY_BLOCK,
-                        {
-                            templates.TemplateToken.USER_NAME: user_name,
-                            templates.TemplateToken.MESSAGE: "",
-                        },
-                    ).strip()
-                    stopping_string = "\n" + user_prompt_prefix
-                stopping_strings.append(stopping_string)
+                    stopping_strings.append(_get_user_prompt_prefix(user_name))
 
         fancy_logger.get().debug("Generating text response...")
         if as_string or self.dont_split_responses:
             response = await self.ooba_client.request_as_string(prompt_prefix, stopping_strings)
-            return response
+            return response, response_stat
         if self.stream_responses:
             generator = self.ooba_client.request_as_grouped_tokens(
                 prompt_prefix,
@@ -532,7 +606,7 @@ class DiscordBot(discord.Client):
                 stopping_strings,
             )
 
-        return generator
+        return generator, response_stat
 
     async def _send_text_response(
         self,
@@ -593,7 +667,6 @@ class DiscordBot(discord.Client):
             image_requested=image_requested,
             is_summon_in_public_channel=is_summon_in_public_channel,
             response_channel=response_channel,
-            response_channel_id=response_channel.id,
         )
         response_task = asyncio.create_task(response_coro)
         return (response_task, response_channel)
@@ -606,7 +679,6 @@ class DiscordBot(discord.Client):
         image_requested: bool,
         is_summon_in_public_channel: bool,
         response_channel: discord.abc.Messageable,
-        response_channel_id: int,
     ) -> None:
         """
         Getting closer now! This method takes the generator from
@@ -615,7 +687,7 @@ class DiscordBot(discord.Client):
         """
 
         repeated_id = self.repetition_tracker.get_throttle_message_id(
-            response_channel_id
+            response_channel.id
         )
 
         # determine if we're responding to a specific message that
@@ -626,7 +698,7 @@ class DiscordBot(discord.Client):
         # ignore_all_until_message_id = None
         if is_summon_in_public_channel:
             # we can't use the message reference if we're starting a new thread
-            if message.channel_id == response_channel_id:
+            if message.channel_id == response_channel.id:
                 reference = raw_message.to_reference()
         ignore_all_until_message_id = message.message_id
 
@@ -654,83 +726,71 @@ class DiscordBot(discord.Client):
         sent_message_count = 0
 
         try:
-            fancy_logger.get().debug("Generating text response...")
             if self.stream_responses:
                 # will always return a generator
-                generator = self._generate_response(
+                generator, response_stat = self._generate_response(
                     message=message,
-                    raw_message=raw_message,
                     recent_messages=recent_messages,
                     image_descriptions=image_descriptions,
                     image_requested=image_requested,
                     response_channel=response_channel,
                     as_string=False,
                 )
-                # set up stats logging after the response has been generated,
-                # as we need the prompt prefix in order to calculate them.
-                this_response_stat = self.this_response_stat
                 last_sent_message = await self._render_streaming_response(
                     generator,
-                    this_response_stat,
+                    response_stat,
                     response_channel,
-                    response_channel_id,
                     allowed_mentions,
                     reference,
                 )
-                if last_sent_message is not None:
+                if last_sent_message:
                     sent_message_count = 1
             else:
                 if self.dont_split_responses:
                     # will always return a string
-                    response = await self._generate_response(
+                    response, response_stat = await self._generate_response(
                         message=message,
-                        raw_message=raw_message,
                         recent_messages=recent_messages,
                         image_descriptions=image_descriptions,
                         image_requested=image_requested,
                         response_channel=response_channel,
                         as_string=True,
                     )
-                    this_response_stat = self.this_response_stat
                     (
                         last_sent_message,
                         aborted_by_us,
                     ) = await self._send_response_message(
                         response,
-                        this_response_stat,
+                        response_stat,
                         response_channel,
-                        response_channel_id,
                         allowed_mentions,
                         reference,
                     )
-                    if last_sent_message is not None:
+                    if last_sent_message:
                         sent_message_count = 1
                 else:
                     sent_message_count = 0
                     last_sent_message = None
-                    generator = self._generate_response(
+                    generator, response_stat = self._generate_response(
                         message=message,
-                        raw_message=raw_message,
                         recent_messages=recent_messages,
                         image_descriptions=image_descriptions,
                         image_requested=image_requested,
                         response_channel=response_channel,
                         as_string=False,
                     )
-                    this_response_stat = self.this_response_stat
                     async for sentence in generator:
                         (
                             sent_message,
                             abort_response,
                         ) = await self._send_response_message(
                             sentence,
-                            this_response_stat,
+                            response_stat,
                             response_channel,
-                            response_channel_id,
                             allowed_mentions=allowed_mentions,
                             reference=reference,
                         )
-                        if sent_message is not None:
+                        if sent_message:
                             last_sent_message = sent_message
                             sent_message_count += 1
                             # only use the reference for the first
@@ -741,7 +801,7 @@ class DiscordBot(discord.Client):
                             break
 
         except discord.DiscordException as err:
-            fancy_logger.get().error("Error: %s", err, exc_info=True)
+            fancy_logger.get().error("Error while sending message: %s", err, exc_info=True)
             self.response_stats.log_response_failure()
             return
 
@@ -760,15 +820,14 @@ class DiscordBot(discord.Client):
             self.response_stats.log_response_failure()
             return
 
-        this_response_stat.write_to_log(f"Response to {message.author_name} done!  ")
-        self.response_stats.log_response_success(this_response_stat)
+        response_stat.write_to_log(f"Response to {message.author_name} done!  ")
+        self.response_stats.log_response_success(response_stat)
 
     async def _send_response_message(
         self,
         response: str,
-        this_response_stat: response_stats.ResponseStats,
+        response_stat: response_stats.ResponseStats,
         response_channel: discord.abc.Messageable,
-        response_channel_id: int,
         allowed_mentions: discord.AllowedMentions,
         reference: typing.Optional[discord.MessageReference],
     ) -> typing.Tuple[typing.Optional[discord.Message], bool]:
@@ -801,19 +860,18 @@ class DiscordBot(discord.Client):
             reference=reference,  # type: ignore
         )
         self.repetition_tracker.log_message(
-            response_channel_id,
+            response_channel.id,
             discord_utils.discord_message_to_generic_message(response_message),
         )
 
-        this_response_stat.log_response_part()
+        response_stat.log_response_part()
         return (response_message, False)
 
     async def _render_streaming_response(
         self,
         response_iterator: typing.AsyncIterator[str],
-        this_response_stat: response_stats.ResponseStats,
+        response_stat: response_stats.ResponseStats,
         response_channel: discord.abc.Messageable,
-        response_channel_id: int,
         allowed_mentions: discord.AllowedMentions,
         reference: typing.Optional[discord.MessageReference],
     ) -> typing.Optional[discord.Message]:
@@ -829,7 +887,7 @@ class DiscordBot(discord.Client):
             # if we are aborting a response, we want to at least post
             # the valid parts, so don't abort quite yet.
 
-            if last_message is None:
+            if not last_message:
                 if not response:
                     # we don't want to send an empty message
                     continue
@@ -858,11 +916,11 @@ class DiscordBot(discord.Client):
             if abort_response:
                 break
 
-            this_response_stat.log_response_part()
+            response_stat.log_response_part()
 
-        if last_message is not None:
+        if last_message:
             self.repetition_tracker.log_message(
-                response_channel_id,
+                response_channel.id,
                 discord_utils.discord_message_to_generic_message(last_message),
             )
 
@@ -1112,27 +1170,27 @@ class DiscordBot(discord.Client):
                 # we've hit a message which requires us to stop
                 # and look at more history
                 return
-            if sanitized_message is not None:
+            if sanitized_message:
                 yield sanitized_message
                 items += 1
 
-        if last_returned is not None and items < limit:
+        if last_returned and items < limit:
             # we've reached the beginning of the history, but
             # still have space.  If this message was a reply
             # to another message, return that message as well.
-            if last_returned.reference is None:
+            if not last_returned.reference:
                 return
 
             ref = last_returned.reference.resolved
 
             # the resolved message may be None if the message
             # was deleted
-            if ref is not None and isinstance(ref, discord.Message):
+            if ref and isinstance(ref, discord.Message):
                 (sanitized_message, _) = await self._filter_history_message(
                     ref,
                     stop_before_message_id,
                 )
-                if sanitized_message is not None:
+                if sanitized_message:
                     yield sanitized_message
 
     # when looking through the history of a channel, we'll have a goal

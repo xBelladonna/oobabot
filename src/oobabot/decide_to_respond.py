@@ -70,7 +70,6 @@ class DecideToRespond:
         ]
         self.ignore_dms = discord_settings["ignore_dms"]
         self.ignore_bots = discord_settings["ignore_bots"]
-        self.ignore_prefixes = discord_settings["ignore_prefixes"]
         self.guaranteed_response = False
         self.interrobang_bonus = interrobang_bonus
         self.persona = persona
@@ -171,10 +170,11 @@ class DecideToRespond:
         # if the new message ends with a question mark, we'll respond
         if message.body_text.endswith("?"):
             response_chance += self.interrobang_bonus
-
         # if the new message ends with an exclamation point, we'll respond
         if message.body_text.endswith("!"):
             response_chance += self.interrobang_bonus
+        # clamp the upper-limit of the final chance at 100%
+        response_chance = min(1.0, response_chance)
 
         time_since_last_mention = self.last_reply_times.time_since_last_mention(message)
         fancy_logger.get().debug(
@@ -237,8 +237,7 @@ class DecideToRespond:
 
         # a response has been explicitly guaranteed
         if self.guaranteed_response:
-            # Set this to false so it can't be accidentally latched on
-            self.guaranteed_response = False
+            # REMEMBER TO SET THIS TO FALSE WHEREVER IT HAS BEEN SET!
             return (True, False)
 
         # ignore messages from other bots, out of fear of infinite loops,
@@ -252,11 +251,6 @@ class DecideToRespond:
         # bot token, or if they allow responding to other bots.
         if message.author_id == our_user_id:
             return (False, False)
-
-        # ignore any messages explicitly flagged to be ignored
-        for ignore_prefix in self.ignore_prefixes:
-            if message.body_text.startswith(ignore_prefix):
-                return (False, False)
 
         if self.is_directly_mentioned(our_user_id, message):
             return (True, True)

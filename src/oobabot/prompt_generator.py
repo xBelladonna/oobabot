@@ -4,7 +4,7 @@ Generate a prompt for the AI to respond to, given the
 message history and persona.
 """
 import os
-import datetime
+from datetime import datetime
 from zoneinfo import ZoneInfo
 import typing
 from oobabot import fancy_logger
@@ -106,7 +106,8 @@ class PromptGenerator:
         )
 
         if not self.ooba_client.use_generic_openai:
-            self.max_context_units = self.token_space - oobabooga_settings["request_params"]["max_tokens"]
+            self.max_context_units = self.token_space - \
+                oobabooga_settings["request_params"]["max_tokens"]
         else:
             self._init_history_available_chars()
 
@@ -129,7 +130,8 @@ class PromptGenerator:
         #     - but with the photo request
         #
         est_chars_in_token_space = self.token_space * self.EST_CHARACTERS_PER_TOKEN
-        prompt_without_history = self._generate("", self.image_request_made, guild_name="", response_channel="")
+        prompt_without_history = self._generate(
+            "", self.image_request_made, guild_name="", response_channel="")
 
         # how many chars might we have available for history?
         available_chars_for_history = est_chars_in_token_space - len(
@@ -165,7 +167,7 @@ class PromptGenerator:
             tz=ZoneInfo(os.environ.get("TZ")) # type: ignore
         else:
             tz=None
-        return datetime.datetime.now(tz=tz).strftime(format)
+        return datetime.now(tz=tz).strftime(format)
 
     async def _render_history(
         self,
@@ -187,7 +189,8 @@ class PromptGenerator:
                 templates.TemplateToken.AI_NAME: self.persona.ai_name,
             },
         )
-        prompt_without_history = self._generate("", self.image_request_made, guild_name="", response_channel="")
+        prompt_without_history = self._generate(
+            "", self.image_request_made, guild_name="", response_channel="")
         if not self.ooba_client.use_generic_openai:
             prompt_units = await self.ooba_client.get_token_count(prompt_without_history)
         else:
@@ -268,12 +271,16 @@ class PromptGenerator:
                 remaining_lines = self.history_lines - len(history_lines)
 
                 if remaining_lines > 0:
-                    history_lines.append(section_separator + "\n") # append the section separator (and newline) to the top which becomes the bottom
-                    # split example dialogue into lines
-                    example_dialogue_lines = [line + "\n" for line in self.example_dialogue.split("\n")] # keep the newlines by rebuilding the list in a comprehension
+                    # append the section separator (and newline) to the top which becomes the bottom
+                    history_lines.append(section_separator + "\n")
+                    # split example dialogue into lines and keep the newlines by rebuilding the list
+                    # in a list comprehension
+                    example_dialogue_lines = [
+                        line + "\n" for line in self.example_dialogue.split("\n")]
 
                     # fill remaining quota of history lines with example dialogue lines
-                    # this has the effect of gradually pushing them out as the chat exceeds the history limit
+                    # this has the effect of gradually pushing them out as the chat exceeds
+                    # the history limit
                     for _ in range(remaining_lines):
                         # start from the end of the list since the order is reversed
                         example_line = example_dialogue_lines.pop()
@@ -285,7 +292,8 @@ class PromptGenerator:
                             break
 
                         prompt_units += example_units
-                        history_lines.append(example_line) # pop the last item of the list into the transcript
+                        # pop the last item of the list into the transcript
+                        history_lines.append(example_line)
                         # and then break out of the loop once we run out of example dialogue
                         if not example_dialogue_lines:
                             break
@@ -305,7 +313,9 @@ class PromptGenerator:
         # then reverse the order of the list so it's in order again
         history_lines.reverse()
         if not self.reply_in_thread:
-            history_lines[-1] = history_lines[-1].strip("\n") # strip the last newline (moved to if statement due to causing errors when 'reply in thread' is True?)
+            # strip the last newline (moved to if statement due to causing errors when
+            # 'reply in thread' is True?)
+            history_lines[-1] = history_lines[-1].strip("\n")
         return "".join(history_lines)
 
     def _generate(

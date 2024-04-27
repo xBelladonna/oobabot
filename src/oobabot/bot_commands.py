@@ -54,7 +54,7 @@ class BotCommands:
 
         if (
             discord_settings["discrivener_location"]
-            and self.discrivener_location is None
+            and not self.discrivener_location
         ):
             fancy_logger.get().warning(
                 "Audio disabled because executable at discrivener_location "
@@ -64,7 +64,7 @@ class BotCommands:
 
         if (
             discord_settings["discrivener_model_location"]
-            and self.discrivener_model_location is None
+            and not self.discrivener_model_location
         ):
             fancy_logger.get().warning(
                 "Audio disable because the discrivener_model_location "
@@ -72,7 +72,7 @@ class BotCommands:
                 discord_settings["discrivener_model_location"],
             )
 
-        if self.discrivener_location is None or self.discrivener_model_location is None:
+        if not self.discrivener_location or not self.discrivener_model_location:
             self.audio_commands = None
         else:
             self.audio_commands = audio_commands.AudioCommands(
@@ -103,21 +103,23 @@ class BotCommands:
                 ]
             ]
         ):
-            if interaction.channel_id is not None:
-                # find the current message in this channel
-                # tell the Repetition Tracker to hide messages
-                # before this message
-                channel = await interaction.client.fetch_channel(interaction.channel_id)
-                if channel is not None:
-                    if isinstance(channel, discord.TextChannel):
-                        return channel
-                    if isinstance(channel, discord.Thread):
-                        return channel
-                    if isinstance(channel, discord.DMChannel):
-                        return channel
-                    if isinstance(channel, discord.GroupChannel):
-                        return channel
-            return None
+            if interaction.channel_id:
+                try:
+                    channel = await interaction.client.fetch_channel(interaction.channel_id)
+                    if channel is not None:
+                        if isinstance(channel, discord.TextChannel):
+                            return channel
+                        if isinstance(channel, discord.Thread):
+                            return channel
+                        if isinstance(channel, discord.DMChannel):
+                            return channel
+                        if isinstance(channel, discord.GroupChannel):
+                            return channel
+                except discord.DiscordException as err:
+                    fancy_logger.get().error(
+                        "Error while fetching channel for command: %s", err, exc_info=True
+                    )
+                return
 
 
         @discord.app_commands.command(
@@ -125,18 +127,28 @@ class BotCommands:
             description=f"Force {self.persona.ai_name} to stop typing the current message.",
         )
         async def stop(interaction: discord.Interaction):
-            if interaction.channel_id is None:
+            channel = await get_messageable(interaction)
+            if not channel:
                 await discord_utils.fail_interaction(interaction)
                 return
+
+            channel_name = discord_utils.get_channel_name(channel)
+            fancy_logger.get().debug(
+                "/%s called by user '%s' in %s",
+                interaction.command.name,
+                interaction.user.name,
+                channel_name,
+            )
+
             if self.ooba_client.use_generic_openai:
                 await discord_utils.fail_interaction(
                     interaction,
                     "Generic OpenAI-compatible API in use, cannot abort generation.",
                 )
+                return
             response = await self.ooba_client.stop()
-            str_response = response if response is not None else "No response from server."
+            str_response = response if response else "No response from server."
             await interaction.response.send_message(str_response)
-            return
 
         @discord.app_commands.command(
             name="poke",
@@ -144,13 +156,13 @@ class BotCommands:
         )
         async def poke(interaction: discord.Interaction):
             channel = await get_messageable(interaction)
-            if channel is None:
+            if not channel:
                 await discord_utils.fail_interaction(interaction)
                 return
 
             channel_name = discord_utils.get_channel_name(channel)
             fancy_logger.get().debug(
-                "/%s called by user '%s' in channel #%s",
+                "/%s called by user '%s' in %s",
                 interaction.command.name,
                 interaction.user.name,
                 channel_name,
@@ -178,7 +190,7 @@ class BotCommands:
         )
         async def regenerate(interaction: discord.Interaction):
             channel = await get_messageable(interaction)
-            if channel is None:
+            if not channel:
                 await discord_utils.fail_interaction(interaction)
                 return
 
@@ -228,11 +240,11 @@ class BotCommands:
             text_to_send=f"Message to force {self.persona.ai_name} to say."
         )
         async def say(interaction: discord.Interaction, text_to_send: str):
-            if interaction.channel_id is None:
+            channel = await get_messageable(interaction)
+            if not channel:
                 await discord_utils.fail_interaction(interaction)
                 return
 
-            channel = await get_messageable(interaction)
             # if reply_in_thread is True, we don't want our bot to
             # speak in guild channels, only threads and private messages
             if self.reply_in_thread:
@@ -268,7 +280,7 @@ class BotCommands:
         )
         async def lobotomize(interaction: discord.Interaction):
             channel = await get_messageable(interaction)
-            if channel is None:
+            if not channel:
                 await discord_utils.fail_interaction(interaction)
                 return
 
