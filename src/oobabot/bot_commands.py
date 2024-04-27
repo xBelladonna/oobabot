@@ -185,53 +185,6 @@ class BotCommands:
                 return client.dispatch("message", message)
 
         @discord.app_commands.command(
-            name="regenerate",
-            description=f"Delete and regenerate {self.persona.ai_name}'s last message."
-        )
-        async def regenerate(interaction: discord.Interaction):
-            channel = await get_messageable(interaction)
-            if not channel:
-                await discord_utils.fail_interaction(interaction)
-                return
-
-            channel_name = discord_utils.get_channel_name(channel)
-            fancy_logger.get().debug(
-                "/%s called by user '%s' in channel #%s",
-                interaction.command.name,
-                interaction.user.name,
-                channel_name,
-            )
-
-            bot_last_message = None
-            user_last_message = None
-
-            async for message in channel.history(limit=self.history_lines):
-                for ignore_prefix in self.ignore_prefixes:
-                    if message.content.startswith(ignore_prefix):
-                        continue
-                if bot_last_message and message.author.id != client.user.id:
-                    user_last_message = message
-                    break
-                if message.author.id == client.user.id and not bot_last_message:
-                    bot_last_message = message
-
-            if bot_last_message and user_last_message:
-                await interaction.response.defer(ephemeral=True, thinking=False)
-                await bot_last_message.delete()
-                await interaction.delete_original_response()
-                self.decide_to_respond.guaranteed_response = True
-                self.decide_to_respond.log_mention(
-                    channel_id=channel.id,
-                    send_timestamp=interaction.created_at.timestamp(),
-                )
-                return client.dispatch("message", user_last_message)
-            else:
-                await discord_utils.fail_interaction(
-                    interaction,
-                    f"Can't find my last message in the last {self.history_lines} messages."
-                )
-
-        @discord.app_commands.command(
             name="say",
             description=f"Force {self.persona.ai_name} to say the provided message.",
         )
@@ -375,7 +328,6 @@ class BotCommands:
         tree.add_command(edit)
         tree.add_command(stop)
         tree.add_command(poke)
-        tree.add_command(regenerate)
 
         if self.audio_commands is not None:
             self.audio_commands.add_commands(tree)
