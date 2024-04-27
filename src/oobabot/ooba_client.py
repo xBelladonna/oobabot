@@ -159,17 +159,26 @@ class OobaClient(http_client.SerializedHttpClient):
             raise ValueError(
                 f"Unsupported API type '{self.api_type}'. Please fix your configuration."
             )
-
+        self.use_chat_completions = settings["use_chat_completions"]
         if self.api_type in ["oobabooga", "openai", "tabbyapi"]:
-            if settings["use_chat_completions"]:
+            if self.use_chat_completions:
+                raise NotImplementedError(
+                    "Chat Completions API is not implemented yet. "
+                    + "Please use legacy Completions API."
+                )
                 self.api_endpoint = "/chat/completions"
             else:
                 self.api_endpoint = "/completions"
         elif self.api_type == "cohere":
+            self.use_chat_completions = False # in case it's left set to true in the config
             self.api_endpoint = "/chat"
 
         self.api_key = settings["api_key"]
         self.model = settings["model"]
+        if self.api_type == "cohere" and not self.model:
+            raise ValueError(
+                "Model is mandatory for the Cohere API. Please fix your configuration."
+            )
         if self.message_regex:
             self.fn_new_splitter = lambda: RegexSplitter(self.message_regex)
         else:
@@ -258,7 +267,11 @@ class OobaClient(http_client.SerializedHttpClient):
                 return int(result.get("length")) # should always be an int but we cast just in case
 
     async def request_by_message(
-        self, prompt: str, stopping_strings: typing.List[str]
+        self,
+        prompt: typing.Union[
+            str, typing.List[typing.Dict[str, str]]
+        ],
+        stopping_strings: typing.List[str],
     ) -> typing.AsyncIterator[str]:
         """
         Yields individual messages from the response as it arrives.
@@ -272,7 +285,13 @@ class OobaClient(http_client.SerializedHttpClient):
                     sentence = sentence[len("### Assistant: "):]
                 yield sentence
 
-    async def request_as_string(self, prompt: str, stopping_strings: typing.List[str]) -> str:
+    async def request_as_string(
+        self,
+        prompt: typing.Union[
+            str, typing.List[typing.Dict[str, str]]
+        ],
+        stopping_strings: typing.List[str],
+    ) -> str:
         """
         Yields the entire response as a single string, retrying the configured number of times
         if a response isn't received.
@@ -288,7 +307,9 @@ class OobaClient(http_client.SerializedHttpClient):
 
     async def request_as_grouped_tokens(
         self,
-        prompt: str,
+        prompt: typing.Union[
+            str, typing.List[typing.Dict[str, str]]
+        ],
         stopping_strings: typing.List[str],
         interval: float = 0.2,
     ) -> typing.AsyncIterator[str]:
@@ -311,8 +332,8 @@ class OobaClient(http_client.SerializedHttpClient):
             tokens = ""
             last_response = time.perf_counter()
 
-    async def stop(self):
-        # New Ooba OpenAPI stopping logic
+    async def stop(self) -> str:
+        # New Ooba OpenAI API stopping logic
         async with aiohttp.ClientSession() as session:
             url = self.base_url + self.OOBABOOGA_STOP_STREAM_URI_PATH
             headers = {"accept": "application/json"}
@@ -323,7 +344,11 @@ class OobaClient(http_client.SerializedHttpClient):
                 return response_text
 
     async def request_by_token(
-        self, prompt: str, stopping_strings: typing.List[str]
+        self,
+        prompt: typing.Union[
+            str, typing.List[typing.Dict[str, str]]
+        ],
+        stopping_strings: typing.List[str],
     ) -> typing.AsyncIterator[str]:
         """
         Yields the response from the API token by token as it arrives.
@@ -339,23 +364,34 @@ class OobaClient(http_client.SerializedHttpClient):
             "stream": True,
         }
         # Special handling for Cohere API, which takes "message" instead of "prompt"
-        if "api.cohere.ai" in self.base_url:
+        if self.api_type == "cohere":
             request.update({ "message": prompt })
+        elif self.use_chat_completions:
+            request.update({ "messages": prompt }) # ensure to pass a list of message objects
         else:
             request.update({ "prompt": prompt })
 
         request.update(self.request_params)
         # and then add our additional runtime-generated stopping strings, if any
         if stopping_strings:
+            stopping_strings = self.request_params["stop"] + stopping_strings
             # we use dict().update() for performance
-            request.update({ "stop": self.request_params["stop"] + stopping_strings })
-
-        # The real OpenAI Completions and Chat Completions API have a limit of 4 stop sequences
-        if "api.openai.com" in self.base_url and len(request["stop"]) > 4:
-            request["stop"] = request["stop"][:3] # list-slicing is fast anyway
-            fancy_logger.get().debug(
-                "Real OpenAI API in use, truncating to 4 stop sequences as per the API limit."
-            )
+            if self.api_type in ["oobabooga", "openai", "tabbyapi"]:
+                request.update({ "stop": stopping_strings })
+                # The real OpenAI Completions and Chat Completions API have a limit of 4 stop sequences
+                if "api.openai.com" in self.base_url and len(request["stop"]) > 4:
+                    request["stop"] = request["stop"][:3] # list-slicing is fast anyway
+                    fancy_logger.get().debug(
+                        "OpenAI in use, truncating to 4 stop sequences as per the API limit."
+                    )
+            elif self.api_type == "cohere":
+                request.update({ "stop_sequences": stopping_strings })
+                # The real Cohere Chat API has a limit of 5 stop sequences
+                if "api.cohere.ai" in self.base_url and len(request["stop"]) > 5:
+                    request["stop"] = request["stop"][:4]
+                    fancy_logger.get().debug(
+                        "Cohere API in use, truncating to 5 stop sequences as per the API limit."
+                    )
 
         fancy_logger.get().debug(
             "Using stop sequences: %s", ", ".join(request["stop"]).replace("\n", "\\n")
