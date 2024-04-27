@@ -145,6 +145,9 @@ class OobaClient(http_client.SerializedHttpClient):
     ):
         super().__init__(self.SERVICE_NAME, settings["base_url"])
         self.total_response_tokens = 0
+        self.retries = settings["retries"]
+        if self.retries < 0:
+            raise ValueError("Number of retries can't be negative. Please fix your configuration.")
         self.message_regex = settings["message_regex"]
         self.request_params = settings["request_params"]
         self.log_all_the_things = settings["log_all_the_things"]
@@ -225,7 +228,7 @@ class OobaClient(http_client.SerializedHttpClient):
                         f"Request failed with status {response.status}: {response_text}"
                     )
                 result = await response.json()
-                return result.get("length")
+                return result.get("length") # should always be an int
 
     async def request_by_message(self, prompt: str, stopping_strings: typing.List[str]) -> typing.AsyncIterator[str]:
         """
@@ -237,14 +240,20 @@ class OobaClient(http_client.SerializedHttpClient):
             for sentence in splitter.next(new_token):
                 # remove "### Assistant: " from strings
                 if sentence.startswith("### Assistant: "):
-                    sentence = sentence[len("### Assistant: ") :]
+                    sentence = sentence[len("### Assistant: "):]
                 yield sentence
 
     async def request_as_string(self, prompt: str, stopping_strings: typing.List[str]) -> str:
         """
-        Yields the entire response as a single string.
+        Yields the entire response as a single string, retrying the configured number of times
+        if a response isn't received.
         """
-        return "".join([token async for token in self.request_by_token(prompt, stopping_strings)])
+        for _tries in range(self.retries + 1): # add offset of 1 as range() is zero-indexed
+            response = [token async for token in self.request_by_token(prompt, stopping_strings)]
+            if response:
+                break
+            fancy_logger.get().debug("Empty response received from text generation API! Trying again...")
+        return "".join(response)
 
     async def request_as_grouped_tokens(
         self,
@@ -305,12 +314,13 @@ class OobaClient(http_client.SerializedHttpClient):
         request.update(self.request_params)
         # and then add our additional runtime-generated stopping strings, if any
         if stopping_strings:
-            request["stop"] = self.request_params["stop"] + stopping_strings
+            # we use dict().update() for performance
+            request.update({ "stop": self.request_params["stop"] + stopping_strings })
 
         # The real OpenAI Completions and Chat Completions API have a limit of 4 stop sequences
         if "api.openai.com" in self.base_url and len(request["stop"]) > 4:
-            request["stop"] = request["stop"][:3]
-            fancy_logger.get().debug("Real OpenAI API in use, truncating to 4 stopping strings as per the API limit.")
+            request["stop"] = request["stop"][:3] # list-slicing is fast anyway
+            fancy_logger.get().debug("Real OpenAI API in use, truncating to 4 stop sequences as per the API limit.")
 
         fancy_logger.get().debug("Using stop sequences: %s", ", ".join(request["stop"]).replace("\n", "\\n"))
 

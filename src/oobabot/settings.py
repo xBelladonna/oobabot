@@ -835,6 +835,20 @@ class Settings:
                 ],
             )
         )
+        self.oobabooga_settings.add_setting(
+            oesp.ConfigSetting[int](
+                name="retries",
+                default=0,
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        Maximum number of times we will re-query the text generation API to get a response. 
+                        Useful if the API returns an empty response occasionally.
+                        """
+                    )
+                ],
+            )
+        )
         # get a regex for filtering a message
         self.oobabooga_settings.add_setting(
             oesp.ConfigSetting[str](
