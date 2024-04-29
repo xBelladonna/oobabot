@@ -310,7 +310,7 @@ class BotCommands:
             # tell the Repetition Tracker to hide messages
             # before this message
             sent_message = await interaction.original_response()
-            if self.include_lobotomize_response:
+            if not self.include_lobotomize_response:
                 self.repetition_tracker.hide_messages_before(
                     channel_id=channel.id,
                     message_id=sent_message.id,

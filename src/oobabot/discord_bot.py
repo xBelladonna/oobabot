@@ -232,18 +232,42 @@ class DiscordBot(discord.Client):
         channel = await self.fetch_channel(payload.channel_id)
         raw_message = await channel.fetch_message(payload.message_id)
 
-        # only process the below reactions if it was on one of our messages
+        # hide all chat history at and before this message
+        if payload.emoji.name == "⏪":
+            fancy_logger.get().debug(
+                "Received request from %s to hide chat history in %s.",
+                payload.member.name,
+                discord_utils.get_channel_name(channel),
+            )
+
+            finished = False
+            async for msg in channel.history(limit=self.prompt_generator.history_lines):
+                if finished:
+                    self.repetition_tracker.hide_messages_before(
+                        channel_id=channel.id,
+                        message_id=msg.id,
+                    )
+                    break
+                if msg.id == payload.message_id:
+                    finished = True
+            await raw_message.remove_reaction(payload.emoji, payload.member)
+            return
+
+        # only process the below reactions if it was to one of our messages
         if raw_message.author.id != self.ai_user_id:
             return
 
+        # message deletion
         if payload.emoji.name == "❌":
             fancy_logger.get().debug(
                 "Received message deletion request from %s. Deleting message...",
                 payload.member.display_name,
             )
             await raw_message.delete()
+            return
 
-        elif payload.emoji.name == "🔁":
+        # message regeneration
+        if payload.emoji.name == "🔁":
             message = discord_utils.discord_message_to_generic_message(raw_message)
             fancy_logger.get().debug(
                 "Received message regeneration request from %s. Regenerating message...",
@@ -252,11 +276,10 @@ class DiscordBot(discord.Client):
             try:
                 async with channel.typing():
                     await self._regenerate_message(message, raw_message, channel)
-                    await raw_message.remove_reaction(payload.emoji, payload.member)
+                await raw_message.remove_reaction(payload.emoji, payload.member)
             except discord.DiscordException as err:
                 fancy_logger.get().error("Error while processing reaction: %s", err, exc_info=True)
                 self.response_stats.log_response_failure()
-                return
 
     async def process_message_queue(
             self,
@@ -862,6 +885,7 @@ class DiscordBot(discord.Client):
             num_history_lines=self.prompt_generator.history_lines,
             stop_before_message_id=repeated_id,
             ignore_all_until_message_id=message.message_id,
+            exclude_ignored_message=True,
         )
         response, response_stat = await self._generate_response(
             message=message,
@@ -1008,6 +1032,12 @@ class DiscordBot(discord.Client):
             # in the ooba_client because the method may be used for other things
             # that don't require waiting.
             await asyncio.sleep(self.stream_responses_speed_limit)
+
+        if last_message:
+            self.repetition_tracker.log_message(
+                response_channel.id,
+                discord_utils.discord_message_to_generic_message(last_message),
+            )
 
         return last_message
 
@@ -1218,6 +1248,7 @@ class DiscordBot(discord.Client):
         stop_before_message_id: typing.Optional[int],
         ignore_all_until_message_id: typing.Optional[int],
         limit: int,
+        exclude_ignored_message: bool = False,
     ) -> typing.AsyncIterator[types.GenericMessage]:
         """
         When returning the history of a thread, Discord
@@ -1239,14 +1270,16 @@ class DiscordBot(discord.Client):
             if ignoring_all:
                 if item.id == ignore_all_until_message_id:
                     ignoring_all = False
-                    # skip one more message to make sure we hide whatever
-                    # message we're referring to as well
+                    if exclude_ignored_message:
+                        # skip one more message to make sure we hide whatever
+                        # message we're referring to as well
+                        continue
+                else:
+                    # this message was sent after the message we're
+                    # responding to. So filter out it as to not confuse
+                    # the AI into responding to content from that message
+                    # instead
                     continue
-                # this message was sent after the message we're
-                # responding to. So filter out it as to not confuse
-                # the AI into responding to content from that message
-                # instead
-                continue
 
             last_returned = item
             (sanitized_message, allow_more) = await self._filter_history_message(
@@ -1305,6 +1338,7 @@ class DiscordBot(discord.Client):
         stop_before_message_id: typing.Optional[int],
         ignore_all_until_message_id: typing.Optional[int],
         num_history_lines: int,
+        exclude_ignored_message: bool = False,
     ) -> typing.AsyncIterator[types.GenericMessage]:
         """
         Gets an async iterator of the chat history, between the limits provided.
@@ -1316,6 +1350,7 @@ class DiscordBot(discord.Client):
             limit=num_history_lines,
             stop_before_message_id=stop_before_message_id,
             ignore_all_until_message_id=ignore_all_until_message_id,
+            exclude_ignored_message=exclude_ignored_message,
         )
 
         return result
