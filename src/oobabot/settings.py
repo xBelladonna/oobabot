@@ -553,17 +553,17 @@ class Settings:
         self.discord_settings.add_setting(
             oesp.ConfigSetting[str](
                 name="prevent_impersonation",
-                default="disabled",
+                default="",
                 description_lines=[
                     textwrap.dedent(
                         """
                         Prevent impersonation by automatically adding the display names of
                         the members in the recent message cache (up to the history limit,
-                        or 4 sequences if using OpenAI) to the list of stop sequences.
+                        or 4 sequences if using OpenAI) to the list of stop sequences. If
+                        this option is not set, the feature is disabled.
                         """
                     ),
-                    "There are 4 options:",
-                    "disabled: None, the feature is disabled",
+                    "There are 3 options:",
                     textwrap.dedent(
                         """
                         standard: Uses the fully templated user prompt prefix from the
@@ -589,17 +589,30 @@ class Settings:
             )
         )
         self.discord_settings.add_setting(
-            oesp.ConfigSetting[bool](
+            oesp.ConfigSetting[str](
                 name="stream_responses",
-                default=False,
+                default="",
                 description_lines=[
                     textwrap.dedent(
                         """
-                        FEATURE PREVIEW: Stream responses into a single message
-                        as they are generated.
+                        FEATURE PREVIEW: Stream responses into a single message as
+                        they are generated. If not set, the feature is disabled.
                         Note: may be janky
                         """
-                    )
+                    ),
+                    "There are 2 options:",
+                    textwrap.dedent(
+                        """
+                        token: Stream responses by groups of tokens, whose size is defined
+                        by the stremaing speed limit.
+                        """
+                    ),
+                    textwrap.dedent(
+                        """
+                        sentence: Stream responses sentence by sentence. Useful if streaming
+                        by token is too janky but not splitting responses is too slow.
+                        """
+                    ),
                 ],
             )
         )

@@ -50,7 +50,7 @@ class MessageSplitter(abc.ABC):
         """
 
         self.full_response += new_token
-        unseen = self.full_response[self.printed_idx :]
+        unseen = self.full_response[self.printed_idx:]
 
         # if we've reached the end of input, yield it all,
         # even if we don't think it's a full sentence.
@@ -85,7 +85,7 @@ class RegexSplitter(MessageSplitter):
             to_print = match.group(1)
             yield to_print
             self.printed_idx += match.end()
-            unseen = self.full_response[self.printed_idx :]
+            unseen = self.full_response[self.printed_idx:]
 
 
 class SentenceSplitter(MessageSplitter):
@@ -111,14 +111,9 @@ class SentenceSplitter(MessageSplitter):
             #  - sent: str, sentence text
             #  - start: start idx of 'sent', relative to original string
             #  - end: end idx of 'sent', relative to original string
-            #
-            # we want to remove the last '\n' if there is one.
-            # we do want to include any other whitespace, though.
-
+            # we don't strip newlines or whitespace because we may want that
+            # in the output. the calling method should strip them itself.
             to_print = sentence_w_char_spans.sent  # type: ignore
-            # if to_print.endswith("\n"):
-            #     to_print = to_print[:-1]
-
             yield to_print
 
         # since we've printed all the previous segments,
@@ -316,17 +311,23 @@ class OobaClient(http_client.SerializedHttpClient):
         """
         Yields the response as a series of tokens, grouped by time.
         """
-
-        last_response = time.perf_counter()
+        response_iterator = self.request_by_token(prompt, stopping_strings)
+        _first_iteration = True
         tokens = ""
-        async for token in self.request_by_token(prompt, stopping_strings):
+        async for token in response_iterator:
             if token == SentenceSplitter.END_OF_INPUT:
                 if tokens:
                     yield tokens
                 break
             tokens += token
             now = time.perf_counter()
-            if now < (last_response + interval):
+            if _first_iteration:
+                # Wait an interval before returning the first group, as it will
+                # be only the first token and won't be much use. We set this here
+                # so there is no gap between the "last response" and now.
+                last_response = now
+                _first_iteration = False
+            if now < last_response + interval:
                 continue
             yield tokens
             tokens = ""
@@ -378,7 +379,8 @@ class OobaClient(http_client.SerializedHttpClient):
             # we use dict().update() for performance
             if self.api_type in ["oobabooga", "openai", "tabbyapi"]:
                 request.update({ "stop": stopping_strings })
-                # The real OpenAI Completions and Chat Completions API have a limit of 4 stop sequences
+                # The real OpenAI Completions and Chat Completions API have a limit
+                # of 4 stop sequences
                 if "api.openai.com" in self.base_url and len(request["stop"]) > 4:
                     request["stop"] = request["stop"][:3] # list-slicing is fast anyway
                     fancy_logger.get().debug(

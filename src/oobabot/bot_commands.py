@@ -309,14 +309,24 @@ class BotCommands:
             # message before that if we're including our response.
             # tell the Repetition Tracker to hide messages
             # before this message
-            history_limit = 2 if self.include_lobotomize_response else 1
-            if not self.include_lobotomize_response:
-                fancy_logger.get().debug("Excluding bot response from context.")
-            async for message in channel.history(limit=history_limit):
+            sent_message = await interaction.original_response()
+            if self.include_lobotomize_response:
                 self.repetition_tracker.hide_messages_before(
                     channel_id=channel.id,
-                    message_id=message.id,
+                    message_id=sent_message.id,
                 )
+                return
+            fancy_logger.get().debug("Excluding bot response from chat history.")
+            finished = False
+            async for message in channel.history(limit=self.history_lines):
+                if finished:
+                    self.repetition_tracker.hide_messages_before(
+                        channel_id=channel.id,
+                        message_id=message.id,
+                    )
+                    break
+                if message.id == sent_message.id:
+                    finished = True
 
         fancy_logger.get().debug(
             "Registering commands, sometimes this takes a while..."
