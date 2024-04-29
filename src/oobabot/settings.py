@@ -378,20 +378,6 @@ class Settings:
             )
         )
         self.discord_settings.add_setting(
-            oesp.ConfigSetting[bool](
-                name="dont_split_responses",
-                default=False,
-                description_lines=[
-                    textwrap.dedent(
-                        """
-                        Post the entire response as a single message, rather than
-                        splitting it into separate messages by sentence.
-                        """
-                    )
-                ],
-            )
-        )
-        self.discord_settings.add_setting(
             oesp.ConfigSetting[int](
                 name="history_lines",
                 default=7,
@@ -641,6 +627,20 @@ class Settings:
                     )
                 ],
                 include_in_argparse=False,
+            )
+        )
+        self.discord_settings.add_setting(
+            oesp.ConfigSetting[bool](
+                name="dont_split_responses",
+                default=False,
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        Post the entire response as a single message, rather than
+                        splitting it into separate messages by sentence.
+                        """
+                    )
+                ],
             )
         )
         self.discord_settings.add_setting(
@@ -1248,7 +1248,7 @@ class Settings:
         # before we parse the args, so that we can load the config file
         # first and then have the arguments overwrite the config file.
         config_setting = self.general_settings.get_setting("config")
-        if args is not None:
+        if args:
             for config_flag in config_setting.cli_args:
                 # find the element after config_flag in args
                 try:
@@ -1293,7 +1293,7 @@ class Settings:
         """
 
         is_default = False
-        if config_file is None:
+        if not config_file:
             config_file, is_default = self._filename_from_args(cli_args)
         raise_if_file_missing = not is_default and running_from_cli
 
@@ -1314,7 +1314,7 @@ class Settings:
         """
         Prints CLI usage information to STDOUT.
         """
-        if self.arg_parser is None:
+        if not self.arg_parser:
             raise ValueError("display_help called before load")
 
         help_str = self.arg_parser.format_help()

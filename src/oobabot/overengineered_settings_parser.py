@@ -86,7 +86,7 @@ class ConfigSetting(typing.Generic[T]):
         self.name = name
         self.default = default
         self.description_lines = [x.strip() for x in description_lines]
-        if cli_args is None:
+        if not cli_args:
             cli_args = ["--" + name.replace("_", "-")]
         self.cli_args = cli_args
         self.value = default
@@ -150,7 +150,7 @@ class ConfigSetting(typing.Generic[T]):
         comment_lines = self.description_lines.copy()
 
         if self.show_default_in_yaml:
-            if self.default is not None:
+            if self.default:
                 comment_lines.append(f"  default: {self.default}")
             else:
                 comment_lines.append("  default: None")
@@ -161,7 +161,7 @@ class ConfigSetting(typing.Generic[T]):
             return
         if self.name not in yaml:
             return
-        if (not self.place_default_in_yaml) and (yaml[self.name] is None):
+        if not self.place_default_in_yaml and not yaml[self.name]:
             # if we didn't place the default in the yaml, and the setting
             # is now blank, that's no surprise.  Keep the default
             # rather than overwriting it with None
@@ -256,7 +256,7 @@ class ConfigSettingGroup:
     def set_values_from_yaml(self, yaml: dict):
         if not self.include_in_yaml:
             return
-        if yaml is None:
+        if not yaml:
             return
         group_key = self.name.lower().replace(" ", "_")
         if group_key not in yaml:

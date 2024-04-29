@@ -107,7 +107,7 @@ class Oobabot:
         result = self.runtime_lock.acquire(timeout=5)
         if result:
             try:
-                if self.runtime is not None:
+                if self.runtime:
                     self.runtime.stop()
             finally:
                 self.runtime_lock.release()
@@ -164,10 +164,10 @@ class Oobabot:
         of what's being said.  Otherwise, returns an empty list.
         """
         client = voice_client.VoiceClient.current_instance
-        if client is None:
+        if not client:
             return []
         transcript = client.current_transcript()
-        if transcript is None:
+        if not transcript:
             return []
         return transcript.message_buffer.get()
 
@@ -184,7 +184,7 @@ class Oobabot:
         the server-specific nickname, color, and icon.
         """
         client = voice_client.VoiceClient.current_instance
-        if client is None:
+        if not client:
             return None
         return discord_utils.author_from_user_id(user_id, client.guild)
 

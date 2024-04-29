@@ -375,7 +375,7 @@ class PromptGenerator:
         Generate a prompt for the AI to respond to.
         """
         message_history_txt = ""
-        if message_history is not None:
+        if message_history:
             message_history_txt = await self._render_history(
                 ai_user_id,
                 message_history,

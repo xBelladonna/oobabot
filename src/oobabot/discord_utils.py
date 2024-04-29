@@ -141,7 +141,7 @@ def group_user_id_to_name(
             if user.id == user_id:
                 member = user
                 break
-        if member is None:
+        if not member:
             return match.group(0)
         display_name = member.display_name
         if " " in display_name:
@@ -157,7 +157,7 @@ def guild_user_id_to_name(
     def _replace_user_id_mention(match: typing.Match[str]) -> str:
         user_id = int(match.group(1))
         member = guild.get_member(user_id)
-        if member is None:
+        if not member:
             return match.group(0)
         display_name = member.display_name
         if " " in display_name:
@@ -269,7 +269,7 @@ async def fail_interaction(
     interaction: discord.Interaction, reason: typing.Optional[str] = None
 ):
     command = "unknown command"
-    if interaction.command is not None:
+    if interaction.command:
         command = interaction.command.name
 
     if reason is None:
@@ -287,7 +287,7 @@ async def fail_interaction(
 
 
 def _file_exists_and_is_file(filepath: typing.Optional[str]) -> typing.Optional[str]:
-    if filepath is None:
+    if not filepath:
         return None
 
     path = pathlib.Path(filepath).expanduser()
@@ -318,7 +318,7 @@ def validate_discrivener_locations(
     """
     actual_discrivener_location = _file_exists_and_is_file(discrivener_location)
     # check that the discrivener binary is executable as well
-    if actual_discrivener_location is not None:
+    if actual_discrivener_location:
         if not os.access(actual_discrivener_location, os.X_OK):
             fancy_logger.get().warning(
                 "discrivener binary is not executable: %s",
@@ -434,7 +434,7 @@ def author_from_user_id(
     guild: discord.Guild,
 ) -> typing.Optional["types.FancyAuthor"]:
     member = guild.get_member(user_id)
-    if member is None:
+    if not member:
         return None
     if member.avatar:
         avatar_url = member.avatar.url

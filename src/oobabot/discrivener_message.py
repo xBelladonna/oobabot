@@ -16,7 +16,7 @@ def object_pairs_hook(
     pairs: typing.List[typing.Tuple[str, typing.Any]]
 ) -> typing.Union[types.DiscrivenerMessage, dict]:
     cls = MESSAGE_TYPE_TO_CLASS.get(pairs[0][0])
-    if cls is not None and len(pairs) == 1:
+    if cls and len(pairs) == 1:
         return cls(pairs[0][1])
     return collections.OrderedDict(pairs)
 

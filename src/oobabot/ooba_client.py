@@ -437,7 +437,7 @@ class OobaClient(http_client.SerializedHttpClient):
                                             except UnicodeEncodeError:
                                                 print(text.encode("utf-8"), end="", flush=True)
                                         yield text
-                                    if choice.get("finish_reason") is not None:
+                                    if choice.get("finish_reason"):
                                         break
                             else:  # Handling other formats
                                 text = event_data.get("text", "")

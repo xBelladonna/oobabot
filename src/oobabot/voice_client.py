@@ -71,10 +71,10 @@ class VoiceClient(discord.VoiceProtocol):
         if not isinstance(channel, discord.VoiceChannel):
             raise ValueError("Channel is not a voice channel.")
 
-        if channel.guild is None:
+        if not channel.guild:
             raise ValueError("Channel does not have a guild.")
 
-        if client.user is None:
+        if not client.user:
             raise ValueError("Client does not have a user.")
 
         self._discrivener = discrivener.Discrivener(
@@ -150,12 +150,12 @@ class VoiceClient(discord.VoiceProtocol):
             # If we're potentially reconnecting due to a 4014, then we need to
             # differentiate
             # a channel move and an actual force disconnect
-            if channel_id is None:
+            if not channel_id:
                 # We're being disconnected so cleanup
                 await self.disconnect()
             else:
                 channel = self.guild.get_channel(int(channel_id))
-                if channel is None:
+                if not channel:
                     fancy_logger.get().warning(
                         "Channel ID %s not found in Guild ID %s",
                         channel_id,
@@ -189,7 +189,7 @@ class VoiceClient(discord.VoiceProtocol):
         guild_id = int(data["guild_id"])
         endpoint = data.get("endpoint")
 
-        if endpoint is None or token is None:
+        if not endpoint or not token:
             fancy_logger.get().warning(
                 "Awaiting endpoint... This requires waiting. "
                 "If timeout occurred considering raising the timeout and reconnecting."
@@ -315,7 +315,7 @@ class VoiceClient(discord.VoiceProtocol):
         """Indicates if the voice client is connected to voice."""
         if not self._oobabot_voice_connected:
             return False
-        if self._discrivener is None:
+        if not self._discrivener:
             return False
         if not self._discrivener.is_running():
             return False
@@ -343,7 +343,7 @@ class VoiceClient(discord.VoiceProtocol):
             # right now.  So to break the loop, use asyncio to schedule
             # the disconnect() call to happen later.
             loop = asyncio.get_event_loop()
-            if loop is None:
+            if not loop:
                 fancy_logger.get().warning(
                     "No event loop to schedule voice_client.disconnect() call"
                 )

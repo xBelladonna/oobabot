@@ -39,7 +39,7 @@ class Discrivener:
         self._process: typing.Optional["asyncio.subprocess.Process"] = None
         self._stderr_reading_task: typing.Optional[asyncio.Task] = None
         self._stdout_reading_task: typing.Optional[asyncio.Task] = None
-        if log_file is not None:
+        if log_file:
             self._log_file = open(log_file, "a", encoding="utf-8")
         else:
             self._log_file = None
@@ -105,7 +105,7 @@ class Discrivener:
         self._stdout_reading_task = asyncio.create_task(self._read_stdout())
 
     async def _kill_process(self):
-        if self._process is None:
+        if not self._process:
             return
         self._process.send_signal(signal.SIGINT)
         try:
@@ -127,17 +127,17 @@ class Discrivener:
             )
         finally:
             self._process = None
-            if self._stderr_reading_task is not None:
+            if self._stderr_reading_task:
                 self._stderr_reading_task.cancel()
-            if self._stdout_reading_task is not None:
+            if self._stdout_reading_task:
                 self._stdout_reading_task.cancel()
 
         # terminate stdout and stderr reading tasks
-        if self._stderr_reading_task is not None:
+        if self._stderr_reading_task:
             await asyncio.wait_for(self._stderr_reading_task, timeout=self.KILL_TIMEOUT)
             self._stderr_reading_task = None
 
-        if self._stdout_reading_task is not None:
+        if self._stdout_reading_task:
             await asyncio.wait_for(self._stdout_reading_task, timeout=self.KILL_TIMEOUT)
             self._stdout_reading_task = None
 
@@ -145,7 +145,7 @@ class Discrivener:
     async def _read_stdout(self):
         while True:
             try:
-                if self._process is None or self._process.stdout is None:
+                if not self._process or not self._process.stdout:
                     fancy_logger.get().debug(
                         "Discrivener stdout reader: _process went away, exiting"
                     )
@@ -155,7 +155,7 @@ class Discrivener:
                 break
             line = line_bytes.decode("utf-8").strip()
 
-            if self._log_file is not None:
+            if self._log_file:
                 try:
                     self._log_file.write(line + "\n")
                 except (IOError, OSError) as err:
@@ -179,7 +179,7 @@ class Discrivener:
         # loop until EOF, printing everything to stderr
         while True:
             try:
-                if self._process is None or self._process.stderr is None:
+                if not self._process or not self._process.stderr:
                     fancy_logger.get().debug(
                         "Discrivener stderr reader: _process went away, exiting"
                     )
@@ -200,7 +200,7 @@ class Discrivener:
         fancy_logger.get().info("Discrivener stderr reader exited")
 
     def speak(self, text: str):
-        if self._process is None or self._process.stdin is None:
+        if not self._process or not self._process.stdin:
             fancy_logger.get().error("Discrivener: _process is not running")
             return
 

@@ -265,9 +265,9 @@ class StableDiffusionClient(http_client.SerializedHttpClient):
         or sampler, but knows a substring of it.
         """
         desired_model = params.pop(self.magic_model_key, None)
-        if desired_model is not None:
+        if desired_model:
             model = self._find_model(desired_model)
-            if model is not None:
+            if model:
                 if "override_settings" not in params:
                     params["override_settings"] = {}
                 params["override_settings"]["sd_model_checkpoint"] = model
@@ -284,13 +284,13 @@ class StableDiffusionClient(http_client.SerializedHttpClient):
         # the proper key is "sampler_name", but we also allow
         # "sampler" for convenience.  Move the value, if any, over now.
         desired_sampler = params.pop(self.SAMPLER_KEY_ALIAS, None)
-        if desired_sampler is not None:
+        if desired_sampler:
             params[self.SAMPLER_KEY] = desired_sampler
 
         desired_sampler = params.pop(self.SAMPLER_KEY, None)
-        if desired_sampler is not None:
+        if desired_sampler:
             sampler = self._find_sampler(desired_sampler)
-            if sampler is not None:
+            if sampler:
                 params[self.SAMPLER_KEY] = sampler
             else:
                 fancy_logger.get().debug(
@@ -316,7 +316,7 @@ class StableDiffusionClient(http_client.SerializedHttpClient):
         remaining_prompt = ""
         for word in self.SD_PARAM_SPLIT_REGEX.findall(prompt):
             key_val_pair = self._to_key_value_pair(word)
-            if key_val_pair is None:
+            if not key_val_pair:
                 remaining_prompt += word + " "
                 continue
             key, val = key_val_pair
@@ -421,7 +421,7 @@ class StableDiffusionClient(http_client.SerializedHttpClient):
         desired_model = self.request_params.get(self.magic_model_key, None)
         if desired_model:
             model = self._find_model(desired_model)
-            if model is None:
+            if not model:
                 fancy_logger.get().warning(
                     "Stable Diffusion: Desired default model '%s' not available.",
                     desired_model,
@@ -440,7 +440,7 @@ class StableDiffusionClient(http_client.SerializedHttpClient):
         )
         if desired_sampler:
             sampler = self._find_sampler(desired_sampler)
-            if sampler is None:
+            if not sampler:
                 fancy_logger.get().warning(
                     "Stable Diffusion: Desired default sampler '%s' not available.",
                     desired_sampler,

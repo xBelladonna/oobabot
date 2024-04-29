@@ -106,14 +106,16 @@ class BotCommands:
             if interaction.channel_id:
                 try:
                     channel = await interaction.client.fetch_channel(interaction.channel_id)
-                    if channel is not None:
-                        if isinstance(channel, discord.TextChannel):
-                            return channel
-                        if isinstance(channel, discord.Thread):
-                            return channel
-                        if isinstance(channel, discord.DMChannel):
-                            return channel
-                        if isinstance(channel, discord.GroupChannel):
+                    if channel:
+                        if isinstance(
+                            channel,
+                            (
+                                discord.TextChannel,
+                                discord.Thread,
+                                discord.DMChannel,
+                                discord.GroupChannel
+                            )
+                        ):
                             return channel
                 except discord.DiscordException as err:
                     fancy_logger.get().error(
@@ -201,7 +203,7 @@ class BotCommands:
             # if reply_in_thread is True, we don't want our bot to
             # speak in guild channels, only threads and private messages
             if self.reply_in_thread:
-                if channel is None or isinstance(channel, discord.TextChannel):
+                if not channel or isinstance(channel, discord.TextChannel):
                     await discord_utils.fail_interaction(
                         interaction,
                         f"{self.persona.ai_name} may only speak in threads"
@@ -339,7 +341,7 @@ class BotCommands:
         tree.add_command(stop)
         tree.add_command(poke)
 
-        if self.audio_commands is not None:
+        if self.audio_commands:
             self.audio_commands.add_commands(tree)
 
         commands = await tree.sync(guild=None)

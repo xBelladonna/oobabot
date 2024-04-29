@@ -119,7 +119,7 @@ class Runtime:
         # generates images, if stable diffusion is configured
         # also includes a UI to regenerate images on demand
         self.image_generator = None
-        if self.stable_diffusion_client is not None:
+        if self.stable_diffusion_client:
             self.image_generator = image_generator.ImageGenerator(
                 ooba_client=self.ooba_client,
                 persona_settings=settings.persona_settings.get_all(),
@@ -186,7 +186,7 @@ class Runtime:
         """
 
         for client in [self.ooba_client, self.stable_diffusion_client]:
-            if client is None:
+            if not client:
                 continue
 
             fancy_logger.get().info("%s is at %s", client.service_name, client.base_url)
@@ -200,7 +200,7 @@ class Runtime:
                     client.base_url,
                 )
                 fancy_logger.get().warning("Please check the URL and try again.")
-                if err.__cause__ is not None:
+                if err.__cause__:
                     fancy_logger.get().error("Reason: %s", err.__cause__)
                 return {
                     "mandatory": client is self.ooba_client,
@@ -224,7 +224,7 @@ class Runtime:
                 self.ooba_client,
                 self.stable_diffusion_client,
             ]:
-                if context_manager is not None:
+                if context_manager:
                     await stack.enter_async_context(context_manager)
 
             try:

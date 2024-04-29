@@ -386,7 +386,7 @@ class TemplateStore:
         ),
         Templates.IMAGE_GENERATION_ERROR: textwrap.dedent(
             """
-            Something went wrong generating your image.  Sorry about that!
+            Something went wrong generating your image. Sorry about that!
             """
         ),
         Templates.IMAGE_UNAUTHORIZED: textwrap.dedent(
