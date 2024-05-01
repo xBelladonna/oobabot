@@ -176,7 +176,7 @@ class Runtime:
 
         self.discord_token = settings.discord_settings.get_str("discord_token")
 
-    def test_connections(self) -> dict[str, bool]:
+    def test_connections(self) -> typing.Tuple[bool, bool]:
         """
         Tests that we can connect to all services we depend on.
         Does not test Discord connectivity.
@@ -202,14 +202,8 @@ class Runtime:
                 fancy_logger.get().warning("Please check the URL and try again.")
                 if err.__cause__:
                     fancy_logger.get().error("Reason: %s", err.__cause__)
-                return {
-                    "mandatory": client is self.ooba_client,
-                    "test_passed": False
-                }
-        return {
-            "mandatory": client is self.ooba_client,
-            "test_passed": False
-        }
+                return (client is self.ooba_client, False)
+        return (client is self.ooba_client, True)
 
     async def run(self):
         """
@@ -235,10 +229,9 @@ class Runtime:
             except discord.errors.PrivilegedIntentsRequired as err:
                 fancy_logger.get().warning("Could not log in to Discord: %s", err)
                 fancy_logger.get().warning(
-                    "The bot token you provided does not have the required "
-                    + "gateway intents.  Did you remember to enable both "
-                    + "'SERVER MEMBERS INTENT' and 'MESSAGE CONTENT INTENT' "
-                    + "in the bot's settings on Discord?"
+                    "The bot token you provided does not have the required gateway "
+                    + "intents. Did you remember to enable 'MESSAGE CONTENT INTENT' "
+                    + "in the bot's settings on Discord?",
                 )
                 raise OobabotRuntimeError(
                     "Could not log in to Discord: intents not set"

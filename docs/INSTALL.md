@@ -39,7 +39,7 @@ It boils down to first, creating a bot account:
 - generate a token for the bot.  MAKE NOTE OF THIS FOR LATER.
 - enable the bot's intents as follows:
   - `PRESENCE INTENT: OFF`
-  - `SERVER MEMBERS INTENT: ON`
+  - `SERVER MEMBERS INTENT: OFF`
   - `MESSAGE CONTENT INTENT: ON`
 
 ## 3. Invite **`oobabot`** to Discord servers
