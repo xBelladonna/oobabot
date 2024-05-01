@@ -178,7 +178,7 @@ class DecideToRespond:
 
         time_since_last_mention = self.last_reply_times.time_since_last_mention(message)
         fancy_logger.get().debug(
-            "Considering unsolicited response in channel %s after %2.0f seconds.  "
+            "Considering unsolicited response in %s after %2.0f seconds.  "
             + "chance: %2.0f%%.",
             message.channel_name,
             time_since_last_mention,

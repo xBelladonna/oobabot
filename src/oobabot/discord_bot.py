@@ -142,7 +142,10 @@ class DiscordBot(discord.Client):
 
         if self.stop_markers:
             fancy_logger.get().debug(
-                "Stop markers: %s", ", ".join(self.stop_markers).replace("\n", "\\n")
+                "Stop markers: %s",
+                ", ".join(
+                    [f"'{stop_marker}'" for stop_marker in self.stop_markers]
+                ).replace("\n", "\\n")
             )
 
         # log unsolicited_channel_cap
@@ -310,7 +313,7 @@ class DiscordBot(discord.Client):
         # Wait if we're accumulating messages
         if self.message_accumulation_period and not guaranteed_response:
             fancy_logger.get().debug(
-                "Received message, waiting %.1f seconds to accumulate incoming messages...",
+                "Waiting %.1f seconds to accumulate incoming messages...",
                 self.message_accumulation_period,
             )
             await asyncio.sleep(self.message_accumulation_period)
@@ -319,9 +322,6 @@ class DiscordBot(discord.Client):
                     "Finished accumulating messages, but none were found in the queue."
                 )
                 return
-            fancy_logger.get().debug(
-                "Finished accumulating messages."
-            )
 
         if not message_queue:
             return
@@ -406,7 +406,7 @@ class DiscordBot(discord.Client):
         or both, and then sends the response(s).
         """
         fancy_logger.get().debug(
-            "Request from %s in %s", message.author_name, message.channel_name
+            "Message from %s in %s", message.author_name, message.channel_name
         )
         image_prompt = None
         if self.image_generator:
@@ -542,7 +542,7 @@ class DiscordBot(discord.Client):
             guild_name = response_channel.guild.name
             response_channel_name = response_channel.name
         elif isinstance(response_channel, discord.GroupChannel):
-            guild_name = "Group Chat"
+            guild_name = "Group DM"
             response_channel_name = response_channel.name
         else:
             guild_name = "Direct Message"
@@ -1098,18 +1098,6 @@ class DiscordBot(discord.Client):
                 match = message_pattern.match(sentence)
                 if match:
                     username_sequence, remaining_text = match.groups()
-                    bot_display_name_prompt = self.template_store.format(
-                        templates.Templates.BOT_PROMPT_HISTORY_BLOCK,
-                        {
-                            templates.TemplateToken.BOT_NAME: self.template_store.format(
-                                templates.Templates.BOT_NAME,
-                                {
-                                    templates.TemplateToken.NAME: username_sequence,
-                                },
-                            ),
-                            templates.TemplateToken.MESSAGE: "",
-                        },
-                    ).strip()
                     ai_name_prompt = self.template_store.format(
                         templates.Templates.BOT_PROMPT_HISTORY_BLOCK,
                         {
@@ -1121,23 +1109,20 @@ class DiscordBot(discord.Client):
                             ),
                             templates.TemplateToken.MESSAGE: "",
                         },
-                    ).strip()
+                    )
 
-                    if (
-                        username_sequence in bot_display_name_prompt or
-                        username_sequence in ai_name_prompt
-                    ):
+                    if username_sequence in ai_name_prompt:
                         # If the username matches the bot's name, trim the username portion
                         # and keep the remaining text
                         fancy_logger.get().warning(
-                            "Filtered out %s from response, continuing", sentence
+                            "Filtered out '%s' from response, continuing", sentence
                         )
                         sentence = remaining_text  # Trim and keep the rest of the sentence
                     else:
                         # If the username is not the bot's username, abort the response for
                         # breaking immersion
                         fancy_logger.get().warning(
-                            'Filtered out "%s" from response, aborting', sentence
+                            "Filtered out '%s' from response, aborting", sentence
                         )
                         abort_response = True
                         break  # Break out of the for-loop processing sentences
@@ -1145,7 +1130,7 @@ class DiscordBot(discord.Client):
                 # look for partial stop markers within a sentence
                 for marker in self.stop_markers:
                     if marker in sentence:
-                        (keep_part, removed) = sentence.split(marker, 1)
+                        keep_part, removed = sentence.split(marker, 1)
                         fancy_logger.get().warning(
                             'Filtered out "%s" from response, aborting',
                             removed,
@@ -1221,22 +1206,29 @@ class DiscordBot(discord.Client):
             fn_user_id_to_name = discord_utils.dm_user_id_to_name(
                 self.ai_user_id,
                 self.persona.ai_name,
+                message.author.display_name,
+            )
+        elif isinstance(message.channel, (discord.abc.GuildChannel, discord.Thread)):
+            fn_user_id_to_name = discord_utils.guild_user_id_to_name(
+                message.channel.guild,
+            )
+            await discord_utils.replace_channel_mention_ids_with_names(
+                self,
+                generic_message,
             )
         elif isinstance(message.channel, discord.GroupChannel):
             fn_user_id_to_name = discord_utils.group_user_id_to_name(
                 message.channel,
             )
-        elif isinstance(message.channel, discord.abc.GuildChannel):
-            fn_user_id_to_name = discord_utils.guild_user_id_to_name(
-                message.channel.guild,
-            )
         else:
+            # we shouldn't ever end up here... give it a function anyway
             fn_user_id_to_name = discord_utils.dm_user_id_to_name(
                 self.ai_user_id,
                 self.persona.ai_name,
+                message.author.display_name,
             )
 
-        discord_utils.replace_mention_ids_with_names(
+        discord_utils.replace_user_mention_ids_with_names(
             generic_message,
             fn_user_id_to_name=fn_user_id_to_name,
         )

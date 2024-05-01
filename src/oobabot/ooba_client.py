@@ -275,9 +275,6 @@ class OobaClient(http_client.SerializedHttpClient):
         splitter = self.fn_new_splitter()
         async for new_token in self.request_by_token(prompt, stopping_strings):
             for sentence in splitter.next(new_token):
-                # remove "### Assistant: " from strings
-                if sentence.startswith("### Assistant: "):
-                    sentence = sentence[len("### Assistant: "):]
                 yield sentence
 
     async def request_as_string(
@@ -396,7 +393,10 @@ class OobaClient(http_client.SerializedHttpClient):
                     )
 
         fancy_logger.get().debug(
-            "Using stop sequences: %s", ", ".join(request["stop"]).replace("\n", "\\n")
+            "Using stop sequences: %s",
+            ", ".join(
+                [f"'{stop_sequence}'" for stop_sequence in request["stop"]]
+            ).replace("\n", "\\n")
         )
 
         url = self.base_url + self.api_endpoint

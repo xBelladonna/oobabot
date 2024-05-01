@@ -87,7 +87,7 @@ def discord_message_to_generic_message(
     return types.GenericMessage(**generic_args)
 
 
-def replace_mention_ids_with_names(
+def replace_user_mention_ids_with_names(
     generic_message: types.GenericMessage,
     fn_user_id_to_name: typing.Callable[[re.Match[str]], str],
 ):
@@ -104,15 +104,45 @@ def replace_mention_ids_with_names(
         if not match:
             break
         generic_message.body_text = (
-            generic_message.body_text[: match.start()]
+            generic_message.body_text[:match.start()]
             + fn_user_id_to_name(match)
-            + generic_message.body_text[match.end() :]
+            + generic_message.body_text[match.end():]
+        )
+
+
+async def replace_channel_mention_ids_with_names(
+    client: discord.Client,
+    generic_message: types.GenericMessage,
+):
+    """
+    Replace user ID mentions with the user's chosen display
+    name in the given guild (aka server)
+    """
+    # it looks like IDs are 19 digits long
+    hash_mention_pattern = r"<#(\d{17,21})>"
+    while True:
+        match = re.search(hash_mention_pattern, generic_message.body_text)
+        if not match:
+            break
+        channel_id = int(match.group(1))
+        channel = await client.fetch_channel(channel_id)
+        if channel:
+            channel_name = channel.name
+            if " " in channel_name:
+                channel_name = f'"{channel_name}"'
+        else:
+            channel_name = "#unknown-channel"
+        generic_message.body_text = (
+            generic_message.body_text[:match.start()]
+            + f"#{channel_name}"
+            + generic_message.body_text[match.end():]
         )
 
 
 def dm_user_id_to_name(
     bot_user_id: int,
     bot_name: str,
+    user_name: str,
 ) -> typing.Callable[[re.Match[str]], str]:
     """
     Replace user ID mentions with the bot's name.  Used when
@@ -120,13 +150,15 @@ def dm_user_id_to_name(
     """
     if " " in bot_name:
         bot_name = f'"{bot_name}"'
+    if " " in user_name:
+        user_name = f'"{user_name}"'
 
     def _replace_user_id_mention(match: typing.Match[str]) -> str:
         user_id = int(match.group(1))
         print(f"bot_user_id={bot_user_id}, user_id={user_id}")
         if user_id == bot_user_id:
             return f"@{bot_name}"
-        return match.group(0)
+        return f"@{user_name}"
 
     return _replace_user_id_mention
 
@@ -142,7 +174,7 @@ def group_user_id_to_name(
                 member = user
                 break
         if not member:
-            return match.group(0)
+            return '@"Unknown member"'
         display_name = member.display_name
         if " " in display_name:
             display_name = f'"{display_name}"'
@@ -158,7 +190,7 @@ def guild_user_id_to_name(
         user_id = int(match.group(1))
         member = guild.get_member(user_id)
         if not member:
-            return match.group(0)
+            return '@"Unknown member"'
         display_name = member.display_name
         if " " in display_name:
             display_name = f'"{display_name}"'
