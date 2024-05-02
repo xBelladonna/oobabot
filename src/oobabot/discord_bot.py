@@ -13,6 +13,7 @@ from PIL import Image
 
 import emoji
 import discord
+import pysbd
 
 from oobabot import bot_commands
 from oobabot import decide_to_respond
@@ -61,6 +62,7 @@ class DiscordBot(discord.Client):
         self.response_stats = response_stats
 
         self.ai_user_id = -1
+        self.message_character_limit = 2000
 
         self.dont_split_responses = discord_settings["dont_split_responses"]
         self.ignore_dms = discord_settings["ignore_dms"]
@@ -776,6 +778,18 @@ class DiscordBot(discord.Client):
             else:
                 # post the whole message at once
                 if self.dont_split_responses:
+                    if len(response) > self.message_character_limit:
+                        # hopefully we don't get here often but if we do, split the response
+                        # into sentences, and append them to our response until the next
+                        # sentence would cause the response to exceed the character limit.
+                        new_response = ""
+                        segmenter = pysbd.Segmenter(language="en", clean=False, char_span=True)
+                        sentences: typing.List[pysbd.utils.TextSpan] = segmenter.segment(response)
+                        for sentence in sentences:
+                            if len(new_response) > self.message_character_limit:
+                                break
+                            new_response += sentence.sent
+                        response = new_response
                     (
                         last_sent_message,
                         aborted_by_us,
@@ -793,6 +807,9 @@ class DiscordBot(discord.Client):
                 else:
                     last_sent_message = None
                     async for sentence in response:
+                        if len(sentence) > self.message_character_limit:
+                            # idk how the hell we might get here but best to consider it
+                            sentence = sentence[:self.message_character_limit]
                         (
                             sent_message,
                             abort_response,
@@ -967,6 +984,9 @@ class DiscordBot(discord.Client):
                 continue
             response += token
             response, abort_response = self._filter_immersion_breaking_lines(response)
+            # Abort the stream if our response meets or exceeds Discord's character limit
+            if len(response) >= self.message_character_limit:
+                break
 
             # don't send an empty message
             if not response:
@@ -1026,6 +1046,8 @@ class DiscordBot(discord.Client):
             if not sentence:
                 continue
             response += sentence
+            if len(response) >= self.message_character_limit:
+                break
 
             if not last_message:
                 last_message = await response_channel.send(
