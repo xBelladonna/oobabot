@@ -8,9 +8,11 @@ import asyncio
 import typing
 import io
 import re
+from collections import deque
+from PIL import Image
+
 import emoji
 import discord
-from PIL import Image
 
 from oobabot import bot_commands
 from oobabot import decide_to_respond
@@ -96,9 +98,11 @@ class DiscordBot(discord.Client):
         # add stopping_strings to stop_markers
         self.stop_markers.extend(self.ooba_client.get_stopping_strings())
 
+        # Identify our intents with the Gateway
         super().__init__(intents=discord_utils.get_intents())
 
-        self.message_queue = []
+        # Instantiate double-ended message queue
+        self.message_queue = deque()
 
     async def on_ready(self) -> None:
         guilds = self.guilds
@@ -196,40 +200,35 @@ class DiscordBot(discord.Client):
 
         This method is called for every message that the bot can see.
         It decides whether to respond to the message, and if so,
-        calls _handle_response() to generate a response.
+        queues the message for processing.
 
         :param raw_message: The raw message from Discord.
         """
 
         # If the message is not a command, proceed with regular message handling
         try:
-            channel = raw_message.channel
-            message = discord_utils.discord_message_to_generic_message(raw_message)
-            should_respond, is_summon = self.decide_to_respond.should_reply_to_message(
-                self.ai_user_id, message
-            )
-            if not should_respond:
-                return
-
-            is_summon_in_public_channel = is_summon and isinstance(
-                message,
-                types.ChannelMessage,
-            )
-
             # Add the message to the queue
-            self.message_queue.append(
-                (message, raw_message, is_summon_in_public_channel)
-            )
+            self.message_queue.appendleft(raw_message)
             # Start processing the message queue for the first message received
             if len(self.message_queue) == 1:
                 self.loop.create_task(
-                    self.process_message_queue(channel, self.message_queue)
+                    self.process_message_queue(raw_message.channel, self.message_queue)
                 )
 
         except discord.DiscordException as err:
             fancy_logger.get().error(
                 "Error while queueing message for processing: %s", err, exc_info=True
             )
+
+    async def on_message_delete(self, raw_message: discord.Message) -> None:
+        """
+        Called when a message is deleted from Discord.
+
+        This method is called for every message in the cache that is deleted,
+        checks if that message is in our message queue, and removes it if so.
+        """
+        if raw_message in self.message_queue:
+            self.message_queue.remove(raw_message)
 
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent) -> None:
         channel = await self.fetch_channel(payload.channel_id)
@@ -239,7 +238,7 @@ class DiscordBot(discord.Client):
         if payload.emoji.name == "⏪":
             fancy_logger.get().debug(
                 "Received request from %s to hide chat history in %s.",
-                payload.member.name,
+                raw_message.author.name,
                 discord_utils.get_channel_name(channel),
             )
 
@@ -253,7 +252,13 @@ class DiscordBot(discord.Client):
                     break
                 if msg.id == payload.message_id:
                     finished = True
-            await raw_message.remove_reaction(payload.emoji, payload.member)
+            try:
+                await raw_message.clear_reaction(payload.emoji)
+            except (discord.Forbidden, discord.NotFound):
+                # We can't remove reactions on other users' messages in DMs or Group DMs.
+                # Also give up if the reaction isn't there anymore (i.e. someone removed
+                # it before we could).
+                pass
             return
 
         # only process the below reactions if it was to one of our messages
@@ -263,10 +268,15 @@ class DiscordBot(discord.Client):
         # message deletion
         if payload.emoji.name == "❌":
             fancy_logger.get().debug(
-                "Received message deletion request from %s. Deleting message...",
-                payload.member.display_name,
+                "Received message deletion request from %s in %s. Deleting message...",
+                raw_message.author.name,
+                discord_utils.get_channel_name(channel),
             )
-            await raw_message.delete()
+            try:
+                await raw_message.delete()
+            except discord.NotFound:
+                # The message was somehow deleted already, give up.
+                fancy_logger.get().debug("Message is already gone! Giving up.")
             return
 
         # message regeneration
@@ -274,12 +284,17 @@ class DiscordBot(discord.Client):
             message = discord_utils.discord_message_to_generic_message(raw_message)
             fancy_logger.get().debug(
                 "Received message regeneration request from %s. Regenerating message...",
-                payload.member.name,
+                raw_message.author.name,
             )
             try:
                 async with channel.typing():
                     await self._regenerate_message(message, raw_message, channel)
-                await raw_message.remove_reaction(payload.emoji, payload.member)
+                if isinstance(channel, (discord.DMChannel, discord.GroupChannel)):
+                    return
+                try:
+                    await raw_message.clear_reaction(payload.emoji)
+                except (discord.Forbidden, discord.NotFound):
+                    pass
             except discord.DiscordException as err:
                 fancy_logger.get().error("Error while processing reaction: %s", err, exc_info=True)
                 self.response_stats.log_response_failure()
@@ -288,30 +303,29 @@ class DiscordBot(discord.Client):
             self,
             channel: typing.Union[
                 discord.abc.GuildChannel,
+                discord.Thread,
                 discord.DMChannel,
                 discord.GroupChannel,
-                discord.Thread,
             ],
-            message_queue: typing.List[
-                typing.Tuple[
-                    types.GenericMessage,
-                    discord.Message,
-                    bool,
-                ]
-            ],
+            message_queue: typing.Deque[typing.Tuple[discord.Message]]
         ) -> None:
         """
         Pops the latest message from the queue and handles a response to it.
-        """
-        # Did we guarantee a response? If so, take note of the state and immediately
-        # reset the flag. This is crucial to remember to do otherwise we will get into
-        # an infinite recursive loop of responding to ourselves.
-        guaranteed_response = self.decide_to_respond.guaranteed_response
-        if guaranteed_response:
-            self.decide_to_respond.guaranteed_response = False
 
-        # Wait if we're accumulating messages
-        if self.message_accumulation_period and not guaranteed_response:
+        The current implementation simply processes the latest message and discards
+        the rest, but leaves room for more complex logic in the future, such as
+        selectively handling messages in the order they were received.
+        """
+        # Wait if we're accumulating messages. We do this in Guild-type channels, but
+        # not in DMs or Group DMs rather arbitrarily, as the feature was initially
+        # designed for bots like PluralKit and Tupperbox that rapidly delete and
+        # re-post user messages under different names, and they can't be present
+        # in these channel types.
+        if (
+            self.message_accumulation_period
+            and not self.decide_to_respond.guaranteed_response
+            and isinstance(channel, (discord.abc.GuildChannel, discord.Thread))
+        ):
             fancy_logger.get().debug(
                 "Waiting %.1f seconds to accumulate incoming messages...",
                 self.message_accumulation_period,
@@ -321,36 +335,41 @@ class DiscordBot(discord.Client):
                 fancy_logger.get().debug(
                     "Finished accumulating messages, but none were found in the queue."
                 )
-                return
-
+        # If the queue is empty, abort response
         if not message_queue:
             return
 
-        # then process the latest message in our queue
-        def get_latest_message(
-            message_queue: typing.List[
-                typing.Tuple[
-                    types.GenericMessage,
-                    discord.Message,
-                    bool,
-                ]
-            ],
-        ):
-            latest_message = message_queue.pop()
-            message_queue.clear()
-            return latest_message
+        # otherwise, process the latest message in our queue
+        raw_message = message_queue.popleft()
 
-        message, raw_message, is_summon_in_public_channel = get_latest_message(message_queue)
+        message = discord_utils.discord_message_to_generic_message(raw_message)
+        should_respond, is_summon = self.decide_to_respond.should_reply_to_message(
+            self.ai_user_id, message
+        )
+        # Did we guarantee a response? If so, take note of the state and immediately
+        # reset the flag. This is crucial to remember to do otherwise we will get into
+        # an infinite recursive loop of responding to ourselves.
+        guaranteed_response = self.decide_to_respond.guaranteed_response
+        if guaranteed_response:
+            self.decide_to_respond.guaranteed_response = False
+        if not should_respond:
+            return
+        is_summon_in_public_channel = is_summon and isinstance(
+            message, types.ChannelMessage
+        )
 
         # Sometimes it's the case where the message we got has already been deleted.
-        # This attempts to catch this and grab the latest message to reply to anyway.
+        # We attempt to prevent this as much as possible, but it might still happen.
+        # This attempts to catch it and grab the latest message to reply to anyway.
         try:
             await channel.fetch_message(message.message_id)
-        except discord.errors.NotFound:
-            # first check the message queue again, in case we only just missed one
+        except discord.NotFound:
+            # First check the message queue again, in case we only just missed one. This
+            # time we pop from the right, to get the message sent right after the deleted
+            # one, in case a new message has actually come in since we last checked.
             if message_queue:
-                message, raw_message, is_summon_in_public_channel = get_latest_message(
-                    message_queue)
+                raw_message = message_queue.pop()
+                message = discord_utils.discord_message_to_generic_message(raw_message)
             else:
                 # otherwise just get the latest visible message from the channel
                 skip = False
@@ -366,19 +385,18 @@ class DiscordBot(discord.Client):
                     break
                 message = discord_utils.discord_message_to_generic_message(raw_message)
 
+        # Clear the queue once we have our latest message, we don't need it anymore
+        message_queue.clear()
+
         # If the message is hidden, abort response. We do this here instead of in
         # decide_to_respond, in case the user is using something like PluralKit or
         # Tupperbox and the original message (which was deleted) began with a different
-        # sequence. This ensures the deleted message doesn't trigger a response to
-        # whatever the latest message ends up being. Produces chattier logs than
-        # silently aborting in decide_to_respond, but catches more edge-cases
+        # sequence. Because we wait to accumulate messages, this ensures the deleted
+        # message doesn't trigger a response to whatever the latest message ends up being.
         if not guaranteed_response:
             for ignore_prefix in self.ignore_prefixes:
                 if message.body_text.startswith(ignore_prefix):
-                    fancy_logger.get().debug(
-                        "Message is hidden (begins with ignore prefix '%s'), aborting response.",
-                        ignore_prefix,
-                    )
+                    fancy_logger.get().debug("Message is hidden, aborting response.")
                     return
 
         try:
@@ -1041,9 +1059,7 @@ class DiscordBot(discord.Client):
 
         return last_message
 
-    def _filter_immersion_breaking_lines(
-    self, text: str
-    ) -> typing.Tuple[str, bool]:
+    def _filter_immersion_breaking_lines(self, text: str) -> typing.Tuple[str, bool]:
         """
         Given a string that represents an individual response message,
         filter out any lines that would break immersion.
@@ -1059,7 +1075,7 @@ class DiscordBot(discord.Client):
         # This pattern uses a positive lookahead to keep the punctuation at the end of the sentence
         split_pattern = r'(?<=[.!?])\s+(?=[A-Z])'
         # First, split the text by 'real' newlines to preserve them
-        lines = text.split('\n')
+        lines = text.split("\n")
         good_lines = []
         abort_response = False
 
@@ -1092,7 +1108,7 @@ class DiscordBot(discord.Client):
                         ),
                         templates.TemplateToken.MESSAGE: "",
                     },
-                )
+                ).strip("\n")
                 username_pattern = re.escape(username_pattern).replace(name_identifier, ".*")
                 message_pattern = re.compile(r'(' + username_pattern + r')\s*(.*)')
                 match = message_pattern.match(sentence)
@@ -1109,7 +1125,7 @@ class DiscordBot(discord.Client):
                             ),
                             templates.TemplateToken.MESSAGE: "",
                         },
-                    )
+                    ).strip("\n")
 
                     if username_sequence in ai_name_prompt:
                         # If the username matches the bot's name, trim the username portion
@@ -1132,8 +1148,7 @@ class DiscordBot(discord.Client):
                     if marker in sentence:
                         keep_part, removed = sentence.split(marker, 1)
                         fancy_logger.get().warning(
-                            'Filtered out "%s" from response, aborting',
-                            removed,
+                            "Filtered out '%s' from response, aborting", removed
                         )
                         if keep_part:
                             good_sentences.append(keep_part)
@@ -1143,8 +1158,8 @@ class DiscordBot(discord.Client):
                 if abort_response:
                     break
 
-                # filter out sentences that are entirely made of whitespace
-                if sentence.strip():
+                # filter out sentences that are entirely made of whitespace/newlines
+                if sentence.strip().strip("\n"):
                     good_sentences.append(sentence)
 
             if abort_response:
