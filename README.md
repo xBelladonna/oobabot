@@ -13,6 +13,7 @@
 It even supports non-local solutions such as Openrouter, Cohere, OpenAI, etc.
 
 **updated! use `--generate-config` and update your configs!**
+**if you want to migrate your existing config, specify your config file as well: `-c config.yml --generate-config`**
 
 
 ## Installation and Quick Start!
@@ -51,19 +52,19 @@ See [INSTALL.md](./docs/INSTALL.md) for detailed installation instructions.
 | **Wakewords** | Can monitor all channels in a server for one or more wakewords or @-mentions
 | **Private conversations** | Can chat with you 1:1 in a DM
 | **Good Discord hygiene** | Splits messages into independent sentences, pings the author in the first one
-| **Low-latency** | Streams the reply live, sentence by sentence.  Provides lower latency, especially on longer responses.
+| **Low-latency** | Streams the reply live, sentence by sentence, or even by small groups of tokens. Provides lower latency, especially on longer responses.
 | **Stats** | Track token generation speed, latency, failures and usage
 | **Easy networking** | Connects to discord from your machine using websockets, so no need to expose a server to the internet
 | **Stable Diffusion** | Optional image generation with AUTOMATIC1111
 | **Slash commands** | Did your bot get confused?  `/lobotomize` it!
-| **OpenAI API support** | Roughly supports MANY OpenAI API endpoints
-| **Vision API support** | Roughly supports Vision model API (tested with llama-cpp-python API)
+| **OpenAI API support** | Roughly supports OpenAI-compatible API endpoints as well as the Cohere API (Command R+)
+| **Vision API support** | Roughly supports GPT Vision API (tested with llama-cpp-python API and LocalAI)
 
 You should now be able to run oobabot from wherever pip installed it.
 If you're on windows, you should use `python3 -m oobabot (args here)`
 
 There are a **LOT** of settings in the `config.yml`, and it can be tough to figure out what works best.
-There is a somewhat populated example config [here](./docs/example-config.yml) for you to inspect and get familiar with. This config is not complete, so don't try to run the bot with it. Generate a configuration file first, then fill out what you need.
+There is a somewhat populated example config [here](./docs/example-config.yml) for you to inspect and get familiar with. This config is not complete and has no Discord token, so don't try to run the bot with it. Generate a configuration file first, then fill out what you need.
 
 ## Optional settings
 
@@ -75,7 +76,7 @@ There is a somewhat populated example config [here](./docs/example-config.yml) f
 
 - **`persona`**
 
-    This is a short few sentences describing the role your bot should act as.  For instance, this is the setting I'm using for my cat-bot, whose name is "Rosie".
+    This is a short few sentences describing the role your bot should act as.  For instance, this is what you might use for a cat-bot, whose name is "Rosie".
 
   ```console
   Here is some background information about Rosie:
@@ -125,13 +126,13 @@ You should see something like this if everything worked:
   Currently, detection of photo requests is very crude, and is only looking for messages which match this regex:
 
   ```python
-  image_words = ["drawing", "photo", "pic", "picture", "image", "sketch"]
-  self.image_patterns = [
-      re.compile(
-          r"^.*\b" + image_word + r"\b\s*((as?|of|the|with)\s)*:?([\w\s,:\-\(\)\[\]]+)[^\w]*$",
-          re.IGNORECASE,
-      )
-      for image_word in self.image_words
+  image_words = ["draw", "sketch", "paint", "make", "generate", "post", "upload"]
+  image_patterns = [
+    re.compile(
+        r"^.*\b" + image_word + r"\b\s*((as?|of|the|with)\s)*:?([\w\s,.:!=\"\'\-\(\)\[\]]+)[^\w]*$",
+        re.IGNORECASE,
+    )
+    for image_word in image_words
   ]
   ```
   This is configurable in the settings file. Experiment with what works best for you in terms of false positives.
@@ -155,9 +156,9 @@ Also, the bot has a random chance of sending follow-up messages within the
 same channel if others reply within 120 seconds of its last post. This "random chance" is configurable via the `config.yml`:
 
 ```yaml
-# Response chance vs. time - calibration table List of tuples with time in seconds and response chance as float between 0-1
+# Time vs. response chance - calibration table List of tuples with time in seconds and response chance as float between 0-1
 #   default: ['(180.0, 0.99)', '(300.0, 0.7)', '(600.0, 0.5)']
-response_chance_vs_time:
+time_vs_response_chance:
 ```
 
 Here, you can see that NEW messages within 3 minutes of the bot's last reply will have a 99% chance of response.
@@ -168,22 +169,31 @@ Here, you can see that NEW messages within 3 minutes of the bot's last reply wil
 Feel free to configure this to suit your needs! 
   
 
+### Reaction controls
+
+As of 0.3.0, the bot now supports reaction controls:
+* React to one of the bot's messages with ❌ to delete it.
+* React to one of the bot's messages with 🔁 to regenerate it.
+* React to one of the bot's messages with ⏪ to hide that message and all messages before it from the bot's chat history.
+
+After the action is complete, the reaction will be automatically removed. Note that the bot cannot remove reactions itself in DMs and Group DMs. This is by design due to Discord channel types and their respective permissions. You must remove the reaction yourself if you are in a DM with the bot.
+
+
 ### Slash Commands
 
-As of 0.1.6, the bot now supports slash commands:
+As of 0.3.0, the bot now supports slash commands:
 
 | **`/command`**  | What it does |
 |---------------|------------------|
 | **`/lobotomize`** | Make the bot forget everything in the channel before the command is run
 | **`/say "message"`** | Make the bot post the provided message
+| **`/edit "message"`** | Make the bot edit its most recent message with the provided message
 | **`/stop`** | Make the bot abort the currently generating message and post what it has so far
-| **`/regenerate`** | Delete and regenerate the bot's last message
 | **`/poke`** | Prompt the bot to reply to the last message
 
-Oobabot doesn't add any restrictions on who can run these commands, but luckily Discord does!  You can find this inside Discord by visiting "Server Settings" -> Integrations -> Bots and Apps -> hit the icon which looks like [/] next to your bot
+Oobabot doesn't add any restrictions on who can run these commands, but luckily Discord does! You can find this inside Discord by visiting "Server Settings" -> Integrations -> Bots and Apps -> hit the icon which looks like [/] next to your bot
 
-If you're running on a large server, you may want to restrict who can run these commands.  I suggest creating a new role, and only allowing that role to run the commands.
-
+If you're running on a large server, you may want to restrict who can run these commands. I suggest creating a new role, and only allowing that role to run the commands.
 
 ## Contributing
 
