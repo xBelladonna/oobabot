@@ -318,25 +318,16 @@ class DiscordBot(discord.Client):
         the rest, but leaves room for more complex logic in the future, such as
         selectively handling messages in the order they were received.
         """
-        # Wait if we're accumulating messages. We do this in Guild-type channels, but
-        # not in DMs or Group DMs rather arbitrarily, as the feature was initially
-        # designed for bots like PluralKit and Tupperbox that rapidly delete and
-        # re-post user messages under different names, and they can't be present
-        # in these channel types.
+        # Wait if we're accumulating messages. We avoid this in DMs or Group DMs
+        # rather arbitrarily, as the feature was initially designed for bots like
+        # PluralKit and Tupperbox that rapidly delete and re-post user messages
+        # under different names, and they can't be present in these channel types.
         if (
             self.message_accumulation_period
             and not self.decide_to_respond.guaranteed_response
-            and isinstance(channel, (discord.abc.GuildChannel, discord.Thread))
+            and not isinstance(channel, (discord.DMChannel, discord.GroupChannel))
         ):
-            fancy_logger.get().debug(
-                "Waiting %.1f seconds to accumulate incoming messages...",
-                self.message_accumulation_period,
-            )
             await asyncio.sleep(self.message_accumulation_period)
-            if not message_queue:
-                fancy_logger.get().debug(
-                    "Finished accumulating messages, but none were found in the queue."
-                )
         # If the queue is empty, abort response
         if not message_queue:
             return
