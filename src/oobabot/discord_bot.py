@@ -105,6 +105,8 @@ class DiscordBot(discord.Client):
 
         # Instantiate double-ended message queue
         self.message_queue = deque()
+        # Get a sentence segmenter ready
+        self.sentence_splitter = pysbd.Segmenter(language="en", clean=False, char_span=True)
 
     async def on_ready(self) -> None:
         guilds = self.guilds
@@ -774,8 +776,9 @@ class DiscordBot(discord.Client):
                         # into sentences, and append them to our response until the next
                         # sentence would cause the response to exceed the character limit.
                         new_response = ""
-                        segmenter = pysbd.Segmenter(language="en", clean=False, char_span=True)
-                        sentences: typing.List[pysbd.utils.TextSpan] = segmenter.segment(response)
+                        sentences: typing.List[
+                            pysbd.utils.TextSpan
+                        ] = [x.sent for x in self.sentence_splitter.segment(response)]
                         for sentence in sentences:
                             if len(new_response) > self.message_character_limit:
                                 break
@@ -1094,7 +1097,10 @@ class DiscordBot(discord.Client):
 
         for line in lines:
             # Split the line by the pattern to get individual sentences
-            sentences = re.split(split_pattern, line)
+            # sentences = re.split(split_pattern, line)
+            sentences: typing.List[
+                pysbd.utils.TextSpan
+            ] = [x.sent for x in self.sentence_splitter.segment(line)]
             good_sentences = []
 
             for sentence in sentences:
@@ -1123,7 +1129,7 @@ class DiscordBot(discord.Client):
                     },
                 ).strip("\n")
                 username_pattern = re.escape(username_pattern).replace(name_identifier, ".*")
-                message_pattern = re.compile(r'(' + username_pattern + r')\s*(.*)')
+                message_pattern = re.compile(r'^(' + username_pattern + r')\s*(.*)')
                 match = message_pattern.match(sentence)
                 if match:
                     username_sequence, remaining_text = match.groups()
@@ -1178,14 +1184,14 @@ class DiscordBot(discord.Client):
             if abort_response:
                 break
 
-            # Join the good sentences with a space and append to good_lines
-            good_line = " ".join(good_sentences)
+            # Join the good sentences and append to good_lines. pysbd preserves the
+            # leading/trailing whitespace, so no space in the join is needed.
+            good_line = "".join(good_sentences)
             if good_line:
                 good_lines.append(good_line)
 
         return ("\n".join(good_lines), abort_response)
 
-    ########
     async def _filter_history_message(
       self,
       message: discord.Message,
