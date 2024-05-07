@@ -202,6 +202,7 @@ def guild_user_id_to_name(
 def get_intents() -> discord.Intents:
     intents = discord.Intents.default()
     intents.message_content = True
+    intents.members = True
     return intents
 
 
@@ -224,9 +225,10 @@ async def test_discord_token(discord_token: str) -> bool:
         if err.code != 4014:
             raise
         fancy_logger.get().warning(
-            "The bot token you provided does not have the required gateway "
-            + "intents. Did you remember to enable 'MESSAGE CONTENT INTENT' "
-            + "in the bot's settings on Discord?",
+            "The bot token you provided does not have the required "
+            + "gateway intents.  Did you remember to enable both "
+            + "'SERVER MEMBERS INTENT' and 'MESSAGE CONTENT INTENT' "
+            + "in the bot's settings on Discord?"
         )
         return False
 

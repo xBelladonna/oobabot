@@ -229,9 +229,10 @@ class Runtime:
             except discord.errors.PrivilegedIntentsRequired as err:
                 fancy_logger.get().warning("Could not log in to Discord: %s", err)
                 fancy_logger.get().warning(
-                    "The bot token you provided does not have the required gateway "
-                    + "intents. Did you remember to enable 'MESSAGE CONTENT INTENT' "
-                    + "in the bot's settings on Discord?",
+                    "The bot token you provided does not have the required "
+                    + "gateway intents.  Did you remember to enable both "
+                    + "'SERVER MEMBERS INTENT' and 'MESSAGE CONTENT INTENT' "
+                    + "in the bot's settings on Discord?"
                 )
                 raise OobabotRuntimeError(
                     "Could not log in to Discord: intents not set"

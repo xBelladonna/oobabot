@@ -72,7 +72,7 @@ in the series as a reply.  This reduces notification noise to users when using m
     "mirostat_tau", and
     "mirostat_eta"
 
-- If the user forgets to enable `MESSAGE CONTENT INTENT` for their bot's Discord account, show a specific error message letting them know.
+- If the user forgets to enable either `SERVER MEMBERS INTENT` or `MESSAGE CONTENT INTENT` for their bot's Discord account, show a specific error message letting them know.
 
 ### Full Changelog
 
