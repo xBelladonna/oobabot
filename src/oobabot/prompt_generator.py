@@ -190,7 +190,8 @@ class PromptGenerator:
             },
         )
         prompt_without_history = self._generate(
-            "", self.image_request_made, guild_name="", response_channel="")
+            "", self.image_request_made, guild_name="", response_channel=""
+        )
         if self.ooba_client.api_type in ["oobabooga", "openai", "tabbyapi"] :
             prompt_units = await self.ooba_client.get_token_count(prompt_without_history)
         else:

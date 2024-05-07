@@ -247,9 +247,11 @@ class OobaClient(http_client.SerializedHttpClient):
         else:
             # this shouldn't ever happen, unless someone forks the code,
             # implements a new API type, and forgets to add that here
-            raise ValueError("Unsupported API type. Unable to encode tokens.")
+            raise ValueError(f"Unsupported API type '{self.api_type}'. Unable to encode tokens.")
 
-        async with aiohttp.ClientSession() as session:
+        # As long as we're working with reasonable amounts of message, it shouldn't take long
+        timeout = aiohttp.ClientTimeout(total=30.0, connect=10.0, sock_connect=10.0)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(
                 url, headers=headers, json=request, verify_ssl=False
             ) as response:
@@ -332,7 +334,8 @@ class OobaClient(http_client.SerializedHttpClient):
 
     async def stop(self) -> str:
         # New Ooba OpenAI API stopping logic
-        async with aiohttp.ClientSession() as session:
+        timeout = aiohttp.ClientTimeout(total=10.0) # shouldn't take long at all
+        async with aiohttp.ClientSession(timeout=timeout) as session:
             url = self.base_url + self.OOBABOOGA_STOP_STREAM_URI_PATH
             headers = {"accept": "application/json"}
 
@@ -400,7 +403,10 @@ class OobaClient(http_client.SerializedHttpClient):
         )
 
         url = self.base_url + self.api_endpoint
-        async with aiohttp.ClientSession() as session:
+        # This request can take a long time depending on various factors.
+        # We leave the total as default (5*60, or 5 minutes)
+        timeout = aiohttp.ClientTimeout(connect=10.0, sock_connect=10.0)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(
                 url, headers=headers, json=request, verify_ssl=False
             ) as response:

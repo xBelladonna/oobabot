@@ -832,7 +832,7 @@ class DiscordBot(discord.Client):
         if 0 == sent_message_count:
             if aborted_by_us:
                 fancy_logger.get().warning(
-                    "No response sent.  The AI has generated a message that we have "
+                    "No response sent. The AI has generated a message that we have "
                     + "chosen not to send, probably because it was empty or repeated."
                 )
             else:
@@ -1088,16 +1088,13 @@ class DiscordBot(discord.Client):
         and a boolean indicating if we should abort the response entirely,
         ignoring any further lines.
         """
-        # This pattern uses a positive lookahead to keep the punctuation at the end of the sentence
-        split_pattern = r'(?<=[.!?])\s+(?=[A-Z])'
         # First, split the text by 'real' newlines to preserve them
         lines = text.split("\n")
         good_lines = []
         abort_response = False
 
         for line in lines:
-            # Split the line by the pattern to get individual sentences
-            # sentences = re.split(split_pattern, line)
+            # Split the line by our pysbd segmenter to get individual sentences
             sentences: typing.List[
                 pysbd.utils.TextSpan
             ] = [x.sent for x in self.sentence_splitter.segment(line)]
