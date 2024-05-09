@@ -236,7 +236,12 @@ class DiscordBot(discord.Client):
 
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent) -> None:
         channel = await self.fetch_channel(payload.channel_id)
-        raw_message = await channel.fetch_message(payload.message_id)
+        try:
+            raw_message = await channel.fetch_message(payload.message_id)
+        # Sometimes the message is already deleted before we can process it, e.g.
+        # the PluralKit bot uses ❌ to delete messages too, so we account for that.
+        except discord.NotFound:
+            return
 
         # hide all chat history at and before this message
         if payload.emoji.name == "⏪":
