@@ -300,8 +300,8 @@ class Settings:
                     textwrap.dedent(
                         f"""
                         This prefix will be added in front of every user-supplied
-                        request.  This is useful for setting up a 'character' for the
-                        bot to play.  Alternatively, this can be set with the
+                        request. This is useful for setting up a 'character' for the
+                        bot to play. Alternatively, this can be set with the
                         {self.OOBABOT_PERSONA_ENV_VAR} environment variable.
                         """
                     ),
@@ -318,9 +318,9 @@ class Settings:
                 description_lines=[
                     textwrap.dedent(
                         """
-                        Path to a file containing a persona.  This can be just a
-                        single string, a json file in the common "tavern" formats,
-                        or a yaml file in the Oobabooga format.
+                        Path to a file containing a persona. This can be just a
+                        single string, a JSON file in the common "tavern" formats,
+                        or a YAML file in the Oobabooga format.
 
                         With a single string, the persona will be set to that string.
 
@@ -365,7 +365,7 @@ class Settings:
                 description_lines=[
                     textwrap.dedent(
                         f"""
-                        Token to log into Discord with.  For security purposes
+                        Token to log into Discord with. For security purposes
                         it's strongly recommended that you set this via the
                         {self.DISCORD_TOKEN_ENV_VAR} environment variable
                         instead, if possible.
@@ -384,8 +384,9 @@ class Settings:
                 description_lines=[
                     textwrap.dedent(
                         """
-                        Number of lines of chat history the AI will see
-                        when generating a response.
+                        The maximum number of lines of chat history the AI will see
+                        when generating a response. The actual number may be smaller
+                        than this, due to the model's context length limit.
                         """
                     )
                 ],
@@ -398,11 +399,12 @@ class Settings:
                 description_lines=[
                     textwrap.dedent(
                         """
-                        Time in seconds (in increments of 0.1) that the bot will wait
-                        for additional messages before deciding to respond. Useful if
-                        people post messages shortly after each other, or for use with
-                        bots like PluralKit or Tupperbox that proxy your messages as
-                        another username and delete the original message.
+                        Time in seconds (rounded to the nearest single decimal, i.e.
+                        in increments of 0.1) that the bot will wait for additional
+                        messages before deciding to respond. Useful if people post
+                        messages shortly after each other, or for use with bots like
+                        PluralKit or Tupperbox that proxy your messages as another
+                        username and delete the original message.
                         """
                     )
                 ],
@@ -460,6 +462,8 @@ class Settings:
                     textwrap.dedent(
                         """
                         If set, the bot will not respond to other bots' messages.
+                        Be careful when disabling this, as your bot may get into
+                        infinite loops with other bots.
                         """
                     )
                 ],
@@ -513,7 +517,7 @@ class Settings:
                 description_lines=[
                     textwrap.dedent(
                         """
-                        Set the log level.  Valid values are:
+                        Set the log level. Valid values are:
                         CRITICAL, ERROR, WARNING, INFO, DEBUG
                         """
                     )
@@ -545,8 +549,18 @@ class Settings:
                 description_lines=[
                     textwrap.dedent(
                         """
-                        A list of strings that will cause the bot to stop
-                        generating a response when encountered.
+                        A list of strings that will be used to filter out immersion-breaking
+                        messages when encountered. The bot looks for these sequences in
+                        responses and removes them from the response, using further heuristics
+                        to determine if the content following the marker should be removed as
+                        well.
+                        """
+                    ),
+                    textwrap.dedent(
+                        """
+                        Note: this does not stop response generation at the model level!
+                        For that, use the "stop" parameter under the oobabooga request_params
+                        setting.
                         """
                     )
                 ],
@@ -772,7 +786,7 @@ class Settings:
                     textwrap.dedent(
                         """
                         FEATURE PREVIEW: Path to the Discrivener model to
-                        load.  Required if discrivener_location is set.
+                        load. Required if discrivener_location is set.
                         """
                     )
                 ],
@@ -788,7 +802,6 @@ class Settings:
                     textwrap.dedent(
                         """
                         FEATURE PREVIEW: Whether to speak replies in voice calls with discrivener
-                           default: true
                         """
                     )
                 ],
@@ -863,7 +876,7 @@ class Settings:
                 description_lines=[
                     textwrap.dedent(
                         """
-                        OpenAI API key.
+                        API key for whatever API you are using.
                         """
                     )
                 ],
@@ -935,8 +948,8 @@ class Settings:
                     textwrap.dedent(
                         """
                         A regex that will be used to extract message lines
-                        from the AI's output.  The first capture group will
-                        be used as the message.  If this is not set, the
+                        from the AI's output. The first capture group will
+                        be used as the message. If this is not set, the
                         entire output will be used as the message.
                         """
                     )
@@ -951,7 +964,7 @@ class Settings:
                     textwrap.dedent(
                         """
                         A dictionary which will be passed straight through to
-                        Oobabooga on every request.  Feel free to add additional
+                        Oobabooga on every request. Feel free to add additional
                         simple parameters here as Oobabooga's API evolves.
                         See Oobabooga's documentation for what these parameters
                         mean.
@@ -971,7 +984,7 @@ class Settings:
                     textwrap.dedent(
                         """
                         When running inside the Oobabooga plugin, automatically
-                        connect to Discord when Oobabooga starts.  This has no effect
+                        connect to Discord when Oobabooga starts. This has no effect
                         when running from the command line.
                         """
                     )
@@ -1020,7 +1033,7 @@ class Settings:
                description_lines=[
                     textwrap.dedent(
                         """
-                        API key for the OpenAI-like Vision API.
+                        API key for the OpenAI-like GPT Vision API.
                         """
                     )
                ],
@@ -1033,7 +1046,7 @@ class Settings:
                description_lines=[
                     textwrap.dedent(
                         """
-                        Model to use for the vision API.
+                        Model to use for the GPT Vision API.
                         """
                     )
                ],
@@ -1046,7 +1059,7 @@ class Settings:
                description_lines=[
                     textwrap.dedent(
                         """
-                        Maximum number of tokens for the vision model to predict.
+                        Maximum number of tokens for the Vision model to predict.
                         """
                     )
                ],
@@ -1079,7 +1092,7 @@ class Settings:
                 description_lines=[
                     textwrap.dedent(
                         """
-                        When one of these words is used in a message, the bot will
+                        When one of these words/phrases is used in a message, the bot will
                         generate an image.
                         """
                     )
@@ -1163,7 +1176,7 @@ class Settings:
                     textwrap.dedent(
                         """
                         A dictionary which will be passed straight through to
-                        Stable Diffusion on every request.  Feel free to add additional
+                        Stable Diffusion on every request. Feel free to add additional
                         simple parameters here as Stable Diffusion's API evolves.
                         See Stable Diffusion's documentation for what these parameters
                         mean.
@@ -1197,10 +1210,11 @@ class Settings:
 
                         Otherwise, this value will be passed through to Stable
                         Diffusion without any changes, so be mindful of what you allow
-                        here.  It could potentially be used to inject malicious
+                        here. It could potentially be used to inject malicious
                         values into your SD server.
 
-                        For example, steps=1000000 could be bad for your server.
+                        For example, steps=1000000 could be bad for your server, unless
+                        you have a dozen NVIDIA H100s.
                         """
                     )
                 ],
@@ -1341,7 +1355,7 @@ class Settings:
             "\n"
             + _console_wrapped(
                 (
-                    "Additional settings can be set in config.yml.  "
+                    "Additional settings can be set in config.yml. "
                     "Use the --generate-config option to print a new "
                     "copy of this file to STDOUT."
                 )
