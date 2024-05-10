@@ -91,7 +91,7 @@ class DiscordBot(discord.Client):
         if self.prevent_impersonation not in ["standard", "aggressive", "comprehensive"]:
             raise ValueError(
                 f"Unknown value '{self.prevent_impersonation}' for `prevent_impersonation`. "
-                + "Please fix your configuration"
+                + "Please fix your configuration."
             )
         self.stream_responses = discord_settings["stream_responses"]
         if self.stream_responses and self.stream_responses not in ["token", "sentence"]:
@@ -269,7 +269,7 @@ class DiscordBot(discord.Client):
             except (discord.Forbidden, discord.NotFound):
                 # We can't remove reactions on other users' messages in DMs or Group DMs.
                 # Also give up if the reaction isn't there anymore (i.e. someone removed
-                # it before we could).
+                # it before we could), or we simply have no permission.
                 pass
             return
 
@@ -363,9 +363,6 @@ class DiscordBot(discord.Client):
             if guaranteed_response:
                 self.decide_to_respond.guaranteed_response = False
             if not should_respond:
-                # Remove our message to prevent jamming the queue and move on
-                if message in message_queue:
-                    message_queue.remove(message)
                 continue
             is_summon_in_public_channel = is_summon and isinstance(
                 message, types.ChannelMessage
@@ -589,12 +586,11 @@ class DiscordBot(discord.Client):
                         templates.TemplateToken.USER_NAME: user_name,
                         templates.TemplateToken.MESSAGE: "",
                     },
-                ).strip("\n")
+                ).strip("\n").strip()
             def _get_canonicalized_name(user_name: str) -> str:
-                canonicalized_name = emoji.replace_emoji(
-                    user_name.split()[0], ""
-                ).strip().capitalize()
-                return canonicalized_name if len(canonicalized_name) >= 3 else user_name
+                name = emoji.replace_emoji(user_name, "")
+                canonicalized_name = name.split()[0].strip().capitalize()
+                return canonicalized_name if len(canonicalized_name) >= 3 else name
 
             # TODO: O(n^2) time complexity... figure out how to make this faster
             for member_name in recent_members:

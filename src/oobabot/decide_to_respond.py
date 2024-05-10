@@ -208,13 +208,13 @@ class DecideToRespond:
             self.voice_time_vs_response_chance,
         )
         if not response_chance:
-            # default to the response chance of the last duration in
+            # Default to the response chance of the last duration in
             # the calibration table.
             response_chance = self.voice_time_vs_response_chance[-1][1]
-        # clamp the number of participants to a reasonable value
+        # Clamp the number of participants to a reasonable value
         # otherwise the response chance may become too low with a
-        # very large number of participants
-        response_chance /= min(5, number_of_participants)
+        # very large number of participants.
+        response_chance /= min(3, number_of_participants)
         if random.random() <= response_chance:
             return (True, response_chance)
 
@@ -235,17 +235,17 @@ class DecideToRespond:
         we create, not the channel the message was posted in.
         """
 
-        # a response has been explicitly guaranteed
+        # A response has been explicitly guaranteed
         if self.guaranteed_response:
             # REMEMBER TO SET THIS TO FALSE WHEREVER IT HAS BEEN SET!
             return (True, False)
 
-        # ignore messages from other bots, out of fear of infinite loops,
-        # as well as world domination
+        # Ignore messages from other bots, out of fear of infinite loops,
+        # as well as world domination.
         if message.author_is_bot and self.ignore_bots:
             return (False, False)
 
-        # we do not want the bot to reply to itself.  This is redundant
+        # We do not want the bot to reply to itself. This is redundant
         # with the previous check, except it won't be if someone decides
         # to run this under their own user token, rather than a proper
         # bot token, or if they allow responding to other bots.
@@ -259,7 +259,7 @@ class DecideToRespond:
             if self.provide_unsolicited_reply_in_channel(our_user_id, message):
                 return (True, False)
 
-        # ignore anything else
+        # Ignore anything else
         return (False, False)
 
     def log_mention(self, channel_id: int, send_timestamp: float) -> None:
