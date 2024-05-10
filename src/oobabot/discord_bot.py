@@ -453,6 +453,10 @@ class DiscordBot(discord.Client):
                 except Exception as e:
                     fancy_logger.get().error("Error processing image: %s", e, exc_info=True)
 
+        # If the message is essentially devoid of content we can handle, abort response.
+        if message.is_empty() and not image_descriptions:
+            return
+
         result = await self._send_text_response(
             message=message,
             raw_message=raw_message,

@@ -145,11 +145,6 @@ class DecideToRespond:
         if message.mentions and not message.is_mentioned(our_user_id):
             return False
 
-        # if message is empty, don't reply.  This can happen if someone
-        # posts an image or an attachment without a comment.
-        if message.is_empty():
-            return False
-
         # if we've posted recently in this channel, there are a few
         # other reasons we may respond.  But if we haven't, just
         # ignore the message.
