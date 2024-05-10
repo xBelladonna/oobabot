@@ -284,7 +284,9 @@ class ImageGenerator:
         self.image_patterns = [
             re.compile(
                 r"^.*\b" + image_word
-                + r"\b\s*((as?|of|the|with)\s)*:?([\w\s,.:!=\"\'\-\(\)\[\]]+)[^\w]*$",
+                + r"\b\s*((as?|of|the|with)\b\s*)*:?"
+                + r"([\w\s,;:<>`~@#%&_=\$\^\*\(\)\-\+\[\]\{\}\"\']+)"
+                + r".*$",
                 re.IGNORECASE + re.MULTILINE,
             )
             for image_word in self.image_words
