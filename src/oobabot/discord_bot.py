@@ -5,9 +5,10 @@ be easily extracted into a cross-platform library.
 """
 
 import asyncio
-import typing
 import io
 import re
+import time
+import typing
 from collections import deque
 from PIL import Image
 
@@ -67,7 +68,10 @@ class DiscordBot(discord.Client):
         self.dont_split_responses = discord_settings["dont_split_responses"]
         self.ignore_dms = discord_settings["ignore_dms"]
         self.ignore_prefixes = discord_settings["ignore_prefixes"]
-        self.message_accumulation_period = discord_settings["message_accumulation_period"]
+        self.message_accumulation_period = round(
+            discord_settings["message_accumulation_period"], 1
+        )
+        self.continue_on_additional_messages = discord_settings["continue_on_additional_messages"]
         self._allowed_mentions = discord_settings["allowed_mentions"]
         for allowed_mention_type in self._allowed_mentions:
             if allowed_mention_type not in ["everyone", "users", "roles"]:
@@ -209,7 +213,6 @@ class DiscordBot(discord.Client):
         :param raw_message: The raw message from Discord.
         """
 
-        # If the message is not a command, proceed with regular message handling
         try:
             # Add the message to the queue
             self.message_queue.appendleft(raw_message)
@@ -316,14 +319,12 @@ class DiscordBot(discord.Client):
                 discord.DMChannel,
                 discord.GroupChannel,
             ],
-            message_queue: typing.Deque[typing.Tuple[discord.Message]]
+            message_queue: typing.Deque[discord.Message]
         ) -> None:
         """
-        Pops the latest message from the queue and handles a response to it.
-
-        The current implementation simply processes the latest message and discards
-        the rest, but leaves room for more complex logic in the future, such as
-        selectively handling messages in the order they were received.
+        Loops through the message queue and responds to each message in received
+        order, also handling any additional messages that are queued while
+        processing is in progress.
         """
         # Wait if we're accumulating messages. We avoid this in DMs or Group DMs
         # rather arbitrarily, as the feature was initially designed for bots like
@@ -334,82 +335,74 @@ class DiscordBot(discord.Client):
             and not self.decide_to_respond.guaranteed_response
             and not isinstance(channel, (discord.DMChannel, discord.GroupChannel))
         ):
-            await asyncio.sleep(self.message_accumulation_period)
+            if self.continue_on_additional_messages:
+                start_time = time.time()
+                while (
+                    len(message_queue) < self.continue_on_additional_messages + 1
+                    and time.time() < start_time + self.message_accumulation_period
+                ):
+                    await asyncio.sleep(0.1)
+            else:
+                await asyncio.sleep(self.message_accumulation_period)
+
         # If the queue is empty, abort response
         if not message_queue:
             return
+        # otherwise, process the message queue in order of messages received
+        while message_queue:
+            raw_message = message_queue.pop()
 
-        # otherwise, process the latest message in our queue
-        raw_message = message_queue.popleft()
-
-        message = discord_utils.discord_message_to_generic_message(raw_message)
-        should_respond, is_summon = self.decide_to_respond.should_reply_to_message(
-            self.ai_user_id, message
-        )
-        # Did we guarantee a response? If so, take note of the state and immediately
-        # reset the flag. This is crucial to remember to do otherwise we will get into
-        # an infinite recursive loop of responding to ourselves.
-        guaranteed_response = self.decide_to_respond.guaranteed_response
-        if guaranteed_response:
-            self.decide_to_respond.guaranteed_response = False
-        if not should_respond:
-            return
-        is_summon_in_public_channel = is_summon and isinstance(
-            message, types.ChannelMessage
-        )
-
-        # Sometimes it's the case where the message we got has already been deleted.
-        # We attempt to prevent this as much as possible, but it might still happen.
-        # This attempts to catch it and grab the latest message to reply to anyway.
-        try:
-            await channel.fetch_message(message.message_id)
-        except discord.NotFound:
-            # First check the message queue again, in case we only just missed one. This
-            # time we pop from the right, to get the message sent right after the deleted
-            # one, in case a new message has actually come in since we last checked.
-            if message_queue:
-                raw_message = message_queue.pop()
-                message = discord_utils.discord_message_to_generic_message(raw_message)
-            else:
-                # otherwise just get the latest visible message from the channel
-                skip = False
-                async for msg in channel.history(limit=self.prompt_generator.history_lines):
-                    for ignore_prefix in self.ignore_prefixes:
-                        if msg.content.startswith(ignore_prefix):
-                            skip = True
-                            break
-                        skip = False
-                    if skip:
-                        continue
-                    raw_message = msg
-                    break
-                message = discord_utils.discord_message_to_generic_message(raw_message)
-
-        # Clear the queue once we have our latest message, we don't need it anymore
-        message_queue.clear()
-
-        # If the message is hidden, abort response. We do this here instead of in
-        # decide_to_respond, in case the user is using something like PluralKit or
-        # Tupperbox and the original message (which was deleted) began with a different
-        # sequence. Because we wait to accumulate messages, this ensures the deleted
-        # message doesn't trigger a response to whatever the latest message ends up being.
-        if not guaranteed_response:
-            for ignore_prefix in self.ignore_prefixes:
-                if message.body_text.startswith(ignore_prefix):
-                    fancy_logger.get().debug("Message is hidden, aborting response.")
-                    return
-
-        try:
-            async with channel.typing():
-                await self._handle_response(
-                    message,
-                    raw_message,
-                    is_summon_in_public_channel,
-                )
-        except discord.DiscordException as err:
-            fancy_logger.get().error(
-                "Error while processing message: %s", err, exc_info=True
+            message = discord_utils.discord_message_to_generic_message(raw_message)
+            should_respond, is_summon = self.decide_to_respond.should_reply_to_message(
+                self.ai_user_id, message
             )
+            # Did we guarantee a response? If so, take note of the state and immediately
+            # reset the flag. This is crucial to remember to do otherwise we will get into
+            # an infinite recursive loop of responding to ourselves.
+            guaranteed_response = self.decide_to_respond.guaranteed_response
+            if guaranteed_response:
+                self.decide_to_respond.guaranteed_response = False
+            if not should_respond:
+                # Remove our message to prevent jamming the queue and move on
+                if message in message_queue:
+                    message_queue.remove(message)
+                continue
+            is_summon_in_public_channel = is_summon and isinstance(
+                message, types.ChannelMessage
+            )
+
+            # Sometimes it's the case where the message we got has already been deleted.
+            # We attempt to prevent this as much as possible, but it might still happen.
+            try:
+                await channel.fetch_message(message.message_id)
+            except discord.NotFound:
+                continue
+
+            # If the message is hidden, ignore it and move on. We do this here instead of in
+            # decide_to_respond, in case the user is using something like PluralKit or
+            # Tupperbox and the original message (which was deleted) began with a different
+            # sequence. Because we wait to accumulate messages, this ensures the deleted
+            # message doesn't trigger a response to whatever the latest message ends up being.
+            if not guaranteed_response:
+                for ignore_prefix in self.ignore_prefixes:
+                    if message.body_text.startswith(ignore_prefix):
+                        skip = True
+                        break
+                    skip = False
+                if skip:
+                    continue
+
+            try:
+                async with channel.typing():
+                    await self._handle_response(
+                        message,
+                        raw_message,
+                        is_summon_in_public_channel,
+                    )
+            except discord.DiscordException as err:
+                fancy_logger.get().error(
+                    "Error while processing message: %s", err, exc_info=True
+                )
 
     async def _handle_response(
         self,
@@ -528,6 +521,7 @@ class DiscordBot(discord.Client):
 
         # Convert the recent messages into a list to modify it
         recent_messages_list = [msg async for msg in recent_messages]
+
         # Attach any image descriptions to the user's message
         if image_descriptions:
             image_received = self.template_store.format(

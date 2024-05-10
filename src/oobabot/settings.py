@@ -398,11 +398,28 @@ class Settings:
                 description_lines=[
                     textwrap.dedent(
                         """
-                        Time in seconds that the bot will wait for additional
-                        messages before deciding to respond. Useful if people
-                        post messages shortly after each other, or for use
-                        with bots like PluralKit that proxy your messages
-                        as another username and delete the original message.
+                        Time in seconds (in increments of 0.1) that the bot will wait
+                        for additional messages before deciding to respond. Useful if
+                        people post messages shortly after each other, or for use with
+                        bots like PluralKit or Tupperbox that proxy your messages as
+                        another username and delete the original message.
+                        """
+                    )
+                ],
+            )
+        )
+        self.discord_settings.add_setting(
+            oesp.ConfigSetting[int](
+                name="continue_on_additional_messages",
+                default=0,
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        If this number of messages is added to the message queue
+                        while the bot is accumulating messages according to the
+                        period above, the bot will stop waiting and immediately
+                        begin processing the message queue. A value of 0 means
+                        this feature is disabled.
                         """
                     )
                 ],
