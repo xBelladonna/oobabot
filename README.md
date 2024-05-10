@@ -1,6 +1,6 @@
 # `oobabot`
 
-**`oobabot`** is a Discord bot which talks to Large Language Model AIs (like Llama, ChatGPT, etc...), using just about any API-enabled backend.
+**`oobabot`** is a Discord bot which talks to Large Language Model AIs (like Llama, Mistral, ChatGPT, etc...), using just about any API-enabled backend.
 
 [oobabooga's text-generation-webui](https://github.com/oobabooga/text-generation-webui)
 
@@ -109,40 +109,6 @@ You should see something like this if everything worked:
 
 ---
 
-## Stable Diffusion via AUTOMATIC1111
-
-- **`stable-diffusion-url`**
-
-  This is the URL to a server running [AUTOMATIC1111/stable-diffusion-webui](https://github.com/AUTOMATIC1111/stable-diffusion-webui)
-
-  With it, users can ask **`oobabot`** to generate images and post the
-  results to the channel.  The user who made the original request can
-  choose to regenerate the image as they like.  If they either don't
-  find one they like, or don't do anything within 3 minutes, the image
-  will be removed.
-
-  ![oobabot running!](./docs/zombietaytay.png "textually interesting image")
-
-  Currently, detection of photo requests is very crude, and is only looking for messages which match this regex:
-
-  ```python
-  image_words = ["draw", "sketch", "paint", "make", "generate", "post", "upload"]
-  image_patterns = [
-    re.compile(
-        r"^.*\b" + image_word + r"\b\s*((as?|of|the|with)\s)*:?([\w\s,.:!=\"\'\-\(\)\[\]]+)[^\w]*$",
-        re.IGNORECASE,
-    )
-    for image_word in image_words
-  ]
-  ```
-  This is configurable in the settings file. Experiment with what works best for you in terms of false positives.
-
-  Note that depending on the checkpoint loaded in Stable Diffusion, it may not be appropriate for your server's community.  I suggest reviewing [Discord's Terms of Service](https://discord.com/terms) and [Community Guidelines](https://discord.com/guidelines) before deciding what checkpoint to run.
-
-  **`oobabot`** supports two different negative prompts, depending on whether the channel is marked as "Age-Restricted" or not. This is to allow for more explicit content in channels which are marked as such. While the negative prompt will discourage Stable Diffusion from generating an image which matches the prompt, but is not foolproof.
-
----
-
 ## Interacting with **`oobabot`**
 
 By default, **`oobabot`** will listen for three types of messages in the servers it's connected to:
@@ -181,7 +147,7 @@ After the action is complete, the reaction will be automatically removed. Note t
 
 ### Slash Commands
 
-As of 0.3.0, the bot now supports slash commands:
+As of 0.3.0, the bot now supports the following slash commands:
 
 | **`/command`**  | What it does |
 |---------------|------------------|
@@ -194,6 +160,45 @@ As of 0.3.0, the bot now supports slash commands:
 Oobabot doesn't add any restrictions on who can run these commands, but luckily Discord does! You can find this inside Discord by visiting "Server Settings" -> Integrations -> Bots and Apps -> hit the icon which looks like [/] next to your bot
 
 If you're running on a large server, you may want to restrict who can run these commands. I suggest creating a new role, and only allowing that role to run the commands.
+
+---
+
+## Stable Diffusion via AUTOMATIC1111
+
+- **`stable-diffusion-url`**
+
+  This is the URL to a server running [AUTOMATIC1111/stable-diffusion-webui](https://github.com/AUTOMATIC1111/stable-diffusion-webui)
+
+  With it, users can ask **`oobabot`** to generate images and post the
+  results to the channel.  The user who made the original request can
+  choose to regenerate the image as they like.  If they either don't
+  find one they like, or don't do anything within 3 minutes, the image
+  will be removed.
+
+  ![oobabot running!](./docs/zombietaytay.png "textually interesting image")
+
+  Currently, detection of photo requests is very crude, and is only looking for messages which match this regex:
+
+  ```python
+  image_words = ["draw", "sketch", "paint", "make", "generate", "post", "upload"]
+  image_patterns = [
+    re.compile(
+        r"^.*\b" + image_word
+        + r"\b\s*((as?|of|the|with)\b\s*)*:?"
+        + r"([\w\s,;:<>`~@#%&_=\$\^\*\(\)\-\+\[\]\{\}\"\']+)"
+        + r".*$",
+        re.IGNORECASE + re.MULTILINE,
+    )
+    for image_word in self.image_words
+  ]
+  ```
+  The image words are configurable in the settings file. As the defaults are rather permissive, experiment with what works best for you in terms of false positives.
+
+  Note that depending on the checkpoint loaded in Stable Diffusion, it may not be appropriate for your server's community. I suggest reviewing [Discord's Terms of Service](https://discord.com/terms) and [Community Guidelines](https://discord.com/guidelines) before deciding what checkpoint to run.
+
+  **`oobabot`** supports two different negative prompts, depending on whether the channel is marked as "Age-Restricted" or not. This is to allow for more explicit content in channels which are marked as such. While the negative prompt will discourage Stable Diffusion from generating an image which matches the prompt, but is not foolproof.
+
+---
 
 ## Contributing
 

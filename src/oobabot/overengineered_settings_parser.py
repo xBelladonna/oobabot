@@ -150,7 +150,7 @@ class ConfigSetting(typing.Generic[T]):
         comment_lines = self.description_lines.copy()
 
         if self.show_default_in_yaml:
-            if self.default:
+            if self.default is not None:
                 comment_lines.append(f"  default: {self.default}")
             else:
                 comment_lines.append("  default: None")

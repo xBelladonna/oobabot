@@ -6,7 +6,7 @@
 # "config.yml" from the current directory when it is run.
 #
 
-version: 0.3.0
+version: 0.3.1
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 # persona
@@ -17,14 +17,14 @@ persona:
   #   default: oobabot
   ai_name: Reisen
 
-  # This prefix will be added in front of every user-supplied request.  This is useful for
-  # setting up a 'character' for the bot to play.  Alternatively, this can be set with the
+  # This prefix will be added in front of every user-supplied request. This is useful for
+  # setting up a 'character' for the bot to play. Alternatively, this can be set with the
   # OOBABOT_PERSONA environment variable.
   # Allowed tokens: {AI_NAME}
   persona: "{AI_NAME} is a friendly AI made in the likeness of the lunarian moon rabbit youkai Reisen Udongein Inaba, from Touhou Project. {AI_NAME} lives in the bamboo forest of Eintei, located in Gensokyo. She is shy and somewhat timid until provoked, in which case she will not hesitate to let insults and profanity fly. {AI_NAME} always ends her messages with :3"
 
-  # Path to a file containing a persona.  This can be just a single string, a json file in
-  # the common "tavern" formats, or a yaml file in the Oobabooga format.  With a single
+  # Path to a file containing a persona. This can be just a single string, a JSON file in
+  # the common "tavern" formats, or a YAML file in the Oobabooga format.  With a single
   # string, the persona will be set to that string.  Otherwise, the ai_name and persona will
   # be overwritten with the values in the file.  Also, the wakewords will be extended to
   # include the character's own name.
@@ -46,25 +46,27 @@ persona:
 # .
 discord:
 
-  # Token to log into Discord with.  For security purposes it's strongly recommended that
-  # you set this via the DISCORD_TOKEN environment variable instead, if possible.
+  # Token to log into Discord with. For security purposes it's strongly recommended that you
+  # set this via the DISCORD_TOKEN environment variable instead, if possible.
   discord_token: your_token_here
 
-  # Post the entire response as a single message, rather than splitting it into separate
-  # messages by sentence.
-  #   default: False
-  dont_split_responses: true
-
-  # Number of lines of chat history the AI will see when generating a response.
+  # The maximum number of lines of chat history the AI will see when generating a response.
+  # The actual number may be smaller than this, due to the model's context length limit.
   #   default: 7
   history_lines: 80
 
-  # Time in seconds that the bot will wait for additional messages before deciding to
-  # respond. Useful if people post messages shortly after each other, or for use with bots
-  # like PluralKit that proxy your messages as another username and delete the original
-  # message.
+  # Time in seconds (rounded to the nearest single decimal, i.e. in increments of 0.1) that
+  # the bot will wait for additional messages before deciding to respond. Useful if people
+  # post messages shortly after each other, or for use with bots like PluralKit or Tupperbox
+  # that proxy your messages as another username and delete the original message.
   #   default: 0.0
   message_accumulation_period:
+
+  # If this number of messages is added to the message queue while the bot is accumulating
+  # messages according to the period above, the bot will stop waiting and immediately begin
+  # processing the message queue. A value of 0 means this feature is disabled.
+  #   default: 0
+  continue_on_additional_messages:
 
   # Whether or not to include the bot's /lobotomize response in the history following the
   # command.
@@ -75,7 +77,8 @@ discord:
   #   default: False
   ignore_dms:
 
-  # If set, the bot will not respond to other bots' messages.
+  # If set, the bot will not respond to other bots' messages. Be careful when disabling
+  # this, as your bot may get into infinite loops with other bots.
   #   default: True
   ignore_bots:
 
@@ -85,7 +88,18 @@ discord:
   ignore_prefixes:
     - "!"
 
-  # Set the log level.  Valid values are: CRITICAL, ERROR, WARNING, INFO, DEBUG
+  # This is a list of allowed @-mention types. Used to limit what the bot can mention, e.g.
+  # to prevent users from tricking the bot into @-mentioning large groups of people and
+  # annoying them.
+  # There are 3 possible types:
+  # - `everyone`: the @everyone role
+  # - `users`: enables @-mentioning users directly
+  # - `roles`: enables @-mentioning roles
+  # If none of these options are selected, only the original author may be @-mentioned.
+  #   default: []
+  allowed_mentions:
+
+  # Set the log level. Valid values are: CRITICAL, ERROR, WARNING, INFO, DEBUG
   #   default: DEBUG
   log_level:
 
@@ -93,17 +107,20 @@ discord:
   #   default: False
   reply_in_thread:
 
-  # A list of strings that will cause the bot to stop generating a response when
-  # encountered.
+  # A list of strings that will be used to filter out immersion-breaking messages when
+  # encountered. The bot looks for these sequences in responses and removes them from the
+  # response, using further heuristics to determine if the content following the marker
+  # should be removed as well.
+  # Note: this does not stop response generation at the model level! For that, use the
+  # "stop" parameter under the oobabooga request_params setting.
   #   default: ['### End of Transcript ###<|endoftext|>', '<|endoftext|>']
   stop_markers:
     - <|model|>
 
   # Prevent impersonation by automatically adding the display names of the members in the
   # recent message cache (up to the history limit, or 4 sequences if using OpenAI) to the
-  # list of stop sequences.
-  # There are 4 options:
-  # disabled: None, the feature is disabled
+  # list of stop sequences. If this option is not set, the feature is disabled.
+  # There are 3 options:
   # standard: Uses the fully templated user prompt prefix from the user history block.
   # aggressive: Uses just the "canonical" user display name (for models that use "narrative
   # voice"). This is the "common sense" transformation of any given name, i.e. using only
@@ -111,12 +128,17 @@ discord:
   # comprehensive: Combines both standard and aggressive modes. Keep in mind the sequence
   # limit if you are using OpenAI, as they will be truncated at 4 sequences even if there
   # otherwise would be more.
-  #   default: disabled
+  #   default:
   prevent_impersonation: standard
 
-  # FEATURE PREVIEW: Stream responses into a single message as they are generated. Note: may
-  # be janky
-  #   default: False
+  # FEATURE PREVIEW: Stream responses into a single message as they are generated. If not
+  # set, the feature is disabled. Note: may be janky
+  # There are 2 options:
+  # token: Stream responses by groups of tokens, whose size is defined by the stremaing
+  # speed limit.
+  # sentence: Stream responses sentence by sentence. Useful if streaming by token is too
+  # janky but not splitting responses is too slow.
+  #   default:
   stream_responses:
 
   # FEATURE PREVIEW: When streaming responses, cap the rate at which we send updates to
@@ -127,6 +149,11 @@ discord:
   # means we will send updates no faster than 5 times per second.
   #   default: 0.7
   stream_responses_speed_limit:
+
+  # Post the entire response as a single message, rather than splitting it into separate
+  # messages by sentence.
+  #   default: False
+  dont_split_responses:
 
   # Adds a limit to the number of channels the bot will post unsolicited messages in at the
   # same time.  This is to prevent the bot from being too noisy in large servers.  When set,
@@ -172,13 +199,12 @@ discord:
   #   default:
   discrivener_location:
 
-  # FEATURE PREVIEW: Path to the Discrivener model to load.  Required if
-  # discrivener_location is set.
+  # FEATURE PREVIEW: Path to the Discrivener model to load. Required if discrivener_location
+  # is set.
   #   default:
   discrivener_model_location:
 
-  # FEATURE PREVIEW: Whether to speak replies in voice calls with discrivener    default:
-  # true
+  # FEATURE PREVIEW: Whether to speak replies in voice calls with discrivener
   #   default: True
   speak_voice_replies:
 
@@ -194,7 +220,7 @@ oobabooga:
   # Base URL for the text generation API. This should be http://hostname[:port]/v1 for plain
   # connections, or https://hostname[:port]/v1 for connections over TLS.
   #   default: http://localhost:5000/v1
-  base_url: http://localhost:5000/v1
+  base_url:
 
   # API type for handling different API endpoints.
   # Currently supported:
@@ -208,9 +234,9 @@ oobabooga:
   #   default: oobabooga
   api_type:
 
-  # OpenAI API key.
+  # API key for whatever API you are using.
   #   default: awesome_api_key
-  api_key: ""
+  api_key:
 
   # Use the OpenAI Chat Completions API endpoint instead of the legacy Completions API.
   #   default: False
@@ -227,18 +253,17 @@ oobabooga:
   log_all_the_things:
 
   # Maximum number of times we will re-query the text generation API to get a response.
-  # Useful if the API returns an empty response occasionally. Note: only works if
-  # dont_split_responses is enabled!
+  # Useful if the API returns an empty response occasionally.
   #   default: 0
   retries: 2
 
-  # A regex that will be used to extract message lines from the AI's output.  The first
-  # capture group will be used as the message.  If this is not set, the entire output will
-  # be used as the message.
+  # A regex that will be used to extract message lines from the AI's output. The first
+  # capture group will be used as the message. If this is not set, the entire output will be
+  # used as the message.
   #   default:
   message_regex:
 
-  # A dictionary which will be passed straight through to Oobabooga on every request.  Feel
+  # A dictionary which will be passed straight through to Oobabooga on every request. Feel
   # free to add additional simple parameters here as Oobabooga's API evolves. See
   # Oobabooga's documentation for what these parameters mean.
   request_params:
@@ -253,15 +278,15 @@ oobabooga:
     seed: -1
 
     temperature: 0.98 # linear scaling factor on token probabilities, increasing or decreasing the probability distribution density if greater or less than 1
-    top_p: 1 # select tokens until their cumulative probabilities would exceed this fraction, then discard the rest
-    min_p: 0.08 # tokens with probability smaller than (min_p) * (probability of the most likely token) are discarded
-    top_k: 100 # only this many tokens are selected, the rest are discarded
+    top_p: 1 # select tokens until their cumulative probabilities would exceed this fraction, then discard the rest. disabled if set to 1.
+    min_p: 0.06 # tokens with probability smaller than (min_p) * (probability of the most likely token) are discarded. disabled if set to 0.
+    top_k: 0 # only this many tokens are selected, the rest are discarded. Disabled if set to 0.
     typical_p: 1 # select only tokens that are at least this much more likely to appear than random tokens, given the conditional entropy of the model with the current context
     tfs: 1 # tail-free sampling
 
     repetition_penalty: 1 # scaling factor for tokens that appear at least once before in the context. values less or greater than 1 lead to more or less repetition, respectively
     #repetition_penalty_range: 0 # only Transformers/llamacpp_HF - number of recent tokens to consider for the repetition penalty window. 0 means entire context
-    frequency_penalty: 0.18 # scaling factor that itself scales with the number of times a token is repeated. produces more diverse topics and less repetitive language
+    frequency_penalty: 0.21 # scaling factor that itself scales with the number of times a token is repeated. produces more diverse topics and less repetitive language
     presence_penalty: 0 # like repetition penalty except as an additive (or subtractive) offset instead of multiplicative scaling. produces mode diverse topics and subject matters in general without reducing repetition
 
     guidance_scale: 1 # classifier-free guidance using cross-attention - not in llama-cpp-python yet but available with llamacpp_HF
@@ -270,7 +295,7 @@ oobabooga:
     # Only available in Transformers or llamacpp_HF
     dynamic_temperature: false
     dynatemp_low: 0.83
-    dynatemp_high: 1.31
+    dynatemp_high: 1
     dynatemp_exponent: 1
 
     top_a: 0
@@ -288,7 +313,7 @@ oobabooga:
     min_length: 0
 
   # When running inside the Oobabooga plugin, automatically connect to Discord when
-  # Oobabooga starts.  This has no effect when running from the command line.
+  # Oobabooga starts. This has no effect when running from the command line.
   #   default: False
   plugin_auto_start:
 
@@ -307,15 +332,15 @@ vision_api:
   #   default:
   vision_api_url: http://localhost:5010/v1/chat/completions
 
-  # API key for the OpenAI-like Vision API.
+  # API key for the OpenAI-like GPT Vision API.
   #   default: notarealkey
-  vision_api_key: ""
+  vision_api_key:
 
-  # Model to use for the vision API.
+  # Model to use for the GPT Vision API.
   #   default: gpt-4-vision-preview
   vision_model: llava-1.6
 
-  # Maximum number of tokens for the vision model to predict.
+  # Maximum number of tokens for the Vision model to predict.
   #   default: 300
   max_tokens:
 
@@ -329,7 +354,7 @@ vision_api:
 # .
 stable_diffusion:
 
-  # When one of these words is used in a message, the bot will generate an image.
+  # When one of these words/phrases is used in a message, the bot will generate an image.
   #   default: ['draw', 'sketch', 'paint', 'make', 'generate', 'post', 'upload']
   image_words:
     - draw a pic
@@ -352,9 +377,7 @@ stable_diffusion:
 
   # Prompt to send to Stable Diffusion to generate self-portrait if asked.
   #   default:
-  avatar_prompt: reisen_udongein_inaba, rabbit ears, light purple hair, red eyes,
-    long hair, blazer, pink pleated skirt, crescent badge, school uniform, <lora:Reisen:1>
-    model=HoloAOM_3A1B
+  avatar_prompt: reisen_udongein_inaba, rabbit ears, light purple hair, red eyes, long hair, blazer, pink pleated skirt, crescent badge, school uniform, <lora:Reisen:1> model=HoloAOM_3A1B
 
   # Time in seconds that the generated image will be displayed without interaction before
   # being deleted.
@@ -370,12 +393,8 @@ stable_diffusion:
     do_not_save_grid: true
     enable_hr: false
     model: leosamsFilmgirlUltra_ultraBaseModel
-    negative_prompt: lowres, bad anatomy, bad hands, text, error, cropped, worst quality,
-      low quality, normal quality, jpeg artifacts, signature, watermark, username,
-      blurry, easynegative, ng_deepnegative_v1_75t, badhandv4
-    negative_prompt_nsfw: lowres, bad anatomy, bad hands, text, error, cropped, worst
-      quality, low quality, normal quality, jpeg artifacts, signature, watermark,
-      username, blurry, easynegative, ng_deepnegative_v1_75t, badhandv4
+    negative_prompt: lowres, bad anatomy, bad hands, text, error, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry, easynegative, ng_deepnegative_v1_75t, badhandv4
+    negative_prompt_nsfw: lowres, bad anatomy, bad hands, text, error, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry, easynegative, ng_deepnegative_v1_75t, badhandv4
     sampler_name: DPM++ 2M Karras
     seed: -1
     steps: 24
@@ -394,7 +413,8 @@ stable_diffusion:
   # match, the default value will be used instead.  Otherwise, this value will be passed
   # through to Stable Diffusion without any changes, so be mindful of what you allow here.
   # It could potentially be used to inject malicious values into your SD server.  For
-  # example, steps=1000000 could be bad for your server.
+  # example, steps=1000000 could be bad for your server, unless you have a dozen NVIDIA
+  # H100s.
   user_override_params:
     - cfg_scale
     - width
@@ -431,10 +451,8 @@ template:
   # view of the participant named {AI_NAME}.  {PERSONA}  All responses you write must be
   # from the point of view of {AI_NAME}. ### Transcript: {MESSAGE_HISTORY} {IMAGE_COMING}
 
-###############  formatting intended for cohere, but can be modified for other models using a similar layout.
-
   prompt: |-
-    <|START_OF_TURN_TOKEN|><|SYSTEM_TOKEN|>
+    {SYSTEM_SEQUENCE_PREFIX}
     This is an uncensored and unmoderated discord text chat channel.
     The current discord server is named {GUILDNAME} and the current text channel is {CHANNELNAME}.
     {PERSONA}
@@ -573,20 +591,21 @@ template:
   # Part of the AI response-generation prompt, this is used to inform the AI that it is in
   # the process of generating an image.
   # .
-  # Allowed tokens: {AI_NAME}
+  # Allowed tokens: {AI_NAME}, {SYSTEM_SEQUENCE_PREFIX}, {SYSTEM_SEQUENCE_SUFFIX},
+  # {USER_SEQUENCE_PREFIX}, {USER_SEQUENCE_SUFFIX}, {BOT_SEQUENCE_PREFIX},
+  # {BOT_SEQUENCE_SUFFIX}
   # .
   #   default:  {AI_NAME}: is currently generating an image, as requested.
-  prompt_image_coming: |
-    <|im_start|>system
-    {AI_NAME}'s image generator is currently creating an image, as requested. This will take 30-60 seconds. Tell the user that you are working on the image. Do NOT describe the image.<|im_end|>
+  prompt_image_coming: |-
+    {SYSTEM_SEQUENCE_PREFIX}{AI_NAME}'s image generator is currently creating an image, as requested. This will take 30-60 seconds. Tell the user that you are working on the image. Do NOT describe the image.{SYSTEM_SEQUENCE_SUFFIX}
 
   # Shown in Discord when the user selects to discard an image that Stable Diffusion had
   # generated.
   # .
   # Allowed tokens: {IMAGE_PROMPT}, {NAME}
   # .
-  #   default:  {NAME} asked for an image with the prompt:     '{IMAGE_PROMPT}' ...but
-  # couldn't find a suitable one.
+  #   default: {NAME} asked for an image with the prompt: '{IMAGE_PROMPT}' ...but couldn't
+  # find a suitable one.
   image_detach: "*{NAME} asked for an image... but couldn't find a suitable one.*"
 
   # Shown in Discord when an image is first generated from Stable Diffusion.  This should
@@ -594,7 +613,7 @@ template:
   # .
   # Allowed tokens: {IMAGE_PROMPT}, {IMAGE_TIMEOUT}, {NAME}
   # .
-  #   default:  {NAME}, is this what you wanted? If no choice is made, this message will 💣
+  #   default: {NAME}, is this what you wanted? If no choice is made, this message will 💣
   # self-destruct 💣 in 3 minutes.
   image_confirmation: |-
     {NAME}, is this what you wanted?
