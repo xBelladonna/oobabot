@@ -102,6 +102,24 @@ class PromptGenerator:
             templates.Templates.PROMPT_IMAGE_COMING,
             {
                 templates.TemplateToken.AI_NAME: self.persona.ai_name,
+                templates.TemplateToken.SYSTEM_SEQUENCE_PREFIX: self.template_store.format(
+                    templates.Templates.SYSTEM_SEQUENCE_PREFIX, {}
+                ),
+                templates.TemplateToken.SYSTEM_SEQUENCE_SUFFIX: self.template_store.format(
+                    templates.Templates.SYSTEM_SEQUENCE_SUFFIX, {}
+                ),
+                templates.TemplateToken.USER_SEQUENCE_PREFIX: self.template_store.format(
+                    templates.Templates.USER_SEQUENCE_PREFIX, {}
+                ),
+                templates.TemplateToken.USER_SEQUENCE_SUFFIX: self.template_store.format(
+                    templates.Templates.USER_SEQUENCE_SUFFIX, {}
+                ),
+                templates.TemplateToken.BOT_SEQUENCE_PREFIX: self.template_store.format(
+                    templates.Templates.BOT_SEQUENCE_PREFIX, {}
+                ),
+                templates.TemplateToken.BOT_SEQUENCE_SUFFIX: self.template_store.format(
+                    templates.Templates.BOT_SEQUENCE_SUFFIX, {}
+                ),
             },
         )
 

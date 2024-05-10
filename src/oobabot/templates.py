@@ -239,6 +239,12 @@ class TemplateStore:
         Templates.PROMPT_IMAGE_COMING: (
             [
                 TemplateToken.AI_NAME,
+                TemplateToken.SYSTEM_SEQUENCE_PREFIX,
+                TemplateToken.SYSTEM_SEQUENCE_SUFFIX,
+                TemplateToken.USER_SEQUENCE_PREFIX,
+                TemplateToken.USER_SEQUENCE_SUFFIX,
+                TemplateToken.BOT_SEQUENCE_PREFIX,
+                TemplateToken.BOT_SEQUENCE_SUFFIX,
             ],
             "Part of the AI response-generation prompt, this is used to "
             + "inform the AI that it is in the process of generating an "
@@ -368,22 +374,16 @@ class TemplateStore:
         ),
         Templates.PROMPT_IMAGE_COMING: textwrap.dedent(
             """
-            {AI_NAME}: is currently generating an image, as requested.
+            {SYSTEM_SEQUENCE_PREFIX}{AI_NAME} is currently generating an image, as requested.{SYSTEM_SEQUENCE_SUFFIX}
             """
         ),
-        Templates.IMAGE_DETACH: textwrap.dedent(
-            """
-            {NAME} asked for an image with the prompt:
-                '{IMAGE_PROMPT}'
-            ...but couldn't find a suitable one.
-            """
-        ),
-        Templates.IMAGE_CONFIRMATION: textwrap.dedent(
-            """
-            {NAME}, is this what you wanted?
-            If no choice is made, this message will 💣 self-destruct 💣 in 3 minutes.
-            """
-        ),
+        Templates.IMAGE_DETACH:
+            "{NAME} asked for an image with the prompt:\n"
+            + textwrap.dedent("    '{IMAGE_PROMPT}'\n")
+            + "...but couldn't find a suitable one.",
+        Templates.IMAGE_CONFIRMATION:
+            "{NAME}, is this what you wanted?\n"
+            + "If no choice is made, this message will 💣 self-destruct 💣 in 3 minutes.",
         Templates.IMAGE_GENERATION_ERROR: textwrap.dedent(
             """
             Something went wrong generating your image. Sorry about that!
