@@ -214,6 +214,9 @@ class DiscordBot(discord.Client):
         """
 
         try:
+            # Don't respond to the thread creation system message
+            if raw_message.type == discord.MessageType.thread_created:
+                return
             # Add the message to the queue
             self.message_queue.appendleft(raw_message)
             # Start processing the message queue for the first message received
