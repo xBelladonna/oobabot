@@ -644,7 +644,9 @@ class Settings:
                     textwrap.dedent(
                         """
                         sentence: Stream responses sentence by sentence. Useful if streaming
-                        by token is too janky but not splitting responses is too slow.
+                        by token is too janky but not splitting responses is too slow. Note:
+                        this will cause newlines to be lost, as the responses are returned
+                        from the client without newlines.
                         """
                     ),
                 ],

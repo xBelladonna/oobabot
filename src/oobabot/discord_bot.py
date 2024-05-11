@@ -111,7 +111,7 @@ class DiscordBot(discord.Client):
         # Instantiate double-ended message queue
         self.message_queue = deque()
         # Get a sentence segmenter ready
-        self.sentence_splitter = pysbd.Segmenter(language="en", clean=False, char_span=True)
+        self.sentence_splitter = pysbd.Segmenter(language="en", clean=False)
 
     async def on_ready(self) -> None:
         guilds = self.guilds
@@ -620,13 +620,13 @@ class DiscordBot(discord.Client):
         if as_string:
             response = await self.ooba_client.request_as_string(prompt_prefix, stopping_strings)
             return response, response_stat
-        if self.stream_responses:
+        if self.stream_responses == "token":
             generator = self.ooba_client.request_as_grouped_tokens(
                 prompt_prefix,
                 stopping_strings,
                 interval=self.stream_responses_speed_limit,
             )
-        else:
+        elif self.stream_responses == "sentence":
             generator = self.ooba_client.request_by_message(
                 prompt_prefix,
                 stopping_strings,
@@ -739,7 +739,6 @@ class DiscordBot(discord.Client):
         # - it was empty
         # - it repeated a previous response and we're throttling it
         aborted_by_us = False
-        sent_message_count = 0
         # will return a string or generator based on configuration
         response, response_stat = await self._generate_response(
             message=message,
@@ -752,40 +751,70 @@ class DiscordBot(discord.Client):
 
         try:
             if self.stream_responses == "token":
-                last_sent_message = await self._render_streaming_response(
+                last_sent_message, sent_message_count = await self._render_streaming_response(
                     response,
                     response_stat,
                     response_channel,
                     self._allowed_mentions,
                     reference,
                 )
-                if last_sent_message:
-                    sent_message_count = 1
             elif self.stream_responses == "sentence":
-                last_sent_message = await self._render_response_by_sentence(
+                last_sent_message, sent_message_count = await self._render_response_by_sentence(
                     response,
                     response_stat,
                     response_channel,
                     self._allowed_mentions,
                     reference,
                 )
-                if last_sent_message:
-                    sent_message_count = 1
             else:
-                # post the whole message at once
+                # Post the whole message at once
                 if self.dont_split_responses:
+                    last_sent_message = None
+                    sent_message_count = 0
                     if len(response) > self.message_character_limit:
-                        # hopefully we don't get here often but if we do, split the response
-                        # into sentences, and append them to our response until the next
-                        # sentence would cause the response to exceed the character limit.
+                        # Hopefully we don't get here often but if we do, split the response
+                        # into sentences, append them to a response buffer until the next
+                        # sentence would cause the response to exceed the character limit,
+                        # then post what we have and continue in a new message.
                         new_response = ""
-                        sentences: typing.List[
-                            pysbd.utils.TextSpan
-                        ] = [x.sent for x in self.sentence_splitter.segment(response)]
-                        for sentence in sentences:
-                            if len(new_response) > self.message_character_limit:
-                                break
-                            new_response += sentence.sent
+                        # Preserve newlines by splitting into a list on them
+                        lines = response.split("\n")
+                        for line in lines:
+                            if not line:
+                                # This means we split on a line which was only a newline.
+                                # We add it back and then move on to the next line.
+                                new_response += "\n"
+                                continue
+                            # Sometimes the trailing space at the end of a sentence is kept,
+                            # sometimes not. We avoid ambiguity by explicity stripping
+                            # additional whitespace and re-adding a trailing space.
+                            sentences = [
+                                x.strip(" ") + " " for x in self.sentence_splitter.segment(line)
+                            ]
+                            # Append the lost newline to the last sentence in the line
+                            sentences[-1] = sentences[-1].strip(" ") + "\n"
+                            for sentence in sentences:
+                                if len(new_response + sentence) > self.message_character_limit:
+                                    fancy_logger.get().debug(
+                                        "Response exceeded %d character limit by %d "
+                                        + "characters! Posting current message and continuing "
+                                        + "in a new message.",
+                                        self.message_character_limit,
+                                        len(response) - self.message_character_limit
+                                    )
+                                    last_sent_message = await self._send_response_message(
+                                        new_response,
+                                        response_stat,
+                                        response_channel,
+                                        self._allowed_mentions,
+                                        reference,
+                                    )
+                                    if last_sent_message:
+                                        sent_message_count += 1
+                                    new_response = ""
+                                    # Finally, wait for the configured rate-limit timeout
+                                    await asyncio.sleep(self.stream_responses_speed_limit)
+                                new_response += sentence
                         response = new_response
                     (
                         last_sent_message,
@@ -795,10 +824,10 @@ class DiscordBot(discord.Client):
                         response_stat,
                         response_channel,
                         self._allowed_mentions,
-                        reference,
+                        last_sent_message[0] if last_sent_message else reference,
                     )
                     if last_sent_message:
-                        sent_message_count = 1
+                        sent_message_count += 1
                 # or finally, send the response sentence by sentence
                 # in a new message each time, notifying the channel.
                 else:
@@ -806,6 +835,12 @@ class DiscordBot(discord.Client):
                     async for sentence in response:
                         if len(sentence) > self.message_character_limit:
                             # idk how the hell we might get here but best to consider it
+                            fancy_logger.get().debug(
+                                "Somehow our sentence was longer than %d characters by %d "
+                                + "characters. Truncating excess.",
+                                self.message_character_limit,
+                                len(sentence) - self.message_character_limit
+                            )
                             sentence = sentence[:self.message_character_limit]
                         (
                             sent_message,
@@ -826,6 +861,7 @@ class DiscordBot(discord.Client):
                         if abort_response:
                             aborted_by_us = True
                             break
+                        await asyncio.sleep(self.stream_responses_speed_limit)
 
         except discord.DiscordException as err:
             fancy_logger.get().error("Error while sending message: %s", err, exc_info=True)
@@ -946,6 +982,17 @@ class DiscordBot(discord.Client):
             )
         else:
             if response:
+                # If it exceeds the character limit, just truncate it for now,
+                # until I figure out how to best handle sending multiple messages
+                # without upsetting the order of messages too much.
+                if len(response) > self.message_character_limit:
+                    fancy_logger.get().debug(
+                        "Response exceeded %d character limit by %d characters! "
+                        + "Truncating excess.",
+                        self.message_character_limit,
+                        len(response) - self.message_character_limit
+                    )
+                    response = response[:self.message_character_limit]
                 await raw_message.edit(content=response)
                 response_stat.log_response_part()
             else:
@@ -973,17 +1020,27 @@ class DiscordBot(discord.Client):
         Renders a streaming response into a message by editing it with updated
         contents each time a new group of response tokens is received.
         """
+        buffer = ""
         response = ""
         last_message = existing_message
+        sent_message_count = 0
 
-        async for token in response_iterator:
-            if not token:
+        async for tokens in response_iterator:
+            if not tokens:
                 continue
-            response += token
-            response, abort_response = self._filter_immersion_breaking_lines(response)
-            # Abort the stream if our response meets or exceeds Discord's character limit
-            if len(response) >= self.message_character_limit:
-                break
+            buffer, abort_response = self._filter_immersion_breaking_lines(buffer + tokens)
+            # If we would exceed the character limit, post what we have and start a new message
+            if len(buffer) > self.message_character_limit:
+                fancy_logger.get().debug(
+                    "Response exceeded %d character limit! Posting current "
+                    + "message and continuing in a new message.",
+                    self.message_character_limit
+                )
+                buffer = ""
+                response = ""
+                reference = last_message
+                last_message = None
+            response, abort_response = self._filter_immersion_breaking_lines(response + tokens)
 
             # don't send an empty message
             if not response:
@@ -998,13 +1055,13 @@ class DiscordBot(discord.Client):
                     suppress_embeds=True,
                     reference=reference,
                 )
+                sent_message_count += 1
             else:
-                await last_message.edit(
+                last_message = await last_message.edit(
                     content=response,
                     allowed_mentions=allowed_mentions,
                     suppress=True,
                 )
-                last_message.content = response
 
             # we want to abort the response only after we've sent any valid
             # messages, and potentially removed any partial immersion-breaking
@@ -1020,7 +1077,7 @@ class DiscordBot(discord.Client):
                 discord_utils.discord_message_to_generic_message(last_message),
             )
 
-        return last_message
+        return last_message, sent_message_count
 
     async def _render_response_by_sentence(
         self,
@@ -1037,14 +1094,24 @@ class DiscordBot(discord.Client):
         """
         response = ""
         last_message = existing_message
+        sent_message_count = 0
 
         async for sentence in response_iterator:
             sentence, abort_response = self._filter_immersion_breaking_lines(sentence)
             if not sentence:
                 continue
+            sentence = sentence.strip(" ") + " "
+            # If we would exceed the character limit, start a new message
+            if len(response + sentence) > self.message_character_limit:
+                fancy_logger.get().debug(
+                    "Response exceeded %d character limit! Posting current "
+                    + "message and continuing in a new message.",
+                    self.message_character_limit
+                )
+                response = ""
+                reference = last_message
+                last_message = None
             response += sentence
-            if len(response) >= self.message_character_limit:
-                break
 
             if not last_message:
                 last_message = await response_channel.send(
@@ -1053,13 +1120,13 @@ class DiscordBot(discord.Client):
                     suppress_embeds=True,
                     reference=reference,
                 )
+                sent_message_count += 1
             else:
-                await last_message.edit(
+                last_message = await last_message.edit(
                     content=response,
                     allowed_mentions=allowed_mentions,
                     suppress=True,
                 )
-                last_message.content = response
 
             if abort_response:
                 break
@@ -1076,7 +1143,7 @@ class DiscordBot(discord.Client):
                 discord_utils.discord_message_to_generic_message(last_message),
             )
 
-        return last_message
+        return last_message, sent_message_count
 
     def _filter_immersion_breaking_lines(self, text: str) -> typing.Tuple[str, bool]:
         """
@@ -1093,7 +1160,7 @@ class DiscordBot(discord.Client):
         """
         # Do nothing if the filter is disabled
         if not self.use_immersion_breaking_filter:
-            return text
+            return text, False
 
         # First, split the text by 'real' newlines to preserve them
         lines = text.split("\n")
@@ -1102,12 +1169,12 @@ class DiscordBot(discord.Client):
 
         for line in lines:
             # Split the line by our pysbd segmenter to get individual sentences
-            sentences: typing.List[
-                pysbd.utils.TextSpan
-            ] = [x.sent for x in self.sentence_splitter.segment(line)]
+            sentences = self.sentence_splitter.segment(line)
             good_sentences = []
 
             for sentence in sentences:
+                sentence = sentence.strip() + " "
+
                 # if the AI gives itself a second line, just ignore
                 # the line instruction and continue
                 if self.prompt_generator.bot_prompt_block in sentence:
@@ -1189,7 +1256,7 @@ class DiscordBot(discord.Client):
                     break
 
                 # filter out sentences that are entirely made of whitespace/newlines
-                if sentence.strip().strip("\n"):
+                if sentence.strip():
                     good_sentences.append(sentence)
 
             if abort_response:
@@ -1201,6 +1268,7 @@ class DiscordBot(discord.Client):
             if good_line:
                 good_lines.append(good_line)
 
+        # Join lines back with newlines again
         return ("\n".join(good_lines), abort_response)
 
     async def _filter_history_message(
