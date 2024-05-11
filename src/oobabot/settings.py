@@ -540,11 +540,28 @@ class Settings:
             )
         )
         self.discord_settings.add_setting(
+            oesp.ConfigSetting[bool](
+                name="use_immersion_breaking_filter",
+                default=True,
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        Enable the immersion-breaking filter, which uses several heuristics
+                        in order to filter out things like username/display name snippets,
+                        and prevent the AI from inventing nonexistent characters and
+                        speaking as them.
+                        """
+                    ),
+                ],
+            )
+        )
+        self.discord_settings.add_setting(
             oesp.ConfigSetting[typing.List[str]](
                 name="stop_markers",
                 default=[
-                    "### End of Transcript ###<|endoftext|>",
+                    "<|im_end|>",
                     "<|endoftext|>",
+                    "### Instruction:",
                 ],
                 description_lines=[
                     textwrap.dedent(

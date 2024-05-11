@@ -86,6 +86,7 @@ class DiscordBot(discord.Client):
             roles="roles" in self._allowed_mentions,
         )
         self.reply_in_thread = discord_settings["reply_in_thread"]
+        self.use_immersion_breaking_filter = discord_settings["use_immersion_breaking_filter"]
         self.stop_markers = discord_settings["stop_markers"]
         self.prevent_impersonation = discord_settings["prevent_impersonation"]
         if self.prevent_impersonation not in ["standard", "aggressive", "comprehensive"]:
@@ -1090,6 +1091,10 @@ class DiscordBot(discord.Client):
         and a boolean indicating if we should abort the response entirely,
         ignoring any further lines.
         """
+        # Do nothing if the filter is disabled
+        if not self.use_immersion_breaking_filter:
+            return text
+
         # First, split the text by 'real' newlines to preserve them
         lines = text.split("\n")
         good_lines = []
