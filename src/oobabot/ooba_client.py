@@ -418,7 +418,10 @@ class OobaClient(http_client.SerializedHttpClient):
                 if self.log_all_the_things:
                     try:
                         print(f"Sent request:\n{json.dumps(request, indent=1)}")
-                        print(f"Prompt:\n{str(request['prompt'])}")
+                        if self.api_type == "cohere":
+                            print(f"Prompt:\n{str(request['message'])}")
+                        else:
+                            print(f"Prompt:\n{str(request['prompt'])}")
                     except UnicodeEncodeError:
                         print(
                             "Sent request:\n"
