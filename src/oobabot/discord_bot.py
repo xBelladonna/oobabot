@@ -1127,8 +1127,15 @@ class DiscordBot(discord.Client):
                         templates.TemplateToken.MESSAGE: "",
                     },
                 ).strip("\n")
-                username_pattern = re.escape(username_pattern).replace(name_identifier, ".*")
-                message_pattern = re.compile(r'^(' + username_pattern + r')\s*(.*)')
+                # Discord usernames are 2-32 characters long, and can only contain special
+                # characters '_' and '.' but display names are 1-32 characters long and can
+                # contain almost anything, so we try to account for the more permissive option.
+                # Hopefully results in fewer false positives than matching anything. Using a
+                # prompt history block like "[{USER_NAME}]: {MESSAGE}" will work better.
+                username_pattern = re.escape(username_pattern).replace(
+                    name_identifier, r"[\S ]{1,32}"
+                )
+                message_pattern = re.compile(r'^(' + username_pattern + r')(.*)$')
                 match = message_pattern.match(sentence)
                 if match:
                     username_sequence, remaining_text = match.groups()
