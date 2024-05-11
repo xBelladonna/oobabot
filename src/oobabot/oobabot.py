@@ -72,7 +72,7 @@ class Oobabot:
             raise
 
         fancy_logger.init_logging(
-            level=self.settings.discord_settings.get_str("log_level"),
+            level=self.settings.discord_settings.get_str("log_level").upper(),
             running_from_cli=running_from_cli,
         )
 

@@ -149,7 +149,7 @@ class OobaClient(http_client.SerializedHttpClient):
         self.request_params = settings["request_params"]
         self.log_all_the_things = settings["log_all_the_things"]
         self.base_url = settings["base_url"]
-        self.api_type = settings["api_type"]
+        self.api_type = settings["api_type"].lower()
         if self.api_type not in ["oobabooga", "openai", "tabbyapi", "cohere"]:
             raise ValueError(
                 f"Unsupported API type '{self.api_type}'. Please fix your configuration."

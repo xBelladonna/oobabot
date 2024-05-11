@@ -72,7 +72,7 @@ class DiscordBot(discord.Client):
             discord_settings["message_accumulation_period"], 1
         )
         self.continue_on_additional_messages = discord_settings["continue_on_additional_messages"]
-        self._allowed_mentions = discord_settings["allowed_mentions"]
+        self._allowed_mentions = [x.lower() for x in discord_settings["allowed_mentions"]]
         for allowed_mention_type in self._allowed_mentions:
             if allowed_mention_type not in ["everyone", "users", "roles"]:
                 raise ValueError(
@@ -88,13 +88,13 @@ class DiscordBot(discord.Client):
         self.reply_in_thread = discord_settings["reply_in_thread"]
         self.use_immersion_breaking_filter = discord_settings["use_immersion_breaking_filter"]
         self.stop_markers = discord_settings["stop_markers"]
-        self.prevent_impersonation = discord_settings["prevent_impersonation"]
+        self.prevent_impersonation = discord_settings["prevent_impersonation"].lower()
         if self.prevent_impersonation not in ["standard", "aggressive", "comprehensive"]:
             raise ValueError(
                 f"Unknown value '{self.prevent_impersonation}' for `prevent_impersonation`. "
                 + "Please fix your configuration."
             )
-        self.stream_responses = discord_settings["stream_responses"]
+        self.stream_responses = discord_settings["stream_responses"].lower()
         if self.stream_responses and self.stream_responses not in ["token", "sentence"]:
             raise ValueError(
                 f"Unknown value '{self.stream_responses}' for `stream_responses`. "
