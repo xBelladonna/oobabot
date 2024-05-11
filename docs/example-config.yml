@@ -107,13 +107,19 @@ discord:
   #   default: False
   reply_in_thread:
 
+  # Enable the immersion-breaking filter, which uses several heuristics in order to filter
+  # out things like username/display name snippets, and prevent the AI from inventing
+  # nonexistent characters and speaking as them.
+  #   default: True
+  use_immersion_breaking_filter:
+
   # A list of strings that will be used to filter out immersion-breaking messages when
   # encountered. The bot looks for these sequences in responses and removes them from the
   # response, using further heuristics to determine if the content following the marker
   # should be removed as well.
   # Note: this does not stop response generation at the model level! For that, use the
   # "stop" parameter under the oobabooga request_params setting.
-  #   default: ['### End of Transcript ###<|endoftext|>', '<|endoftext|>']
+  #   default: ['<|im_end|>', '<|endoftext|>', '### Instruction:']
   stop_markers:
     - <|model|>
 
