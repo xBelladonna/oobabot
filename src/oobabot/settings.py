@@ -100,55 +100,70 @@ class Settings:
     REPETITION_TRACKER_THRESHOLD = 1
 
     OOBABOOGA_DEFAULT_REQUEST_PARAMS: oesp.SettingDictType = {
-        "max_tokens": 250,
-        "do_sample": True,
-        "temperature": 1.3,
-        "min_temp": 0.2,
-        "max_temp": 1.8,
-        "min_p": 0.1,
-        "typical_p": 1,
-        "epsilon_cutoff": 0,  # In units of 1e-4
-        "eta_cutoff": 0,  # In units of 1e-4
-        "tfs": 1,
-        "top_a": 0,
-        "repetition_penalty": 1.18,
-        "top_k": 40,
-        "min_length": 0,
-        "no_repeat_ngram_size": 0,
-        "num_beams": 1,
-        "penalty_alpha": 0,
-        "length_penalty": 1,
-        "early_stopping": False,
-        "mirostat_mode": 0,
-        "mirostat_tau": 5,
-        "mirostat_eta": 0.1,
-        "seed": -1,
-        "add_bos_token": True,
-        "truncation_length": 2048,
+        "max_tokens": 300,
+        "truncation_length": 4096,
+        "add_bos_token": False,
         "ban_eos_token": False,
         "skip_special_tokens": True,
         "stop": [],
+        "do_sample": True,
+        "temperature_last": True,
+        "seed": -1,
+        "temperature": 0.98,
+        "top_p": 1,
+        "min_p": 0.05,
+        "top_k": 40,
+        "typical_p": 1,
+        "tfs": 1,
+        "repetition_penalty": 1.18,
+        "repetition_penalty_range": 0,
+        "frequency_penalty": 0,
+        "presence_penalty": 0,
+        "guidance_scale": 1,
+        "negative_prompt": "",
+        "dynamic_temperature": False,
+        "dynatemp_low": 0.83,
+        "dynatemp_high": 1.3,
+        "dynatemp_exponent": 1,
+        "top_a": 0,
+        "epsilon_cutoff": 0,  # In units of 1e-4
+        "eta_cutoff": 0,  # In units of 1e-4
+        "mirostat_mode": 0,
+        "mirostat_tau": 5,
+        "mirostat_eta": 0.1,
+        "smoothing_factor": 0,
+        "encoder_repetition_penalty": 1,
+        "no_repeat_ngram_size": 0,
+        "min_length": 0
     }
 
     VISION_DEFAULT_REQUEST_PARAMS: oesp.SettingDictType = {
         "max_tokens": 300,
-        "do_sample": True,
-        "temperature": 0.2,
-        "min_temp": 0.1,
-        "max_temp": 0.3,
-        "top_p": 0.95,
-        "min_p": 0.05,
-        "typical_p": 1,
-        "epsilon_cutoff": 0,  # In units of 1e-4
-        "eta_cutoff": 0,  # In units of 1e-4
-        "tfs": 1,
-        "top_a": 0,
-        "seed": -1,
-        "add_bos_token": True,
         "truncation_length": 4096,
+        "add_bos_token": True,
         "ban_eos_token": False,
         "skip_special_tokens": True,
         "stop": [],
+        "do_sample": True,
+        "temperature_last": True,
+        "seed": -1,
+        "temperature": 0.2,
+        "top_p": 0.95,
+        "min_p": 0.05,
+        "top_k": 100,
+        "typical_p": 1,
+        "tfs": 1,
+        "repetition_penalty": 1,
+        "repetition_penalty_range": 0,
+        "frequency_penalty": 0,
+        "presence_penalty": 0,
+        "guidance_scale": 1,
+        "negative_prompt": "",
+        "dynamic_temperature": False,
+        "dynatemp_low": 0.1,
+        "dynatemp_high": 0.3,
+        "dynatemp_exponent": 1,
+        "min_length": 0
     }
 
     # set default negative prompts to make it more difficult
@@ -184,6 +199,11 @@ class Settings:
         "steps": 30,
         "width": 512,
         "height": 512,
+        "override_settings": {
+            "CLIP_stop_at_last_layers": 12,
+            "sd_vae": "Automatic"
+        },
+        "override_settings_restore_afterwards": True
     }
 
     DEFAULT_SD_USER_OVERRIDE_PARAMS = [
