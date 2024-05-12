@@ -26,8 +26,8 @@ class VisionClient:
         self.api_url = settings["vision_api_url"]
         self.api_key = settings["vision_api_key"]
         self.model = settings["vision_model"]
-        self.max_tokens = settings["max_tokens"]
         self.max_image_size = settings["max_image_size"]
+        self.request_params = settings["request_params"]
         self.template_store = template_store
         self.persona = persona
 
@@ -117,7 +117,7 @@ class VisionClient:
         payload = {
             "model": self.model,
             "messages": messages,
-            "max_tokens": self.max_tokens
+            **self.request_params
         }
 
         async with aiohttp.ClientSession() as session:

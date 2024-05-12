@@ -130,6 +130,27 @@ class Settings:
         "stop": [],
     }
 
+    VISION_DEFAULT_REQUEST_PARAMS: oesp.SettingDictType = {
+        "max_tokens": 300,
+        "do_sample": True,
+        "temperature": 0.2,
+        "min_temp": 0.1,
+        "max_temp": 0.3,
+        "top_p": 0.95,
+        "min_p": 0.05,
+        "typical_p": 1,
+        "epsilon_cutoff": 0,  # In units of 1e-4
+        "eta_cutoff": 0,  # In units of 1e-4
+        "tfs": 1,
+        "top_a": 0,
+        "seed": -1,
+        "add_bos_token": True,
+        "truncation_length": 4096,
+        "ban_eos_token": False,
+        "skip_special_tokens": True,
+        "stop": [],
+    }
+
     # set default negative prompts to make it more difficult
     # to create content against the discord TOS
     # https://discord.com/guidelines
@@ -1073,19 +1094,6 @@ class Settings:
         )
         self.vision_api_settings.add_setting(
             oesp.ConfigSetting[int](
-               name="max_tokens",
-               default=300,
-               description_lines=[
-                    textwrap.dedent(
-                        """
-                        Maximum number of tokens for the Vision model to predict.
-                        """
-                    )
-               ],
-            )
-        )
-        self.vision_api_settings.add_setting(
-            oesp.ConfigSetting[int](
                name="max_image_size",
                default=1344,
                description_lines=[
@@ -1096,6 +1104,23 @@ class Settings:
                         """
                     )
                ],
+            )
+        )
+        self.vision_api_settings.add_setting(
+            oesp.ConfigSetting[oesp.SettingDictType](
+                name="request_params",
+                default=self.VISION_DEFAULT_REQUEST_PARAMS,
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        A dictionary which will be passed straight through to
+                        the Vision API on every request.
+                        """
+                    )
+                ],
+                include_in_argparse=False,
+                show_default_in_yaml=False,
+                place_default_in_yaml=True,
             )
         )
         ###########################################################
