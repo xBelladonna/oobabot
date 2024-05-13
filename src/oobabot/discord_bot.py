@@ -258,16 +258,23 @@ class DiscordBot(discord.Client):
                 discord_utils.get_channel_name(channel),
             )
 
-            finished = False
-            async for msg in channel.history(limit=self.prompt_generator.history_lines):
-                if finished:
-                    self.repetition_tracker.hide_messages_before(
-                        channel_id=channel.id,
-                        message_id=msg.id,
-                    )
-                    break
-                if msg.id == payload.message_id:
-                    finished = True
+            # Hide the chat from the message before our reacted message
+            #finished = False
+            #async for msg in channel.history(limit=self.prompt_generator.history_lines):
+            #    if finished:
+            #        self.repetition_tracker.hide_messages_before(
+            #            channel_id=channel.id,
+            #            message_id=msg.id,
+            #        )
+            #        break
+            #    if msg.id == payload.message_id:
+            #        finished = True
+
+            # Include the reacted message in the hidden chat history
+            self.repetition_tracker.hide_messages_before(
+                channel_id=channel.id,
+                message_id=raw_message.id,
+            )
             try:
                 await raw_message.clear_reaction(payload.emoji)
             except (discord.Forbidden, discord.NotFound):
