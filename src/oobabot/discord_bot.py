@@ -297,23 +297,36 @@ class DiscordBot(discord.Client):
 
         # message regeneration
         if payload.emoji.name == "🔁":
-            message = discord_utils.discord_message_to_generic_message(raw_message)
-            fancy_logger.get().debug(
-                "Received message regeneration request from %s. Regenerating message...",
-                raw_message.author.name,
-            )
-            try:
-                async with channel.typing():
-                    await self._regenerate_message(message, raw_message, channel)
-                if isinstance(channel, (discord.DMChannel, discord.GroupChannel)):
-                    return
+            async for last_raw_message in channel.history(
+                limit=self.prompt_generator.history_lines, before=raw_message
+            ):
+                for ignore_prefix in self.ignore_prefixes:
+                    if last_raw_message.content.startswith(ignore_prefix):
+                        continue
+                message = discord_utils.discord_message_to_generic_message(raw_message)
+                last_message = discord_utils.discord_message_to_generic_message(last_raw_message)
+                fancy_logger.get().debug(
+                    "Received message regeneration request from %s. Regenerating message...",
+                    raw_message.author.name,
+                )
                 try:
-                    await raw_message.clear_reaction(payload.emoji)
-                except (discord.Forbidden, discord.NotFound):
-                    pass
-            except discord.DiscordException as err:
-                fancy_logger.get().error("Error while processing reaction: %s", err, exc_info=True)
-                self.response_stats.log_response_failure()
+                    async with channel.typing():
+                        await self._regenerate_message(
+                            message, raw_message, last_message, last_raw_message, channel
+                        )
+                    if isinstance(channel, (discord.DMChannel, discord.GroupChannel)):
+                        return
+                    try:
+                        await raw_message.clear_reaction(payload.emoji)
+                    except (discord.Forbidden, discord.NotFound):
+                        pass
+                except discord.DiscordException as err:
+                    fancy_logger.get().error(
+                        "Error while processing reaction: %s", err, exc_info=True
+                    )
+                    self.response_stats.log_response_failure()
+
+                break
 
     async def process_message_queue(
             self,
@@ -405,32 +418,15 @@ class DiscordBot(discord.Client):
                     "Error while processing message: %s", err, exc_info=True
                 )
 
-    async def _handle_response(
+    async def _get_image_descriptions(
         self,
-        message: types.GenericMessage,
         raw_message: discord.Message,
-        is_summon_in_public_channel: bool,
-        ) -> None:
-        """
-        Called when we've decided to respond to a message.
-
-        It decides if we're sending a text response, an image response,
-        or both, and then sends the response(s).
-        """
-        fancy_logger.get().debug(
-            "Message from %s in %s", message.author_name, message.channel_name
-        )
-        image_prompt = None
-        if self.image_generator:
-            # are we creating an image?
-            image_prompt = self.image_generator.maybe_get_image_prompt(message.body_text)
-
-        # Determine if there are images and get descriptions (if Vision is enabled)
+    ) -> typing.List[str]:
         images = []
         image_descriptions = []
         if self.vision_client:
             if self.vision_client.fetch_urls:
-                urls = self.vision_client.url_extractor.findall(message.body_text)
+                urls = self.vision_client.url_extractor.findall(raw_message.content)
                 images += urls
             if raw_message.attachments:
                 for attachment in raw_message.attachments:
@@ -453,6 +449,31 @@ class DiscordBot(discord.Client):
                         image_descriptions.append(description)
                 except Exception as e:
                     fancy_logger.get().error("Error processing image: %s", e, exc_info=True)
+
+        return image_descriptions
+
+    async def _handle_response(
+        self,
+        message: types.GenericMessage,
+        raw_message: discord.Message,
+        is_summon_in_public_channel: bool,
+        ) -> None:
+        """
+        Called when we've decided to respond to a message.
+
+        It decides if we're sending a text response, an image response,
+        or both, and then sends the response(s).
+        """
+        fancy_logger.get().debug(
+            "Message from %s in %s", message.author_name, message.channel_name
+        )
+        image_prompt = None
+        if self.image_generator:
+            # are we creating an image?
+            image_prompt = self.image_generator.maybe_get_image_prompt(message.body_text)
+
+        # Determine if there are images and get descriptions (if Vision is enabled)
+        image_descriptions = await self._get_image_descriptions(raw_message)
 
         # If the message is essentially devoid of content we can handle, abort response.
         if message.is_empty() and not image_descriptions:
@@ -934,6 +955,8 @@ class DiscordBot(discord.Client):
         self,
         message: types.GenericMessage,
         raw_message: discord.Message,
+        last_message: types.GenericMessage,
+        last_raw_message: discord.Message,
         channel: typing.Union[
             discord.abc.GuildChannel,
             discord.DMChannel,
@@ -952,13 +975,14 @@ class DiscordBot(discord.Client):
             channel=channel,
             num_history_lines=self.prompt_generator.history_lines,
             stop_before_message_id=repeated_id,
-            ignore_all_until_message_id=message.message_id,
+            ignore_all_until_message_id=last_message.message_id,
             exclude_ignored_message=True,
         )
+        image_descriptions = await self._get_image_descriptions(last_raw_message)
         response, response_stat = await self._generate_response(
-            message=message,
+            message=last_message,
             recent_messages=recent_messages,
-            image_descriptions=[],
+            image_descriptions=image_descriptions,
             image_requested=False,
             response_channel=channel,
             as_string=self.dont_split_responses and not self.stream_responses,
