@@ -124,7 +124,15 @@ class StableDiffusionClient(http_client.SerializedHttpClient):
         #     we upload these same strings to Discord, they might mistakenly
         #     flag the content as violating their TOS.  Even though the only
         #     reason those strings are used is to prevent that content.
-        "enable_pnginfo": False,
+        #
+        #   Actually, we don't want to set this permanently, as people may
+        #   actually be using the web UI separately and this being permanently
+        #   disabled by the bot is confusing and tedious as it requires the
+        #   user to manually re-enable it every time. Instead, we set this as
+        #   a default override option that only applies to the current image
+        #   generation request. See settings.py for the default options.
+        #
+        #"enable_pnginfo": False,
         #
         # - "do_not_add_watermark"
         #    Similar to the above, we don't want to add a watermark to the
