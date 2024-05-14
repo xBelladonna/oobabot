@@ -43,6 +43,7 @@ class Templates(enum.Enum):
     GPT_VISION_PROMPT = "gpt_vision_prompt"
     PROMPT_IMAGE_RECEIVED = "prompt_image_received"
     PROMPT_IMAGE_COMING = "prompt_image_coming"
+    PROMPT_IMAGE_NOT_COMING = "prompt_image_not_coming"
 
     def __str__(self) -> str:
         return self.value
@@ -251,6 +252,21 @@ class TemplateStore:
             + "image.",
             True,
         ),
+        Templates.PROMPT_IMAGE_NOT_COMING: (
+            [
+                TemplateToken.AI_NAME,
+                TemplateToken.SYSTEM_SEQUENCE_PREFIX,
+                TemplateToken.SYSTEM_SEQUENCE_SUFFIX,
+                TemplateToken.USER_SEQUENCE_PREFIX,
+                TemplateToken.USER_SEQUENCE_SUFFIX,
+                TemplateToken.BOT_SEQUENCE_PREFIX,
+                TemplateToken.BOT_SEQUENCE_SUFFIX,
+            ],
+            "Part of the AI response-generation prompt, this is used to "
+            + "inform the AI that its image generator is offline and is "
+            + "not functioning.",
+            True,
+        ),
         Templates.IMAGE_DETACH: (
             [
                 TemplateToken.IMAGE_PROMPT,
@@ -374,7 +390,14 @@ class TemplateStore:
         ),
         Templates.PROMPT_IMAGE_COMING: textwrap.dedent(
             """
-            {SYSTEM_SEQUENCE_PREFIX}{AI_NAME} is currently generating an image, as requested.{SYSTEM_SEQUENCE_SUFFIX}
+            {SYSTEM_SEQUENCE_PREFIX}{AI_NAME} is currently generating an image,
+            as requested.{SYSTEM_SEQUENCE_SUFFIX}
+            """
+        ),
+        Templates.PROMPT_IMAGE_NOT_COMING: textwrap.dedent(
+            """
+            {SYSTEM_SEQUENCE_PREFIX}{AI_NAME}'s image generator is offline or
+            has failed for some reason!{SYSTEM_SEQUENCE_SUFFIX}
             """
         ),
         Templates.IMAGE_DETACH:

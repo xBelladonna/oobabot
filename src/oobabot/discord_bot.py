@@ -464,9 +464,12 @@ class DiscordBot(discord.Client):
             "Message from %s in %s", message.author_name, message.channel_name
         )
         image_prompt = None
-        if self.image_generator:
-            # are we creating an image?
-            image_prompt = self.image_generator.maybe_get_image_prompt(message.body_text)
+        is_image_coming = None
+
+        # are we creating an image?
+        image_prompt = self.image_generator.maybe_get_image_prompt(message.body_text)
+        if image_prompt:
+            is_image_coming = await self.image_generator.try_session()
 
         # Determine if there are images and get descriptions (if Vision is enabled)
         image_descriptions = await self._get_image_descriptions(raw_message)
@@ -479,7 +482,7 @@ class DiscordBot(discord.Client):
             message=message,
             raw_message=raw_message,
             image_descriptions=image_descriptions,
-            image_requested=image_prompt is not None,
+            image_requested=is_image_coming,
             is_summon_in_public_channel=is_summon_in_public_channel,
         )
         if not result:
@@ -498,7 +501,7 @@ class DiscordBot(discord.Client):
                 )
 
         image_task = None
-        if self.image_generator and image_prompt:
+        if is_image_coming:
             image_task = self.image_generator.generate_image(
                 image_prompt,
                 message,
@@ -529,7 +532,7 @@ class DiscordBot(discord.Client):
         message: types.GenericMessage,
         recent_messages: typing.AsyncIterator,
         image_descriptions: typing.List[str],
-        image_requested: bool,
+        image_requested: typing.Optional[bool],
         response_channel: discord.abc.Messageable,
         as_string: bool = False,
     ) -> typing.Union[typing.AsyncIterator, str]:
@@ -656,7 +659,7 @@ class DiscordBot(discord.Client):
         message: types.GenericMessage,
         raw_message: discord.Message,
         image_descriptions: typing.List[str],
-        image_requested: bool,
+        image_requested: typing.Optional[bool],
         is_summon_in_public_channel: bool,
     ) -> typing.Optional[typing.Tuple[asyncio.Task, discord.abc.Messageable]]:
         """
@@ -719,7 +722,7 @@ class DiscordBot(discord.Client):
         message: types.GenericMessage,
         raw_message: discord.Message,
         image_descriptions: typing.List[str],
-        image_requested: bool,
+        image_requested: typing.Optional[bool],
         is_summon_in_public_channel: bool,
         response_channel: discord.abc.Messageable,
     ) -> None:
@@ -977,7 +980,7 @@ class DiscordBot(discord.Client):
             message=message,
             recent_messages=recent_messages,
             image_descriptions=image_descriptions,
-            image_requested=False,
+            image_requested=None,
             response_channel=channel,
             as_string=self.dont_split_responses and not self.stream_responses,
         )

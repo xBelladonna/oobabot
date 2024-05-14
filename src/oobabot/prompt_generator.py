@@ -98,30 +98,38 @@ class PromptGenerator:
             },
         )
 
+        image_request_template_tokens = {
+            templates.TemplateToken.AI_NAME: self.persona.ai_name,
+            templates.TemplateToken.SYSTEM_SEQUENCE_PREFIX: self.template_store.format(
+                templates.Templates.SYSTEM_SEQUENCE_PREFIX, {}
+            ),
+            templates.TemplateToken.SYSTEM_SEQUENCE_SUFFIX: self.template_store.format(
+                templates.Templates.SYSTEM_SEQUENCE_SUFFIX, {}
+            ),
+            templates.TemplateToken.USER_SEQUENCE_PREFIX: self.template_store.format(
+                templates.Templates.USER_SEQUENCE_PREFIX, {}
+            ),
+            templates.TemplateToken.USER_SEQUENCE_SUFFIX: self.template_store.format(
+                templates.Templates.USER_SEQUENCE_SUFFIX, {}
+            ),
+            templates.TemplateToken.BOT_SEQUENCE_PREFIX: self.template_store.format(
+                templates.Templates.BOT_SEQUENCE_PREFIX, {}
+            ),
+            templates.TemplateToken.BOT_SEQUENCE_SUFFIX: self.template_store.format(
+                templates.Templates.BOT_SEQUENCE_SUFFIX, {}
+            ),
+        }
         self.image_request_made = self.template_store.format(
             templates.Templates.PROMPT_IMAGE_COMING,
-            {
-                templates.TemplateToken.AI_NAME: self.persona.ai_name,
-                templates.TemplateToken.SYSTEM_SEQUENCE_PREFIX: self.template_store.format(
-                    templates.Templates.SYSTEM_SEQUENCE_PREFIX, {}
-                ),
-                templates.TemplateToken.SYSTEM_SEQUENCE_SUFFIX: self.template_store.format(
-                    templates.Templates.SYSTEM_SEQUENCE_SUFFIX, {}
-                ),
-                templates.TemplateToken.USER_SEQUENCE_PREFIX: self.template_store.format(
-                    templates.Templates.USER_SEQUENCE_PREFIX, {}
-                ),
-                templates.TemplateToken.USER_SEQUENCE_SUFFIX: self.template_store.format(
-                    templates.Templates.USER_SEQUENCE_SUFFIX, {}
-                ),
-                templates.TemplateToken.BOT_SEQUENCE_PREFIX: self.template_store.format(
-                    templates.Templates.BOT_SEQUENCE_PREFIX, {}
-                ),
-                templates.TemplateToken.BOT_SEQUENCE_SUFFIX: self.template_store.format(
-                    templates.Templates.BOT_SEQUENCE_SUFFIX, {}
-                ),
-            },
+            image_request_template_tokens
         )
+        self.image_request_made = (self.image_request_made, len(self.image_request_made))
+
+        self.image_request_failed = self.template_store.format(
+            templates.Templates.PROMPT_IMAGE_NOT_COMING,
+            image_request_template_tokens
+        )
+        self.image_request_failed = (self.image_request_failed, len(self.image_request_failed))
 
         if self.ooba_client.api_type in ["oobabooga", "openai", "tabbyapi"]:
             self.max_context_units = self.token_space - \
@@ -145,11 +153,19 @@ class PromptGenerator:
         #   number of chars in token space (estimated)
         #   minus the number of chars in the prompt
         #     - without any history
-        #     - but with the photo request
+        #     - but with the image request
+        #     - or the image failure notification, depending on which is bigger
         #
         est_chars_in_token_space = self.token_space * self.EST_CHARACTERS_PER_TOKEN
         prompt_without_history = self._generate(
-            "", self.image_request_made, guild_name="", response_channel="")
+            "",
+            (
+                self.image_request_made[0] if self.image_request_made[1]
+                > self.image_request_failed[1] else self.image_request_failed[0]
+            ),
+            guild_name="",
+            response_channel=""
+        )
 
         # how many chars might we have available for history?
         available_chars_for_history = est_chars_in_token_space - len(
@@ -208,7 +224,13 @@ class PromptGenerator:
             },
         )
         prompt_without_history = self._generate(
-            "", self.image_request_made, guild_name="", response_channel=""
+            "",
+            (
+                self.image_request_made[0] if self.image_request_made[1]
+                > self.image_request_failed[1] else self.image_request_failed[0]
+            ),
+            guild_name="",
+            response_channel=""
         )
         if self.ooba_client.api_type in ["oobabooga", "openai", "tabbyapi"] :
             prompt_units = await self.ooba_client.get_token_count(prompt_without_history)
@@ -385,7 +407,7 @@ class PromptGenerator:
     async def generate(
         self,
         message_history: typing.Optional[typing.AsyncIterator[types.GenericMessage]],
-        image_requested: bool,
+        image_requested: typing.Optional[bool],
         ai_user_id: int,
         guild_name: str,
         response_channel: str,
@@ -399,5 +421,13 @@ class PromptGenerator:
                 ai_user_id,
                 message_history,
             )
-        image_coming = self.image_request_made if image_requested else ""
+        if image_requested:
+            # True if image requested and SD is online
+            image_coming = self.image_request_made[0]
+        elif image_requested is False:
+            # False if SD is offline and we can't
+            image_coming = self.image_request_failed[0]
+        else:
+            # None if no image was requested
+            image_coming = ""
         return self._generate(message_history_txt, image_coming, guild_name, response_channel)

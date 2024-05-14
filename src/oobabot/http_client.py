@@ -51,6 +51,7 @@ class SerializedHttpClient(abc.ABC):
         """
         try:
             await self._setup()
+            self.is_set_up = True
         except (
             aiohttp.ClientConnectionError,
             aiohttp.ClientError,
@@ -66,6 +67,7 @@ class SerializedHttpClient(abc.ABC):
         self.service_name = service_name
         self.base_url = base_url
         self._session = None
+        self.is_set_up = False
 
     def _get_session(self) -> aiohttp.ClientSession:
         """
@@ -90,17 +92,18 @@ class SerializedHttpClient(abc.ABC):
             await self._session.close()
         self._session = None
 
-    def test_connection(self) -> None:
-        async def try_setup():
-            async with self:
-                await self.setup()
+    async def _try_setup(self):
+        async with self:
+            await self.setup()
 
+    def test_connection(self) -> None:
         try:
-            asyncio.run(try_setup())
+            asyncio.run(self._try_setup())
         except AssertionError as err:
             # asyncio will throw an AssertionError if we try to run
-            # with a base_url that has a path.  This is a user-supplied
+            # with a base_url that has a path. This is a user-supplied
             # value, so catching this is grody but necessary.
             raise OobaHttpClientError(
-                f"Could not connect to {self.service_name} server: [{self.base_url}]"
+                f"Could not connect to {self.service_name} server: [{self.base_url}]\n"
+                + "Ensure the base URL does not have a path component."
             ) from err

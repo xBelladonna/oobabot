@@ -308,6 +308,10 @@ class ImageGenerator:
             ", ".join(self.image_words),
         )
 
+    def try_session(self):
+        # Pass coroutine straight through to calling function
+        return self.stable_diffusion_client.try_session()
+
     # @fancy_logger.log_async_task
     async def _generate_image(
         self,
@@ -397,7 +401,7 @@ class ImageGenerator:
         message: types.GenericMessage,
         raw_message: discord.Message,
         response_channel: discord.abc.Messageable,
-    ) -> "asyncio.Task[discord.Message]":
+    ) -> asyncio.Task[discord.Message]:
         """
         Kick off a task to generate an image, post it to the channel,
         and return message the image is posted in.

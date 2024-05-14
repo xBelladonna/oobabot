@@ -138,6 +138,28 @@ class StableDiffusionClient(http_client.SerializedHttpClient):
         "samples_format": "png",
     }
 
+    async def try_session(self) -> bool:
+        try:
+            connected = False
+            async with self._get_session().head("/", allow_redirects=True) as response:
+                connected = response.ok
+            if connected and not self.is_set_up:
+                await self.setup()
+            return connected and self.is_set_up
+        except (
+            aiohttp.client_exceptions.ClientConnectorError,
+            http_client.OobaHttpClientError, AssertionError
+        ) as err:
+            if isinstance(err, AssertionError):
+                # If we fail due to an extra path component on the base URL,
+                # fail silently, as we notified the user of this on startup.
+                return False
+            fancy_logger.get().debug(
+                "Cannot set up connection to %s server: [%s]",
+                self.service_name, self.base_url
+            )
+            return False
+
     async def set_options(self):
         url = self.API_COMMAND_URLS["options"]
 
@@ -334,7 +356,7 @@ class StableDiffusionClient(http_client.SerializedHttpClient):
         self,
         prompt: str,
         is_channel_nsfw: bool = False,
-    ) -> "asyncio.Task[bytes]":
+    ) -> asyncio.Task[bytes]:
         """
         Generate an image from a prompt.
         Args:
