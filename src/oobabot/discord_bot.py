@@ -304,36 +304,25 @@ class DiscordBot(discord.Client):
 
         # message regeneration
         if payload.emoji.name == "🔁":
-            async for last_raw_message in channel.history(
-                limit=self.prompt_generator.history_lines, before=raw_message
-            ):
-                for ignore_prefix in self.ignore_prefixes:
-                    if last_raw_message.content.startswith(ignore_prefix):
-                        continue
-                message = discord_utils.discord_message_to_generic_message(raw_message)
-                last_message = discord_utils.discord_message_to_generic_message(last_raw_message)
-                fancy_logger.get().debug(
-                    "Received message regeneration request from %s. Regenerating message...",
-                    raw_message.author.name,
-                )
+            message = discord_utils.discord_message_to_generic_message(raw_message)
+            fancy_logger.get().debug(
+                "Received message regeneration request from %s. Regenerating message...",
+                raw_message.author.name,
+            )
+            try:
+                async with channel.typing():
+                    await self._regenerate_message(message, raw_message, channel)
+                if isinstance(channel, (discord.DMChannel, discord.GroupChannel)):
+                    return
                 try:
-                    async with channel.typing():
-                        await self._regenerate_message(
-                            message, raw_message, last_message, last_raw_message, channel
-                        )
-                    if isinstance(channel, (discord.DMChannel, discord.GroupChannel)):
-                        return
-                    try:
-                        await raw_message.clear_reaction(payload.emoji)
-                    except (discord.Forbidden, discord.NotFound):
-                        pass
-                except discord.DiscordException as err:
-                    fancy_logger.get().error(
-                        "Error while processing reaction: %s", err, exc_info=True
-                    )
-                    self.response_stats.log_response_failure()
-
-                break
+                    await raw_message.clear_reaction(payload.emoji)
+                except (discord.Forbidden, discord.NotFound):
+                    pass
+            except discord.DiscordException as err:
+                fancy_logger.get().error(
+                    "Error while processing reaction: %s", err, exc_info=True
+                )
+                self.response_stats.log_response_failure()
 
     async def process_message_queue(
             self,
@@ -962,8 +951,6 @@ class DiscordBot(discord.Client):
         self,
         message: types.GenericMessage,
         raw_message: discord.Message,
-        last_message: types.GenericMessage,
-        last_raw_message: discord.Message,
         channel: typing.Union[
             discord.abc.GuildChannel,
             discord.DMChannel,
@@ -982,12 +969,12 @@ class DiscordBot(discord.Client):
             channel=channel,
             num_history_lines=self.prompt_generator.history_lines,
             stop_before_message_id=repeated_id,
-            ignore_all_until_message_id=last_message.message_id,
+            ignore_all_until_message_id=message.message_id,
             exclude_ignored_message=True,
         )
-        image_descriptions = await self._get_image_descriptions(last_raw_message)
+        image_descriptions = await self._get_image_descriptions(raw_message)
         response, response_stat = await self._generate_response(
-            message=last_message,
+            message=message,
             recent_messages=recent_messages,
             image_descriptions=image_descriptions,
             image_requested=False,
