@@ -268,7 +268,7 @@ def get_user_id_from_token(discord_token: str) -> int:
     return int(base64.b64decode(token_part_a).decode("utf-8"))
 
 
-def generate_invite_url(ai_user_id: int) -> str:
+def generate_invite_url(bot_user_id: int) -> str:
     # we want to generate a URL like this:
     # https://discord.com/api/oauth2/authorize?client_id={client_id}&permissions={permissions}}&scope=bot
     #
@@ -289,7 +289,7 @@ def generate_invite_url(ai_user_id: int) -> str:
 
     return (
         "https://discord.com/api/oauth2/authorize?client_id="
-        + f"{ai_user_id}&permissions={permissions}&scope=bot"
+        + f"{bot_user_id}&permissions={permissions}&scope=bot"
     )
 
 

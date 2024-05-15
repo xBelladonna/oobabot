@@ -373,34 +373,41 @@ class OobaClient(http_client.SerializedHttpClient):
             request.update({ "prompt": prompt })
 
         request.update(self.request_params)
-        # and then add our additional runtime-generated stopping strings, if any
+        # Build list of stop sequences from the oobabooga request_params
+        # and our additional runtime-generated sequences, if any
+        stopping_strings = self.request_params["stop"] + stopping_strings
+        # then if there are any stop sequences at all, we handle API special cases
         if stopping_strings:
-            stopping_strings = self.request_params["stop"] + stopping_strings
-            # we use dict().update() for performance
             if self.api_type in ["oobabooga", "openai", "tabbyapi"]:
-                request.update({ "stop": stopping_strings })
                 # The real OpenAI Completions and Chat Completions API have a limit
                 # of 4 stop sequences
-                if "api.openai.com" in self.base_url and len(request["stop"]) > 4:
-                    request["stop"] = request["stop"][:3] # list-slicing is fast anyway
+                # TODO: figure out how to properly detect the real OpenAI API
+                # to be compatible with things like reverse-proxies that use differnt
+                # URL schemata. A head request or similar may be necessary.
+                if "api.openai.com" in self.base_url and len(stopping_strings) > 4:
                     fancy_logger.get().debug(
                         "OpenAI in use, truncating to 4 stop sequences as per the API limit."
                     )
+                    stopping_strings = stopping_strings[:3] # I'm so glad :3 gets to be valid code
+                # We use dict().update() for performance, as there may be hundreds or
+                # thousands of them depending on if impersonation prevention is enabled
+                # and the channel has many members.
+                request.update({ "stop": stopping_strings })
             elif self.api_type == "cohere":
-                request.update({ "stop_sequences": stopping_strings })
                 # The real Cohere Chat API has a limit of 5 stop sequences
-                if "api.cohere.ai" in self.base_url and len(request["stop"]) > 5:
-                    request["stop"] = request["stop"][:4]
+                if len(stopping_strings) > 5:
                     fancy_logger.get().debug(
                         "Cohere API in use, truncating to 5 stop sequences as per the API limit."
                     )
+                    stopping_strings = stopping_strings[:4] # list-slicing is fast anyway
+                request.update({ "stop_sequences": stopping_strings })
 
-        fancy_logger.get().debug(
-            "Using stop sequences: %s",
-            ", ".join(
-                [f"'{stop_sequence}'" for stop_sequence in request["stop"]]
-            ).replace("\n", "\\n")
-        )
+            fancy_logger.get().debug(
+                "Using stop sequences: %s",
+                ", ".join(
+                    [f"'{stop_sequence}'" for stop_sequence in stopping_strings]
+                ).replace("\n", "\\n")
+            )
 
         url = self.base_url + self.api_endpoint
         # This request can take a long time depending on various factors.
@@ -416,19 +423,24 @@ class OobaClient(http_client.SerializedHttpClient):
                         f"Request failed with status {response.status}: {response_text}"
                     )
                 if self.log_all_the_things:
-                    try:
-                        print(f"Sent request:\n{json.dumps(request, indent=1)}")
-                        if self.api_type == "cohere":
-                            print(f"Prompt:\n{str(request['message'])}")
-                        else:
-                            print(f"Prompt:\n{str(request['prompt'])}")
-                    except UnicodeEncodeError:
+                    print(f"Sent request:\n{json.dumps(request, indent=1)}")
+                    if self.api_type == "cohere":
                         print(
-                            "Sent request:\n"
-                            + f"{json.dumps(request, indent=1).encode('utf-8')}"
+                            "Prompt:\n"
+                            + f"{str(request['message']).encode('utf-8', 'replace')}"
                         )
-                        print(f"Prompt:\n{str(request['prompt']).encode('utf-8')}")
+                    elif self.use_chat_completions:
+                        print(
+                            "Messages:\n"
+                            + f"{str(request['messages']).encode('utf-8', 'replace')}"
+                        )
+                    else:
+                        print(
+                            "Prompt:\n"
+                            + f"{str(request['prompt']).encode('utf-8', 'replace')}"
+                        )
                 async for line in response.content:
+                    finished = False
                     decoded_line = line.decode('utf-8').strip()
                     if decoded_line.startswith("data: "):
                         decoded_line = decoded_line[6:]  # Strip "data: "
@@ -441,26 +453,26 @@ class OobaClient(http_client.SerializedHttpClient):
                                     if text:
                                         self.total_response_tokens += 1
                                         if self.log_all_the_things:
-                                            try:
-                                                print(text, end="", flush=True)
-                                            except UnicodeEncodeError:
-                                                print(text.encode("utf-8"), end="", flush=True)
+                                            print(text.encode(
+                                                'utf-8', 'replace'
+                                            ), end="", flush=True)
                                         yield text
                                     if choice.get("finish_reason"):
+                                        finished = True
                                         break
                             else:  # Handling other formats
                                 text = event_data.get("text", "")
-                                is_finished = event_data.get("is_finished", False)
+                                finished = event_data.get("is_finished", False)
                                 if text:
                                     if self.log_all_the_things:
-                                        try:
-                                            print(text, end="", flush=True)
-                                        except UnicodeEncodeError:
-                                            print(text.encode("utf-8"), end="", flush=True)
+                                        print(text.encode('utf-8', 'replace'), end="", flush=True)
                                     yield text
-                                if is_finished:
-                                    break
+                            if finished:
+                                break
                         except json.JSONDecodeError:
+                            fancy_logger.get().debug(
+                                "We got an invalid JSON body! Ignoring and moving on."
+                            )
                             continue
 
                 # Make sure to signal the end of input

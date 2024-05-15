@@ -138,8 +138,8 @@ class Oobabot:
 
         Can be called from any thread.  Does not require Internet connectivity.
         """
-        ai_user_id = discord_utils.get_user_id_from_token(discord_token)
-        return discord_utils.generate_invite_url(ai_user_id)
+        bot_user_id = discord_utils.get_user_id_from_token(discord_token)
+        return discord_utils.generate_invite_url(bot_user_id)
 
     def is_voice_enabled(self) -> bool:
         """

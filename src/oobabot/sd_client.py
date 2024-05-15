@@ -481,8 +481,8 @@ class StableDiffusionClient(http_client.SerializedHttpClient):
                 )
 
         fancy_logger.get().debug(
-            "Stable Diffusion: Using negative prompt: %s...",
-            str(self.request_params.get("negative_prompt", ""))[:20],
+            "Stable Diffusion: Using negative prompt: %s",
+            str(self.request_params.get("negative_prompt", "")),
         )
         if self.extra_prompt_text:
             fancy_logger.get().debug(

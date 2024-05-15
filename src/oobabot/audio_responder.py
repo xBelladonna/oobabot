@@ -88,7 +88,7 @@ class AudioResponder:
     async def _respond(self):
         transcript_history = self._transcript_history_iterator()
         prompt_prefix = await self._prompt_generator.generate(
-            ai_user_id=self.bot_user_id,
+            bot_user_id=self.bot_user_id,
             message_history=transcript_history,
             image_requested=False,
             guild_name=self._channel.guild.name,

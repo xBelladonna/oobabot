@@ -285,7 +285,7 @@ class ImageGenerator:
             re.compile(
                 r"^.*\b" + image_word
                 + r"\b\s*((as?|of|the|with)\b\s*)*:?"
-                + r"([\w\s,;:<>`~@#%&_=\$\^\*\(\)\-\+\[\]\{\}\"\']+)"
+                + r"([\w\s,;:<>`~@#%&=\$\^\*\(\)\-\+\[\]\{\}\"\']+)"
                 + r".*$",
                 re.IGNORECASE + re.MULTILINE,
             )

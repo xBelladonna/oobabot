@@ -205,7 +205,7 @@ class PromptGenerator:
 
     async def _render_history(
         self,
-        ai_user_id: int,
+        bot_user_id: int,
         message_history: typing.AsyncIterator[types.GenericMessage],
     ) -> str:
         # add on more history, but only if we have room
@@ -243,7 +243,7 @@ class PromptGenerator:
             if not message.body_text:
                 continue
 
-            if message.author_is_bot and message.author_id is ai_user_id:
+            if message.author_is_bot and message.author_id is bot_user_id:
                 line = self.template_store.format(
                     templates.Templates.BOT_SEQUENCE_PREFIX,
                     {},
@@ -408,7 +408,7 @@ class PromptGenerator:
         self,
         message_history: typing.Optional[typing.AsyncIterator[types.GenericMessage]],
         image_requested: typing.Optional[bool],
-        ai_user_id: int,
+        bot_user_id: int,
         guild_name: str,
         response_channel: str,
     ) -> str:
@@ -418,7 +418,7 @@ class PromptGenerator:
         message_history_txt = ""
         if message_history:
             message_history_txt = await self._render_history(
-                ai_user_id,
+                bot_user_id,
                 message_history,
             )
         if image_requested:

@@ -62,7 +62,7 @@ class DiscordBot(discord.Client):
         self.repetition_tracker = repetition_tracker
         self.response_stats = response_stats
 
-        self.ai_user_id = -1
+        self.bot_user_id = -1
         self.message_character_limit = 2000
 
         self.dont_split_responses = discord_settings["dont_split_responses"]
@@ -89,7 +89,10 @@ class DiscordBot(discord.Client):
         self.use_immersion_breaking_filter = discord_settings["use_immersion_breaking_filter"]
         self.stop_markers = discord_settings["stop_markers"]
         self.prevent_impersonation = discord_settings["prevent_impersonation"].lower()
-        if self.prevent_impersonation not in ["standard", "aggressive", "comprehensive"]:
+        if (
+            self.prevent_impersonation
+            and self.prevent_impersonation not in ["standard", "aggressive", "comprehensive"]
+        ):
             raise ValueError(
                 f"Unknown value '{self.prevent_impersonation}' for `prevent_impersonation`. "
                 + "Please fix your configuration."
@@ -119,13 +122,13 @@ class DiscordBot(discord.Client):
         num_channels = sum(len(guild.channels) for guild in guilds)
 
         if self.user:
-            self.ai_user_id = self.user.id
+            self.bot_user_id = self.user.id
             user_id_str = self.user.name
         else:
             user_id_str = "<unknown>"
 
         fancy_logger.get().info(
-            "Connected to discord as %s (ID: %d)", user_id_str, self.ai_user_id
+            "Connected to discord as %s (ID: %d)", user_id_str, self.bot_user_id
         )
         fancy_logger.get().debug(
             "monitoring %d channels across %d server(s)", num_channels, num_guilds
@@ -169,10 +172,8 @@ class DiscordBot(discord.Client):
             cap,
         )
 
-        str_wakewords = (
-            ", ".join(self.persona.wakewords) if self.persona.wakewords else "<none>"
-        )
-        fancy_logger.get().debug("Wakewords: %s", str_wakewords)
+        if self.persona.wakewords:
+            fancy_logger.get().debug("Wakewords: %s", ", ".join(self.persona.wakewords))
 
         self.ooba_client.on_ready()
 
@@ -200,7 +201,7 @@ class DiscordBot(discord.Client):
                 + "Please add the bot to a server here:",
             )
             fancy_logger.get().warning(
-                discord_utils.generate_invite_url(self.ai_user_id)
+                discord_utils.generate_invite_url(self.bot_user_id)
             )
 
     async def on_message(self, raw_message: discord.Message) -> None:
@@ -243,6 +244,7 @@ class DiscordBot(discord.Client):
 
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent) -> None:
         channel = await self.fetch_channel(payload.channel_id)
+        reactor = await self.fetch_user(payload.user_id)
         try:
             raw_message = await channel.fetch_message(payload.message_id)
         # Sometimes the message is already deleted before we can process it, e.g.
@@ -254,7 +256,7 @@ class DiscordBot(discord.Client):
         if payload.emoji.name == "⏪":
             fancy_logger.get().debug(
                 "Received request from %s to hide chat history in %s.",
-                raw_message.author.name,
+                reactor.name,
                 discord_utils.get_channel_name(channel),
             )
 
@@ -285,7 +287,7 @@ class DiscordBot(discord.Client):
             return
 
         # only process the below reactions if it was to one of our messages
-        if raw_message.author.id != self.ai_user_id:
+        if raw_message.author.id != self.bot_user_id:
             return
 
         # message deletion
@@ -298,8 +300,8 @@ class DiscordBot(discord.Client):
             try:
                 await raw_message.delete()
             except discord.NotFound:
-                # The message was somehow deleted already, give up.
-                fancy_logger.get().debug("Message is already gone! Giving up.")
+                # The message was somehow deleted already, ignore and move on.
+                pass
             return
 
         # message regeneration
@@ -367,7 +369,7 @@ class DiscordBot(discord.Client):
 
             message = discord_utils.discord_message_to_generic_message(raw_message)
             should_respond, is_summon = self.decide_to_respond.should_reply_to_message(
-                self.ai_user_id, message
+                self.bot_user_id, message
             )
             # Did we guarantee a response? If so, take note of the state and immediately
             # reset the flag. This is crucial to remember to do otherwise we will get into
@@ -585,7 +587,7 @@ class DiscordBot(discord.Client):
             guild_name = "Direct Message"
             response_channel_name = "None"
         prompt_prefix = await self.prompt_generator.generate(
-            ai_user_id=self.ai_user_id,
+            bot_user_id=self.bot_user_id,
             message_history=recent_messages_async_gen,
             image_requested=image_requested,
             guild_name=guild_name,
@@ -1319,7 +1321,7 @@ class DiscordBot(discord.Client):
 
         generic_message = discord_utils.discord_message_to_generic_message(message)
 
-        if generic_message.author_id == self.ai_user_id:
+        if generic_message.author_id == self.bot_user_id:
             # make sure the AI always sees its persona name
             # in the transcript, even if the chat program
             # has it under a different account name
@@ -1338,7 +1340,7 @@ class DiscordBot(discord.Client):
 
         if isinstance(message.channel, discord.DMChannel):
             fn_user_id_to_name = discord_utils.dm_user_id_to_name(
-                self.ai_user_id,
+                self.bot_user_id,
                 self.persona.ai_name,
                 message.author.display_name,
             )
@@ -1357,7 +1359,7 @@ class DiscordBot(discord.Client):
         else:
             # we shouldn't ever end up here... give it a function anyway
             fn_user_id_to_name = discord_utils.dm_user_id_to_name(
-                self.ai_user_id,
+                self.bot_user_id,
                 self.persona.ai_name,
                 message.author.display_name,
             )
