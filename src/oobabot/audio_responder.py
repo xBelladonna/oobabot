@@ -115,8 +115,8 @@ class AudioResponder:
             dialogue = self.dialogue_extractor.sub("", response) # suppress non-dialogue
             dialogue = self.emoticon_matcher.sub("", dialogue) # remove "emoticons"
             dialogue = emoji.replace_emoji(dialogue, "") # remove actual emoji
-            # collapse consecutive spaces/newlines into a single space
-            dialogue = re.sub(r"(\s|\n)+\b", " ", dialogue, re.MULTILINE)
+            # collapse consecutive spaces/newlines/etc into a single space
+            dialogue = re.sub(r"(\s)+\b", " ", dialogue, re.MULTILINE)
             dialogue = self.dialogue_cleaner.findall(dialogue)
             dialogue = " ".join(dialogue).strip().strip("\n")
             self._discrivener.speak(dialogue)

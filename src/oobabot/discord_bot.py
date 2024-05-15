@@ -115,6 +115,10 @@ class DiscordBot(discord.Client):
         self.message_queue = deque()
         # Get a sentence segmenter ready
         self.sentence_splitter = pysbd.Segmenter(language="en", clean=False)
+        # and set a regex pattern that we will use to split lines apart. Avoids code
+        # duplication in each method where we do this. This must not be a raw string,
+        # otherwise the str.strip() method can't use it properly.
+        self.line_split_pattern = "\r\n\t\f\v"
 
     async def on_ready(self) -> None:
         guilds = self.guilds
@@ -616,7 +620,7 @@ class DiscordBot(discord.Client):
                         templates.TemplateToken.USER_NAME: user_name,
                         templates.TemplateToken.MESSAGE: "",
                     },
-                ).strip("\n").strip()
+                ).strip()
             def _get_canonicalized_name(user_name: str) -> str:
                 name = emoji.replace_emoji(user_name, "")
                 canonicalized_name = name.split()[0].strip().capitalize()
@@ -799,22 +803,16 @@ class DiscordBot(discord.Client):
                         # sentence would cause the response to exceed the character limit,
                         # then post what we have and continue in a new message.
                         new_response = ""
-                        # Preserve newlines by splitting into a list on them
-                        lines = response.split("\n")
+                        # Split lines and preserve our splitting characters using regex split
+                        # with a capturing group to return the split character(s) in the list
+                        lines = re.split(r"([" + self.line_split_pattern + r"]+)", response)
                         for line in lines:
-                            if not line:
-                                # This means we split on a line which was only a newline.
-                                # We add it back and then move on to the next line.
-                                new_response += "\n"
-                                continue
                             # Sometimes the trailing space at the end of a sentence is kept,
                             # sometimes not. We avoid ambiguity by explicity stripping
                             # additional whitespace and re-adding a trailing space.
                             sentences = [
                                 x.strip(" ") + " " for x in self.sentence_splitter.segment(line)
                             ]
-                            # Append the lost newline to the last sentence in the line
-                            sentences[-1] = sentences[-1].strip(" ") + "\n"
                             for sentence in sentences:
                                 if len(new_response + sentence) > self.message_character_limit:
                                     fancy_logger.get().debug(
@@ -1185,18 +1183,25 @@ class DiscordBot(discord.Client):
         if not self.use_immersion_breaking_filter:
             return text, False
 
-        # First, split the text by 'real' newlines to preserve them
-        lines = text.split("\n")
+        # Split by our line split pattern, preserving the split characters in the list.
+        # This makes it easy to re-join them later, without having to guess which
+        # character we split at.
+        lines = re.split(r"([" + self.line_split_pattern + r"]+)", text)
         good_lines = []
         abort_response = False
 
         for line in lines:
+            if not line.strip(self.line_split_pattern):
+                # If our line is composed of only split characters, just append it to
+                # good_lines and move on.
+                good_lines.append(line)
+                continue
             # Split the line by our pysbd segmenter to get individual sentences
             sentences = self.sentence_splitter.segment(line)
             good_sentences = []
 
             for sentence in sentences:
-                sentence = sentence.strip() + " "
+                sentence = sentence.strip(" ") + " "
 
                 # if the AI gives itself a second line, just ignore
                 # the line instruction and continue
@@ -1285,14 +1290,11 @@ class DiscordBot(discord.Client):
             if abort_response:
                 break
 
-            # Join the good sentences and append to good_lines. pysbd preserves the
-            # leading/trailing whitespace, so no space in the join is needed.
-            good_line = "".join(good_sentences)
+            good_line = " ".join(good_sentences) # Re-add the stripped whitespace
             if good_line:
                 good_lines.append(good_line)
 
-        # Join lines back with newlines again
-        return ("\n".join(good_lines), abort_response)
+        return ("".join(good_lines), abort_response)
 
     async def _filter_history_message(
       self,
