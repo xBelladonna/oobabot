@@ -159,32 +159,32 @@ class TemplateStore:
         ),
         Templates.SYSTEM_SEQUENCE_PREFIX: (
             [],
-            "The BOS token that should be inserted before the system block.",
+            "The sequence that should be inserted before the system block.",
             True,
         ),
         Templates.SYSTEM_SEQUENCE_SUFFIX: (
             [],
-            "The EOS token that should be inserted after the system block.",
+            "The sequence that should be inserted after the system block.",
             True,
         ),
         Templates.USER_SEQUENCE_PREFIX: (
             [],
-            "The BOS token that should be inserted before the user message block.",
+            "The sequence that should be inserted before the user message block.",
             True,
         ),
         Templates.USER_SEQUENCE_SUFFIX: (
             [],
-            "The EOS token that should be inserted after the user message block.",
+            "The sequence that should be inserted after the user message block.",
             True,
         ),
         Templates.BOT_SEQUENCE_PREFIX: (
             [],
-            "The BOS token that should be inserted before the bot message block.",
+            "The sequence that should be inserted before the bot message block.",
             True,
         ),
         Templates.BOT_SEQUENCE_SUFFIX: (
             [],
-            "The EOS token that should be inserted after the bot message block.",
+            "The sequence that should be inserted after the bot message block.",
             True,
         ),
         Templates.BOT_NAME: (
@@ -220,7 +220,9 @@ class TemplateStore:
             [
                 TemplateToken.AI_NAME,
             ],
-            "This is the system prompt sent to the GPT Vision model.",
+            "This is the system prompt sent to the GPT Vision model. If this is set to an "
+            + "empty string (i.e. \"\"), the system prompt is ignored. Useful for some "
+            + "Vision APIs that do not support system prompts.",
             True,
         ),
         Templates.GPT_VISION_PROMPT: (
