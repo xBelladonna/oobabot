@@ -131,7 +131,7 @@ class PromptGenerator:
         )
         self.image_request_failed = (self.image_request_failed, len(self.image_request_failed))
 
-        if self.ooba_client.api_type in ["oobabooga", "openai", "tabbyapi"]:
+        if self.ooba_client.can_get_token_count():
             self.max_context_units = self.token_space - \
                 oobabooga_settings["request_params"]["max_tokens"]
         else:
@@ -232,9 +232,9 @@ class PromptGenerator:
             guild_name="",
             response_channel=""
         )
-        if self.ooba_client.api_type in ["oobabooga", "openai", "tabbyapi"] :
+        try:
             prompt_units = await self.ooba_client.get_token_count(prompt_without_history)
-        else:
+        except ValueError:
             prompt_units = len(prompt_without_history)
 
         # first we process and append the chat transcript
@@ -281,9 +281,9 @@ class PromptGenerator:
                     {},
                 )
 
-            if self.ooba_client.api_type in ["oobabooga", "openai", "tabbyapi"]:
+            try:
                 line_units = await self.ooba_client.get_token_count(line)
-            else:
+            except ValueError:
                 line_units = len(line)
 
             if line_units >= self.max_context_units - prompt_units:
@@ -301,9 +301,9 @@ class PromptGenerator:
         # then we append the example dialogue, if it exists, and there's room in the message history
         if len(self.example_dialogue) > 0:
             if not context_full:
-                if self.ooba_client.api_type in ["oobabooga", "openai", "tabbyapi"]:
+                try:
                     separator_units = await self.ooba_client.get_token_count(section_separator)
-                else:
+                except ValueError:
                     separator_units = len(section_separator)
                 context_full = prompt_units + separator_units >= self.max_context_units
 
@@ -325,9 +325,9 @@ class PromptGenerator:
                     for _ in range(remaining_lines):
                         # start from the end of the list since the order is reversed
                         example_line = example_dialogue_lines.pop()
-                        if self.ooba_client.api_type in ["oobabooga", "openai", "tabbyapi"]:
+                        try:
                             example_units = await self.ooba_client.get_token_count(example_line)
-                        else:
+                        except ValueError:
                             example_units = len(example_line)
                         if prompt_units + example_units > self.max_context_units:
                             break
@@ -343,7 +343,7 @@ class PromptGenerator:
             "Number of history lines: %d.",
             len(history_lines),
         )
-        if self.ooba_client.api_type in ["oobabooga", "openai", "tabbyapi"]:
+        if self.ooba_client.can_get_token_count():
             unit_type = "tokens"
         else:
             unit_type = "characters"

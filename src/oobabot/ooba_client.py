@@ -150,12 +150,14 @@ class OobaClient(http_client.SerializedHttpClient):
         self.log_all_the_things = settings["log_all_the_things"]
         self.base_url = settings["base_url"]
         self.api_type = settings["api_type"].lower()
-        if self.api_type not in ["oobabooga", "openai", "tabbyapi", "cohere"]:
+        if self.api_type not in ["oobabooga", "openai", "tabbyapi", "aphrodite", "cohere"]:
             raise ValueError(
                 f"Unsupported API type '{self.api_type}'. Please fix your configuration."
             )
+        self.fetch_token_counts = settings["fetch_token_counts"]
         self.use_chat_completions = settings["use_chat_completions"]
-        if self.api_type in ["oobabooga", "openai", "tabbyapi"]:
+        # OpenAI-compatible APIs
+        if self.api_type in ["oobabooga", "openai", "tabbyapi", "aphrodite"]:
             if self.use_chat_completions:
                 raise NotImplementedError(
                     "Chat Completions API is not implemented yet. "
@@ -164,6 +166,7 @@ class OobaClient(http_client.SerializedHttpClient):
                 self.api_endpoint = "/chat/completions"
             else:
                 self.api_endpoint = "/completions"
+        # Cohere is just different
         elif self.api_type == "cohere":
             self.use_chat_completions = False # in case it's left set to true in the config
             self.api_endpoint = "/chat"
@@ -225,10 +228,26 @@ class OobaClient(http_client.SerializedHttpClient):
 
         return stopping_strings
 
+    def can_get_token_count(self) -> bool:
+        """
+        Indicates if the API type in use supports fetching token counts.
+        """
+        if self.fetch_token_counts and self.api_type in [
+            "oobabooga", "tabbyapi", "aphrodite", "cohere"
+        ]:
+            return True
+        return False
+
     async def get_token_count(self, prompt: str) -> int:
         """
         Gets the token count for the given prompt from the Oobabooga internal API.
         """
+
+        if not self.can_get_token_count:
+            raise ValueError(
+                "API type '%s' does not support tokenization. Cannot get token count."
+            )
+
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -239,15 +258,12 @@ class OobaClient(http_client.SerializedHttpClient):
 
         if self.api_type == "oobabooga":
             url = self.base_url + self.OOBABOOGA_TOKENIZER_URI_PATH
-        elif self.api_type == "tabbyapi":
+        elif self.api_type in ["tabbyapi", "aphrodite"]:
+            # Currently the endpoint for both of these is the same
             url = self.base_url + self.TABBYAPI_TOKENIZER_URI_PATH
         elif self.api_type == "cohere":
             url = self.base_url + self.COHERE_TOKENIZER_URI_PATH
             request.update({ "model": self.model })
-        else:
-            # this shouldn't ever happen, unless someone forks the code,
-            # implements a new API type, and forgets to add that here
-            raise ValueError(f"Unsupported API type '{self.api_type}'. Unable to encode tokens.")
 
         # As long as we're working with reasonable amounts of message, it shouldn't take long
         timeout = aiohttp.ClientTimeout(total=30.0, connect=10.0, sock_connect=10.0)
@@ -261,6 +277,15 @@ class OobaClient(http_client.SerializedHttpClient):
                         f"Request failed with status {response.status}: {response_text}"
                     )
                 result = await response.json()
+
+                # Endpoint for aphrodite-engine is the same as tabbyAPI, but not the response
+                # schema. Special handling is required.
+                if self.api_type == "aphrodite":
+                    return len(result.get("content"))
+                # Special handling for the Cohere API as well
+                if self.api_type == "cohere":
+                    return len(result.get("tokens"))
+
                 return int(result.get("length")) # should always be an int but we cast just in case
 
     async def request_by_message(

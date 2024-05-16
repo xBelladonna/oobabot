@@ -3,17 +3,17 @@
 **`oobabot`** is a Discord bot which talks to Large Language Model AIs (like Llama, Mistral, ChatGPT, etc...), using just about any API-enabled backend.
 
 [oobabooga's text-generation-webui](https://github.com/oobabooga/text-generation-webui)
-
-[LocalAI](https://github.com/mudler/LocalAI)
-
-[TabbyAPI](https://github.com/theroyallab/tabbyAPI)
+[tabbyAPI](https://github.com/theroyallab/tabbyAPI)
 
 [aphrodite-engine](https://github.com/PygmalionAI/aphrodite-engine)
 
+[LocalAI](https://github.com/mudler/LocalAI)
+
+[vLLM](https://github.com/vllm-project)
+
 It even supports non-local solutions such as Openrouter, Cohere, OpenAI, etc.
 
-**updated! use `--generate-config` and update your configs!**
-**if you want to migrate your existing config, specify your config file as well: `-c config.yml --generate-config`**
+**Updated! Use `--generate-config` and update your configs! If you want to migrate your existing config, specify your config file as well: `-c config.yml --generate-config`**
 
 
 ## Installation and Quick Start!

@@ -916,17 +916,33 @@ class Settings:
                     ),
                     "Currently supported:",
                     "  - oobabooga: Text Generation WebUI",
-                    "  - openai: Any generic OpenAI-compatible API - LocalAI, vLLM, "
-                    + "aphrodite-engine, etc",
+                    "  - openai: Any generic OpenAI-compatible API - LocalAI, vLLM, etc",
                     "  - tabbyapi: tabbyAPI - OpenAI-compatible exllamav2 API",
+                    "  - aphrodite: aphrodite-engine - High-performance backend based on vLLM",
                     "  - cohere: Official Cohere API (Command R+)",
                     textwrap.dedent(
                         """
-                        `oobabooga` and `tabbyapi` support accurate token counts using
-                        their respective API token encoding endpoints. This helps squeeze
-                        more context into the available context window.
+                        `oobabooga`, `tabbyapi`, `aphrodite` and `cohere` support accurate
+                        token counts using their respective API token encoding endpoints.
+                        This helps squeeze more context into the available context window.
                         """
                     ),
+                ],
+            )
+        )
+        self.oobabooga_settings.add_setting(
+            oesp.ConfigSetting[bool](
+                name="fetch_token_counts",
+                default=True,
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        Some APIs (e.g. mentioned above) support tokenization, which enables
+                        accurate token counting. However, this may incur a performance cost
+                        depending on your system's performance, or your network latency.
+                        If the prompt generation takes too long, you can try disabling this.
+                        """
+                    )
                 ],
             )
         )
