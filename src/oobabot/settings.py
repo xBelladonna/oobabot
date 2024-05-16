@@ -200,7 +200,7 @@ class Settings:
         "width": 512,
         "height": 512,
         "override_settings": {
-            "CLIP_stop_at_last_layers": 12,
+            "CLIP_stop_at_last_layers": 1,
             "sd_vae": "Automatic",
             "enable_pnginfo": False
         },
