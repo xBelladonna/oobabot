@@ -293,7 +293,7 @@ class ConfigSettingGroup:
 
 def load_from_yaml(
     filename: str,
-    setting_groups: typing.List["ConfigSettingGroup"],
+    setting_groups: typing.List[ConfigSettingGroup],
 ) -> typing.Optional[str]:
     """
     Load settings from a YAML file only
@@ -309,8 +309,8 @@ def load_from_yaml(
 
 
 def load_from_yaml_stream(
-    stream: typing.Union[pathlib.Path, ryaml.StreamTextType],
-    setting_groups: typing.List["ConfigSettingGroup"],
+    stream: typing.Union[pathlib.Path, typing.TextIO],
+    setting_groups: typing.List[ConfigSettingGroup],
 ) -> typing.Optional[str]:
     """
     Load settings from a YAML string only
@@ -330,7 +330,7 @@ def load_from_yaml_stream(
 
 def load_from_cli(
     args,
-    setting_groups: typing.List["ConfigSettingGroup"],
+    setting_groups: typing.List[ConfigSettingGroup],
 ) -> argparse.ArgumentParser:
     """
     Load settings from the command line only
@@ -356,7 +356,7 @@ def load_from_cli(
 
 
 def load_from_dict(
-    setting_groups: typing.List["ConfigSettingGroup"],
+    setting_groups: typing.List[ConfigSettingGroup],
     settings_dict: dict,
 ) -> None:
     """
@@ -368,7 +368,7 @@ def load_from_dict(
 
 def load(
     cli_args: typing.List[str],
-    setting_groups: typing.List["ConfigSettingGroup"],
+    setting_groups: typing.List[ConfigSettingGroup],
     config_file: str,
     raise_if_file_missing: bool,
 ) -> argparse.ArgumentParser:
@@ -402,7 +402,7 @@ START_COMMENT = textwrap.dedent(
 
 
 def write_to_stream(
-    setting_groups: typing.List["ConfigSettingGroup"],
+    setting_groups: typing.List[ConfigSettingGroup],
     out_stream: typing.TextIO,
 ) -> None:
     yaml_map = ryaml.CommentedMap()
@@ -428,7 +428,7 @@ def write_to_stream(
 
 
 def write_to_file(
-    setting_groups: typing.List["ConfigSettingGroup"], filename: str
+    setting_groups: typing.List[ConfigSettingGroup], filename: str
 ) -> None:
     """
     Write the current values in the setting groups to a YAML file
