@@ -1431,6 +1431,10 @@ class DiscordBot(discord.Client):
             generic_message,
             fn_user_id_to_name=fn_user_id_to_name,
         )
+        discord_utils.replace_emoji_ids_with_names(
+            self,
+            generic_message
+        )
         return generic_message, True
 
     async def _filtered_history_iterator(

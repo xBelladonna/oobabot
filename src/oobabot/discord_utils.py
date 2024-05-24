@@ -142,6 +142,30 @@ async def replace_channel_mention_ids_with_names(
         )
 
 
+def replace_emoji_ids_with_names(
+    client: discord.Client,
+    generic_message: types.GenericMessage,
+):
+    """
+    Replace user ID mentions with the user's chosen display
+    name in the given guild (aka server)
+    """
+    # it looks like IDs are 19 digits long
+    emoji_pattern = r"<:(\S+):(\d{17,21})>"
+    while True:
+        match = re.search(emoji_pattern, generic_message.body_text)
+        if not match:
+            break
+        emoji_id = int(match.group(2))
+        emoji = client.get_emoji(emoji_id)
+        emoji_name = emoji.name if emoji else match.group(1)
+        generic_message.body_text = (
+            generic_message.body_text[:match.start()]
+            + f":{emoji_name}:"
+            + generic_message.body_text[match.end():]
+        )
+
+
 def dm_user_id_to_name(
     bot_user_id: int,
     bot_name: str,
