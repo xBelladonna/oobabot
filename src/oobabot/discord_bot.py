@@ -1988,6 +1988,12 @@ class DiscordBot(discord.Client):
         filtered out, this recursively fetches history (ignoring the limit)
         until all filtered messages are accounted for, we reach our message
         limit, or we reach the beginning of the channel.
+
+        When returning the history of a thread that was started as a reply
+        to an existing message, Discord does not include the message that
+        kicked off the thread. It will show it in the UI as if it were,
+        but it's not one of the messages returned by the history iterator.
+        This method attempts to return that message as well, if we need it.
         """
         messages = 0
         last_returned = None
@@ -2031,6 +2037,22 @@ class DiscordBot(discord.Client):
                 and last_returned.reference
             ):
                 reference = last_returned.reference.resolved
+            # otherwise, if this is a thread in a text channel, return the
+            # message that started it. It's impossible for the start of a
+            # thread to be a reply, so we do this after checking for that.
+            elif (
+                isinstance(channel, discord.Thread)
+                and isinstance(channel.parent, discord.TextChannel)
+            ):
+                # This will be either a default message, or a thread_created
+                # system message, which will be filtered out.
+                if channel.starter_message:
+                    reference = channel.starter_message
+                else:
+                    try:
+                        reference = await channel.parent.fetch_message(channel.id)
+                    except discord.NotFound:
+                        pass
 
             # The resolved message may be None or a DeletedReferencedMessage
             # if the message was deleted.
