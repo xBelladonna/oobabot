@@ -3,6 +3,7 @@
 Generate a prompt for the AI to respond to, given the
 message history and persona.
 """
+from collections import deque
 from datetime import datetime
 import os
 import typing
@@ -183,7 +184,7 @@ class PromptGenerator:
         """
         # history_messages is newest first, so figure out how many we can
         # take, then append them in reverse order
-        history_messages = []
+        history_messages: typing.Deque[str] = deque()
 
         # Instruct templates are static
         user_sequence_prefix = self.template_store.get(
@@ -263,7 +264,7 @@ class PromptGenerator:
                     break
 
             prompt_units += message_units
-            history_messages.append(message_str)
+            history_messages.appendleft(message_str)
 
         # then we append the example dialogue, if it exists, and there's room
         if self.example_dialogue:
@@ -281,10 +282,9 @@ class PromptGenerator:
 
                 if remaining_messages > 0:
                     if section_separator:
-                        # Append the section separator to the end, which becomes
-                        # the start.
+                        # Append the section separator to the start
                         prompt_units += separator_units
-                        history_messages.append(section_separator)
+                        history_messages.appendleft(section_separator)
                     # Split example dialogue into lines by "real" newlines. The
                     # default sequence suffixes contain newlines and if templated
                     # properly, the example dialogue should be formatted correctly.
@@ -315,7 +315,7 @@ class PromptGenerator:
                         # Update the prompt statistics and append the example message
                         prompt_units += example_units
                         remaining_messages -= 1
-                        history_messages.append(example_message)
+                        history_messages.appendleft(example_message)
 
         fancy_logger.get().debug(
             "Fit %d messages in prompt.",
@@ -329,8 +329,6 @@ class PromptGenerator:
             self.max_context_units - prompt_units
         )
 
-        # then reverse the order of the list so it's in order again
-        history_messages.reverse()
         return "".join(history_messages)
 
     def _render_prompt(
