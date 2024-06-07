@@ -1996,6 +1996,8 @@ class DiscordBot(discord.Client):
         This method attempts to return that message as well, if we need it.
         """
         messages = 0
+        filtered_messages = 0
+        messages_fetched = 0
         last_returned = None
         ignoring_all = bool(ignore_all_until_message_id)
 
@@ -2004,6 +2006,8 @@ class DiscordBot(discord.Client):
             # Stop if we've collected as many messages as we're looking for
             if messages >= limit:
                 return
+            # Track the number of messages we've pulled out of the iterator
+            messages_fetched += 1
 
             if ignoring_all:
                 if message.id == ignore_all_until_message_id:
@@ -2023,9 +2027,55 @@ class DiscordBot(discord.Client):
             if sanitized_message:
                 yield sanitized_message
                 messages += 1
+            else:
+                filtered_messages += 1
             if not allow_more:
                 # We've hit a message which requires us to stop fetching history
                 return
+
+        # If we filtered any messages, fetch additional messages, recursively
+        # fetching new channel history as required, until all filtered messages
+        # have been made up for, we reach our target message limit, or we reach
+        # the beginning of the channel.
+        if self.prompt_generator.automatic_lookback:
+            while filtered_messages:
+                if messages >= limit:
+                    return
+
+                # Try to pull the next message out of the iterator
+                message = await anext(channel_history, None)
+                messages_fetched += 1
+
+                if not message:
+                    # If we exhausted the iterator but didn't reach the limit,
+                    # this is the beginning of the channel
+                    if messages_fetched < limit:
+                        break
+                    # Fetch another iterator if the channel still has history,
+                    # starting before the last returned message
+                    fancy_logger.get().debug(
+                        "Reached the history limit but collected only %d messages. "
+                        + "Fetching more history...",
+                        messages
+                    )
+                    messages_to_fetch = max(limit, filtered_messages)
+                    messages_fetched = 0
+
+                    channel_history = channel.history(
+                        limit=messages_to_fetch,
+                        before=last_returned
+                    )
+                    continue
+
+                # otherwise, continue to filter or yield the message
+                last_returned = message
+                sanitized_message, _ = await self._filter_history_message(
+                    message
+                )
+                if sanitized_message:
+                    yield sanitized_message
+                    messages += 1
+                    filtered_messages -= 1
 
         # We've reached the beginning of the history, but still have space.
         if last_returned and messages < limit:

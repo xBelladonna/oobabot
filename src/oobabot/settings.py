@@ -479,6 +479,25 @@ class Settings:
             )
         )
         self.discord_settings.add_setting(
+            oesp.ConfigSetting[bool](
+                name="automatic_lookback",
+                default=True,
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        Some of the messages in the history may be filtered out for
+                        various reasons. The bot will automatically fetch an additional
+                        message for any message that was filtered. This can have a
+                        slight performance impact depending on how many filtered
+                        messages there are in the channel (usually takes less than a
+                        couple of seconds). Disable this if you want lower latency.
+                        See also `fetch_token_counts` in the Oobabooga settings.
+                        """
+                    )
+                ]
+            )
+        )
+        self.discord_settings.add_setting(
             oesp.ConfigSetting[typing.List[str]](
                 name="allowed_mentions",
                 default=[],

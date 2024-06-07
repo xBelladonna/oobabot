@@ -56,6 +56,7 @@ class PromptGenerator:
         self.strip_prompt: bool = discord_settings["strip_prompt"]
         self.split_responses: bool = discord_settings["split_responses"]
         self.history_messages: int = discord_settings["history_messages"]
+        self.automatic_lookback: bool = discord_settings["automatic_lookback"]
         self.context_length: int = oobabooga_settings["request_params"]["truncation_length"]
 
         # this will be also used when sending message
