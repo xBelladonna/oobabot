@@ -22,6 +22,7 @@ from oobabot import discrivener_message
 from oobabot import fancy_logger
 from oobabot import ooba_client  # pylint: disable=unused-import
 from oobabot import prompt_generator  # pylint: disable=unused-import
+from oobabot import templates
 from oobabot import transcript
 from oobabot import types
 from oobabot import persona
@@ -49,10 +50,12 @@ class VoiceClient(discord.VoiceProtocol):
     decide_to_respond: decide_to_respond.DecideToRespond
     speak_voice_responses: bool
     post_voice_responses: bool
+    prevent_impersonation: bool
     current_instance: typing.Optional["VoiceClient"] = None
     ooba_client: ooba_client.OobaClient
     prompt_generator: prompt_generator.PromptGenerator
     persona: persona.Persona
+    template_store: templates.TemplateStore
     wakewords: typing.List[str] = []
 
     supported_modes: typing.Tuple[voice.SupportedModes, ...] = (
@@ -105,9 +108,11 @@ class VoiceClient(discord.VoiceProtocol):
             self._discrivener,
             self.ooba_client,
             self.prompt_generator,
+            self.template_store,
             self._transcript,
             self.speak_voice_responses,
             self.post_voice_responses,
+            self.prevent_impersonation
         )
 
     @property

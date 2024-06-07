@@ -17,6 +17,7 @@ from oobabot import discrivener
 from oobabot import fancy_logger
 from oobabot import ooba_client
 from oobabot import prompt_generator
+from oobabot import templates
 from oobabot import transcript
 from oobabot import types
 
@@ -37,21 +38,25 @@ class AudioResponder:
         discrivener: discrivener.Discrivener,
         ooba_client: ooba_client.OobaClient,
         prompt_generator: prompt_generator.PromptGenerator,
+        template_store: templates.TemplateStore,
         transcript: transcript.Transcript,
         speak_voice_responses: bool,
         post_voice_responses: bool,
+        prevent_impersonation: bool
     ):
         self._abort = False
         self._channel = channel
         self._discrivener = discrivener
         self._ooba_client = ooba_client
         self._prompt_generator = prompt_generator
+        self._template_store = template_store
         self._transcript = transcript
         self._task: typing.Optional[asyncio.Task] = None
 
         self.bot_user_id = bot_user_id
         self.speak_voice_responses = speak_voice_responses
         self.post_voice_responses = post_voice_responses
+        self.prevent_impersonation = prevent_impersonation
         self.dialogue_extractor = re.compile(r"\s?\*(.*?)\*")
         self.dialogue_cleaner = re.compile(r"\b[a-zA-Zé\d\s\'\.`,;!\?\-]+\b")
         self.emoticon_matcher = re.compile(r"\s+(:[\w]|[\^><\-;Tce]\w[\^><\-;Tce]|<3)\b")
@@ -94,9 +99,34 @@ class AudioResponder:
             guild_name=self._channel.guild.name,
             channel_name=self._channel.name
         )
+        stop_sequences: typing.List[str] = []
+
+        if self.prevent_impersonation:
+            # Utility functions to avoid code-duplication
+            def _get_user_prompt_prefix(user_name: str) -> str:
+                return self._template_store.format(
+                    templates.Templates.USER_PROMPT_HISTORY_BLOCK,
+                    {
+                        templates.TemplateToken.NAME: user_name,
+                        templates.TemplateToken.MESSAGE: ""
+                    }
+                ).strip()
+            def _get_canonical_name(user_name: str) -> str:
+                name = emoji.replace_emoji(user_name, "")
+                canonical_name = name.split()[0].strip().capitalize()
+                return canonical_name if len(canonical_name) >= 3 else name
+
+            for author_name in author_names:
+                if self.prevent_impersonation == "standard":
+                    stop_sequences.append(_get_user_prompt_prefix(author_name))
+                elif self.prevent_impersonation == "aggressive":
+                    stop_sequences.append("\n" + _get_canonical_name(author_name))
+                elif self.prevent_impersonation == "comprehensive":
+                    stop_sequences.append(_get_user_prompt_prefix(author_name))
+                    stop_sequences.append("\n" + _get_canonical_name(author_name))
 
         response = await self._ooba_client.request_as_string(
-            prompt, []
+            prompt, stop_sequences
         )
         fancy_logger.get().debug("Received response: %s", response)
 

@@ -78,11 +78,11 @@ class BotCommands:
         else:
             self.audio_commands = audio_commands.AudioCommands(
                 persona,
+                discord_settings,
                 ooba_client,
                 prompt_generator,
-                self.discrivener_location,
-                self.discrivener_model_location,
                 self.decide_to_respond,
+                self.template_store,
                 self.speak_voice_responses,
                 self.post_voice_responses
             )

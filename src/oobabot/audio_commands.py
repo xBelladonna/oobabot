@@ -11,6 +11,7 @@ from oobabot import fancy_logger
 from oobabot import ooba_client
 from oobabot import persona
 from oobabot import prompt_generator
+from oobabot import templates
 from oobabot import voice_client
 from oobabot import decide_to_respond
 
@@ -23,28 +24,31 @@ class AudioCommands:
     def __init__(
         self,
         persona: persona.Persona,
+        discord_settings: typing.Dict,
         ooba_client: ooba_client.OobaClient,
         prompt_generator: prompt_generator.PromptGenerator,
-        discrivener_location: str,
-        discrivener_model_location: str,
         decide_to_respond: decide_to_respond.DecideToRespond,
+        template_store: templates.TemplateStore,
         speak_voice_responses: bool,
-        post_voice_responses: bool,
+        post_voice_responses: bool
     ):
         voice_client.VoiceClient.wakewords = persona.wakewords
 
-        self.discrivener_location = discrivener_location
         self.persona = persona
         self.voice_client: typing.Optional[voice_client.VoiceClient] = None
 
-        voice_client.VoiceClient.discrivener_location = discrivener_location
-        voice_client.VoiceClient.discrivener_model_location = discrivener_model_location
-        voice_client.VoiceClient.decide_to_respond = decide_to_respond
+        voice_client.VoiceClient.discrivener_location = discord_settings["discrivener_location"]
+        voice_client.VoiceClient.discrivener_model_location = \
+            discord_settings["discrivener_model_location"]
         voice_client.VoiceClient.speak_voice_responses = speak_voice_responses
         voice_client.VoiceClient.post_voice_responses = post_voice_responses
+        voice_client.VoiceClient.prevent_impersonation = discord_settings["prevent_impersonation"]
+
+        voice_client.VoiceClient.decide_to_respond = decide_to_respond
         voice_client.VoiceClient.persona = persona
         voice_client.VoiceClient.ooba_client = ooba_client
         voice_client.VoiceClient.prompt_generator = prompt_generator
+        voice_client.VoiceClient.template_store = template_store
 
     def _discover_voice_channel(
         self, interaction: discord.Interaction
