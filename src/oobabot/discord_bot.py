@@ -6,6 +6,7 @@ be easily extracted into a cross-platform library.
 
 import asyncio
 from collections import deque
+from hashlib import sha256
 import io
 import re
 import time
@@ -1059,35 +1060,16 @@ class DiscordBot(discord.Client):
     async def _get_image_descriptions(
         self,
         raw_message: discord.Message,
-    ) -> typing.List[str]:
+    ) -> typing.List[types.GenericAttachment]:
         """
         Fetches any message attachments and valid image URLs and gets text descriptions
         for them, if Vision is enabled. If Vision is not enabled or no descriptions were
         generated, return an empty list.
         """
-        images: typing.List[str] = []
-        image_descriptions: typing.List[str] = []
+        attachments: typing.List[types.GenericAttachment] = []
 
         if self.vision_client:
-            # First process any message attachments
-            if raw_message.attachments:
-                for attachment in raw_message.attachments:
-                    if (
-                        attachment.content_type
-                        and attachment.content_type.startswith("image/")
-                    ):
-                        try:
-                            # Open our image as a BytesIO buffer
-                            image = io.BytesIO(await attachment.read())
-                            # Pre-process the image for the Vision API
-                            image = self.vision_client.preprocess_image(image)
-                            if image:
-                                images.append(image)
-                        except Exception as err:
-                            fancy_logger.get().error(
-                                "Error pre-processing image: %s", err, stack_info=True
-                            )
-            # Then process URLs if we are configured to fetch them
+            # Process URLs if we are configured to fetch them
             if self.vision_client.fetch_urls:
                 # Get an iterator of URL matches
                 urls = self.vision_client.URL_EXTRACTOR.finditer(raw_message.content)
@@ -1095,28 +1077,63 @@ class DiscordBot(discord.Client):
                     # Get the whole match as a string
                     url = url.group()
                     if await self.vision_client.is_image_url(url):
-                        # If the URL is valid and points to an image, add it to the image list
-                        images.append(url)
+                        # If the URL is valid and points to an image, get the image description
+                        fancy_logger.get().debug("Getting image description...")
+                        try:
+                            async with raw_message.channel.typing():
+                                description = await self.vision_client.get_image_description(url)
+                        except Exception as err:
+                            fancy_logger.get().error(
+                                "Error getting image description: %s: %s",
+                                type(err).__name__, err, stack_info=True
+                            )
+                            continue
+                        # Create an Attachment with the raw URL as the content hash
+                        attachments.append(
+                            types.GenericAttachment(
+                                content_type="image_url",
+                                description_text=description,
+                                content_hash=url
+                            )
+                        )
+            # then process any message attachments
+            for attachment in raw_message.attachments:
+                if (
+                    attachment.content_type
+                    and attachment.content_type.startswith("image/")
+                ):
+                    try:
+                        # Read our image into a BytesIO buffer
+                        image_buffer = io.BytesIO(await attachment.read())
+                        # Pre-process the image for the Vision API
+                        image_base64 = self.vision_client.preprocess_image(image_buffer)
+                        # If we got a valid base64 image, get the image description
+                        fancy_logger.get().debug("Getting image description...")
+                        async with raw_message.channel.typing():
+                            description = \
+                                await self.vision_client.get_image_description(image_base64)
+                            # Rewind the buffer
+                            image_buffer.seek(0)
+                            # Create an Attachment with the sha256 hash of the raw image as
+                            # the content hash
+                            attachments.append(
+                                types.GenericAttachment(
+                                    content_type="image",
+                                    description_text=description,
+                                    content_hash=sha256(image_buffer.read()).hexdigest()
+                                )
+                            )
+                    except Exception as err:
+                        fancy_logger.get().error(
+                            "Error getting image description: %s: %s",
+                            type(err).__name__, err, stack_info=True
+                        )
 
-            # Finally, get text descriptions for each valid image we found
-            for image in images:
-                fancy_logger.get().debug("Getting image description...")
-                try:
-                    async with raw_message.channel.typing():
-                        description = await self.vision_client.get_image_description(image)
-                except Exception as err:
-                    fancy_logger.get().error(
-                        "Error getting image description: %s", err, stack_info=True
-                    )
-                    continue
-                image_descriptions.append(description)
-
-        return image_descriptions
+        return attachments
 
     async def _generate_text_response(
         self,
         message: types.GenericMessage,
-        image_descriptions: typing.List[str],
         recent_messages: typing.AsyncIterator[types.GenericMessage],
         response_channel: typing.Union[
             discord.TextChannel,
@@ -1137,33 +1154,6 @@ class DiscordBot(discord.Client):
         spliiting responses or not, and a response stat object.
         """
         fancy_logger.get().debug("Generating prompt...")
-
-        # Convert the recent messages into a list to modify it
-        recent_messages_list = [msg async for msg in recent_messages]
-
-        # Attach any image descriptions to the user's message
-        if image_descriptions:
-            image_received = self.template_store.format(
-                templates.Templates.PROMPT_IMAGE_RECEIVED,
-                {
-                    templates.TemplateToken.USER_NAME: message.author_name,
-                    templates.TemplateToken.AI_NAME: self.persona.ai_name
-                }
-            )
-            description_text = "\n".join(image_received + desc for desc in image_descriptions)
-            for msg in recent_messages_list:
-                if msg.message_id == message.message_id:
-                    # Append the image descriptions to the body text of the user's message
-                    msg.body_text += "\n" + description_text
-                    break
-
-        # Convert the list back into an async generator
-        async def _list_to_async_iter(
-            messages: typing.List[types.GenericMessage]
-        ) -> typing.AsyncIterator[types.GenericMessage]:
-            for message in messages:
-                yield message
-        recent_messages = _list_to_async_iter(recent_messages_list)
 
         # Generate the prompt prefix using the modified recent messages
         if isinstance(response_channel, (discord.abc.GuildChannel, discord.Thread)):
@@ -1264,8 +1254,8 @@ class DiscordBot(discord.Client):
         # Determine if there are images and get descriptions (if Vision is enabled)
         # We do this here instead of in _send_text_response_in_channel to avoid
         # creating a thread if we end up with no content we can respond to.
-        image_descriptions = await self._get_image_descriptions(raw_message)
-        if message.is_empty() and not image_descriptions:
+        message.attachments += await self._get_image_descriptions(raw_message)
+        if message.is_empty():
             return
 
         # If we were mentioned, log the mention in the original channel
@@ -1326,7 +1316,6 @@ class DiscordBot(discord.Client):
         response_coro = self._send_text_response_in_channel(
             message=message,
             raw_message=raw_message,
-            image_descriptions=image_descriptions,
             is_summon_in_public_channel=is_summon_in_public_channel,
             response_channel=response_channel, # type: ignore
             image_requested=image_requested
@@ -1338,7 +1327,6 @@ class DiscordBot(discord.Client):
         self,
         message: types.GenericMessage,
         raw_message: discord.Message,
-        image_descriptions: typing.List[str],
         is_summon_in_public_channel: bool,
         response_channel: typing.Union[
             discord.TextChannel,
@@ -1382,6 +1370,7 @@ class DiscordBot(discord.Client):
             ignore_all_until_message_id = message.message_id
 
             recent_messages = self._filtered_history_iterator(
+                message=message,
                 channel=response_channel,
                 stop_before_message_id=repeated_id or history_marker_id,
                 ignore_all_until_message_id=ignore_all_until_message_id,
@@ -1398,7 +1387,6 @@ class DiscordBot(discord.Client):
                 # will return a string or generator based on configuration
                 response, response_stat = await self._generate_text_response(
                     message=message,
-                    image_descriptions=image_descriptions,
                     recent_messages=recent_messages,
                     response_channel=response_channel,
                     image_requested=image_requested,
@@ -1566,12 +1554,13 @@ class DiscordBot(discord.Client):
             )
 
         # Now that we know the last user message, begin generating a new response
-        image_descriptions = await self._get_image_descriptions(raw_target_message)
+        target_message.attachments += await self._get_image_descriptions(
+            raw_target_message
+        )
 
         await self._send_text_response_in_channel(
             message=target_message,
             raw_message=raw_target_message,
-            image_descriptions=image_descriptions,
             is_summon_in_public_channel=False,
             response_channel=response_channel,
             existing_message=raw_message,
@@ -2061,6 +2050,7 @@ class DiscordBot(discord.Client):
 
     async def _filtered_history_iterator(
         self,
+        message: types.GenericMessage,
         channel: typing.Union[
             discord.TextChannel,
             discord.Thread,
@@ -2092,7 +2082,7 @@ class DiscordBot(discord.Client):
         ignoring_all = bool(ignore_all_until_message_id)
 
         channel_history = channel.history(limit=limit)
-        async for message in channel_history:
+        async for raw_message in channel_history:
             # Stop if we've collected as many messages as we're looking for
             if messages >= limit:
                 return
@@ -2100,7 +2090,7 @@ class DiscordBot(discord.Client):
             messages_fetched += 1
 
             if ignoring_all:
-                if message.id == ignore_all_until_message_id:
+                if raw_message.id == ignore_all_until_message_id:
                     ignoring_all = False
                 else:
                     # This message was sent after the message we're
@@ -2109,9 +2099,16 @@ class DiscordBot(discord.Client):
                     # instead.
                     continue
 
-            last_returned = message
+            # We ignore the message matching the ID of the provided GenericMessage
+            # and yield the provided message directly, as we may have added
+            # attachments to the message previously.
+            if raw_message.id == message.message_id:
+                yield message
+                continue
+
+            last_returned = raw_message
             sanitized_message, allow_more = await self._filter_history_message(
-                message,
+                raw_message,
                 stop_before_message_id=stop_before_message_id
             )
             if sanitized_message:
@@ -2133,10 +2130,10 @@ class DiscordBot(discord.Client):
                     return
 
                 # Try to pull the next message out of the iterator
-                message = await anext(channel_history, None)
+                raw_message = await anext(channel_history, None)
                 messages_fetched += 1
 
-                if not message:
+                if not raw_message:
                     # If we exhausted the iterator but didn't reach the limit,
                     # this is the beginning of the channel
                     if messages_fetched < limit:
@@ -2158,9 +2155,9 @@ class DiscordBot(discord.Client):
                     continue
 
                 # otherwise, continue to filter or yield the message
-                last_returned = message
+                last_returned = raw_message
                 sanitized_message, _ = await self._filter_history_message(
-                    message
+                    raw_message
                 )
                 if sanitized_message:
                     yield sanitized_message

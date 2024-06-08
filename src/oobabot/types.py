@@ -8,6 +8,32 @@ import datetime
 import enum
 import typing
 
+class GenericAttachment:
+    """
+    Represents a message attachment that has been transformed into a text description.
+
+    Contains:
+    - content type
+    - description text
+    - content hash
+
+    If the content type is indicative of a URL-based resource, the content hash will
+    be the URL, instead of a hash.
+    """
+
+    def __init__(
+        self,
+        content_type: str,
+        description_text: str,
+        content_hash: typing.Optional[str] = None
+    ):
+        self.content_type = content_type
+        self.description_text = description_text
+        self.content_hash = content_hash
+
+    def is_empty(self) -> bool:
+        return not self.description_text.strip()
+
 class GenericMessage:
     """
     Represents a message from a user.
@@ -23,20 +49,22 @@ class GenericMessage:
         reference_message_id: int,
         body_text: str,
         author_is_bot: bool,
-        send_timestamp: float
+        send_timestamp: float,
+        attachments: typing.List[GenericAttachment] = []
     ):
         self.author_id = author_id
         self.author_name = author_name
-        self.message_id = message_id
-        self.body_text = body_text
-        self.author_is_bot = author_is_bot
-        self.reference_message_id = reference_message_id
-        self.send_timestamp = send_timestamp
         self.channel_id = channel_id
         self.channel_name = channel_name
+        self.message_id = message_id
+        self.reference_message_id = reference_message_id
+        self.body_text = body_text
+        self.attachments = attachments or []
+        self.author_is_bot = author_is_bot
+        self.send_timestamp = send_timestamp
 
     def is_empty(self) -> bool:
-        return not self.body_text.strip()
+        return not self.body_text.strip() and not self.attachments
 
 class DirectMessage(GenericMessage):
     """

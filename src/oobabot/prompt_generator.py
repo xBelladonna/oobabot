@@ -246,6 +246,20 @@ class PromptGenerator:
             if message.is_empty():
                 continue
 
+            for attachment in message.attachments:
+                if attachment.is_empty():
+                    continue
+                if attachment.content_type in ("image", "image_url"):
+                    image_received = self.template_store.format(
+                        templates.Templates.PROMPT_IMAGE_RECEIVED,
+                        {
+                            templates.TemplateToken.AI_NAME: self.persona.ai_name,
+                            templates.TemplateToken.USER_NAME: message.author_name
+                        }
+                    )
+                    description_str = image_received + attachment.description_text
+                    message.body_text += "\n" + description_str
+
             if message.author_id == bot_user_id:
                 message_str = bot_sequence_prefix
                 message_str += self.template_store.format(
