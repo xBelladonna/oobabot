@@ -127,7 +127,7 @@ class Runtime:
         # by looking for repeated responses, and deciding how far
         # back in history the bot can see.
         self.repetition_tracker = repetition_tracker.RepetitionTracker(
-            repetition_threshold=settings.REPETITION_TRACKER_THRESHOLD
+            discord_settings=settings.discord_settings.get_all()
         )
 
         self.bot_commands = bot_commands.BotCommands(
