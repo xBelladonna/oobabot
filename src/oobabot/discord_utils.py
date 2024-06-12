@@ -24,16 +24,43 @@ FORBIDDEN_CHARACTERS = r"[\n\r\t]"
 FORBIDDEN_CHARACTERS_PATTERN = re.compile(FORBIDDEN_CHARACTERS)
 
 
-def get_channel_name(channel: discord.abc.Messageable) -> str:
-    if isinstance(channel, discord.Thread):
-        return "thread #" + channel.name
-    if isinstance(channel, discord.abc.GuildChannel):
-        return "channel #" + channel.name
-    if isinstance(channel, discord.DMChannel):
-        return "-DM-"
-    if isinstance(channel, discord.GroupChannel):
-        return "-GROUP-DM-"
-    return "-Unknown-"
+def get_channel_name(
+    channel: discord.abc.Messageable,
+    with_type: bool = True
+) -> str:
+    """
+    Fetches the provided channel's name, optionally prefixed
+    with the channel type.
+    """
+    name_str = ""
+    if isinstance(channel, discord.TextChannel):
+        if with_type:
+            name_str += "channel "
+        name_str += "#" + channel.name
+    elif isinstance(channel, discord.Thread):
+        if with_type:
+            name_str += "thread "
+        name_str += "#" + channel.name
+    elif isinstance(channel, discord.VoiceChannel):
+        if with_type:
+            name_str += "voice channel "
+        name_str += "#" + channel.name
+    elif isinstance(channel, discord.DMChannel):
+        if channel.recipient:
+            if with_type:
+                name_str += "DM: "
+            name_str += channel.recipient.display_name
+        else:
+            name_str = "Direct Message"
+    elif isinstance(channel, discord.GroupChannel):
+        if with_type:
+            name_str += "Group DM: "
+        name_str += channel.name or ", ".join(
+            [user.display_name for user in channel.recipients]
+        )
+    else:
+        return "-Unknown-"
+    return sanitize_string(name_str)
 
 
 def sanitize_string(raw_string: str) -> str:
@@ -50,15 +77,13 @@ def discord_message_to_generic_message(
     """
     Convert a discord message to a GenericMessage or subclass thereof
     """
-    body_text = raw_message.content
-
     generic_args = {
         "author_id": raw_message.author.id,
         "author_name": sanitize_string(raw_message.author.display_name),
         "channel_id": raw_message.channel.id,
         "channel_name": get_channel_name(raw_message.channel),
         "message_id": raw_message.id,
-        "body_text": body_text,
+        "body_text": sanitize_string(raw_message.content),
         "author_is_bot": raw_message.author.bot,
         "send_timestamp": raw_message.created_at.timestamp(),
         "reference_message_id": raw_message.reference.message_id
@@ -130,14 +155,21 @@ async def replace_channel_mention_ids_with_names(
             or await client.fetch_channel(channel_id)
         )
         if channel:
-            channel_name = channel.name # type: ignore
+            channel_name = get_channel_name(
+                channel, # type: ignore
+                with_type=False
+            )
+            if isinstance(channel, discord.Thread):
+                channel_name = "🧵" + channel_name
             if " " in channel_name:
                 channel_name = f'"{channel_name}"'
         else:
-            channel_name = "#unknown-channel"
+            channel_name = "unknown-channel"
+
+        channel_name = "#" + channel_name
         generic_message.body_text = (
             generic_message.body_text[:match.start()]
-            + f"#{channel_name}"
+            + channel_name
             + generic_message.body_text[match.end():]
         )
 
