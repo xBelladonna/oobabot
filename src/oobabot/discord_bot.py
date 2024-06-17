@@ -325,6 +325,7 @@ class DiscordBot(discord.Client):
         self.dont_split_responses = discord_settings["dont_split_responses"]
         self.ignore_dms = discord_settings["ignore_dms"]
         self.ignore_prefixes = discord_settings["ignore_prefixes"]
+        self.ignore_reactions = discord_settings["ignore_reactions"]
         allowed_mentions = [x.lower() for x in discord_settings["allowed_mentions"]]
         for allowed_mention_type in allowed_mentions:
             if allowed_mention_type not in ["everyone", "users", "roles"]:
@@ -1747,6 +1748,23 @@ class DiscordBot(discord.Client):
         if stop_before_message_id and message.id == stop_before_message_id:
             generic_message = discord_utils.discord_message_to_generic_message(message)
             return generic_message, False
+        # If this message is from us and has been explicitly hidden by reaction,
+        # exclude it
+        if self.ignore_reactions:
+            for reaction in message.reactions:
+                if reaction.is_custom_emoji():
+                    emoji: str = reaction.emoji.name # type: ignore
+                else:
+                    emoji: str = reaction.emoji # type: ignore
+                if emoji in self.ignore_reactions:
+                    # If the reaction was on a message from the AI, filter it.
+                    if reaction.message.author.id == self.bot_user_id:
+                        return None, True
+                    async for reactor in reaction.users():
+                        # If a user who reacted to this message is the author,
+                        # filter it.
+                        if reactor.id == reaction.message.author.id:
+                            return None, True
 
         generic_message = discord_utils.discord_message_to_generic_message(message)
 
