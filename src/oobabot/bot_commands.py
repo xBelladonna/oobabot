@@ -16,6 +16,7 @@ from oobabot import prompt_generator
 from oobabot import repetition_tracker
 from oobabot import templates
 
+from oobabot.http_client import OobaHttpClientError
 
 class BotCommands:
     """
@@ -141,15 +142,23 @@ class BotCommands:
                 channel_name
             )
 
-            if self.ooba_client.api_type not in ["oobabooga", "openai", "tabbyapi"]:
+            if not self.ooba_client.can_abort_generation:
                 await discord_utils.fail_interaction(
                     interaction,
-                    "Generic OpenAI-compatible API in use, cannot abort generation.",
+                    "Current API does not support stopping generation.",
                 )
                 return
-            response = await self.ooba_client.stop()
-            str_response = response if response else "No response from server."
-            await interaction.response.send_message(str_response)
+            try:
+                await self.ooba_client.stop()
+            except OobaHttpClientError as err:
+                await discord_utils.fail_interaction(
+                    interaction,
+                    f"Something went wrong! {err}"
+                )
+                return
+
+            response = "Okay."
+            await interaction.response.send_message(response, ephemeral=True)
 
         @discord.app_commands.command(
             name="poke",

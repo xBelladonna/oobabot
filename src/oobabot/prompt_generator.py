@@ -234,6 +234,10 @@ class PromptGenerator:
         )
         try:
             prompt_units = await self.ooba_client.get_token_count(prompt_without_history)
+            # BOS tokens are stripped from token counts. Add 1 to the count
+            # if we are configured to (default is true).
+            if self.ooba_client.request_params.get("add_bos_token", True):
+                prompt_units += 1
         except ValueError:
             prompt_units = len(prompt_without_history)
 
