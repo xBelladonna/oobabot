@@ -10,6 +10,7 @@ could not support multiple pending requests at the same time without failing.
 
 import abc
 import asyncio
+import re
 import socket
 
 import aiohttp
@@ -33,6 +34,10 @@ class SerializedHttpClient(abc.ABC):
         sock_connect=5.0,
         sock_read=None,
     )
+
+    URL_EXTRACTOR = re.compile(
+            r"(https?://(?:(?:[a-zA-Z0-9\-]+\.)*[a-zA-Z0-9\-]+(?:\:\d{1,5})?))(\S+)?"
+        )
 
     @abc.abstractmethod
     async def _setup(self):

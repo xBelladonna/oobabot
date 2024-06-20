@@ -894,13 +894,13 @@ class Settings:
         self.oobabooga_settings.add_setting(
             oesp.ConfigSetting[str](
                 name="base_url",
-                default="http://localhost:5000/v1",
+                default="http://localhost:5000",
                 description_lines=[
                     textwrap.dedent(
                         """
                         Base URL for the text generation API. This should be
-                        http://hostname[:port]/v1 for plain connections, or
-                        https://hostname[:port]/v1 for connections over TLS.
+                        http://hostname[:port] for plain connections, or
+                        https://hostname[:port] for connections over TLS.
                         """
                     )
                 ],

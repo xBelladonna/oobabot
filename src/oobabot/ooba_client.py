@@ -9,7 +9,6 @@ import re
 import time
 import typing
 
-import aiohttp
 import pysbd
 import pysbd.utils
 
@@ -130,17 +129,17 @@ class OobaClient(http_client.SerializedHttpClient):
 
 
     SERVICE_NAME = "Oobabooga"
-    OOBABOOGA_STOP_STREAM_URI_PATH: str = "/internal/stop-generation"
-    OOBABOOGA_TOKENIZER_URI_PATH: str = "/internal/encode"
-    TABBYAPI_TOKENIZER_URI_PATH: str = "/token/encode"
-    COHERE_TOKENIZER_URI_PATH: str = "/tokenize"
+    OOBABOOGA_STOP_STREAM_URI_PATH = "/v1/internal/stop-generation"
+    OOBABOOGA_TOKENIZER_URI_PATH = "/v1/internal/encode"
+    OOBABOOGA_TOKEN_COUNT_URI_PATH = "/v1/internal/token-count"
+    TABBYAPI_TOKENIZER_URI_PATH = "/v1/token/encode"
+    COHERE_TOKENIZER_URI_PATH = "/v1/tokenize"
 
     def __init__(
         self,
         settings: typing.Dict[str, typing.Any],
         template_store: templates.TemplateStore,
     ):
-        super().__init__(self.SERVICE_NAME, settings["base_url"])
         self.total_response_tokens = 0
         self.retries = settings["retries"]
         if self.retries < 0:
@@ -148,13 +147,27 @@ class OobaClient(http_client.SerializedHttpClient):
         self.message_regex = settings["message_regex"]
         self.request_params = settings["request_params"]
         self.log_all_the_things = settings["log_all_the_things"]
+        self.fetch_token_counts = settings["fetch_token_counts"]
+        self.use_chat_completions = settings["use_chat_completions"]
         self.api_type = settings["api_type"].lower()
         if self.api_type not in ("oobabooga", "openai", "tabbyapi", "aphrodite", "cohere"):
             raise ValueError(
                 f"Unsupported API type '{self.api_type}'. Please fix your configuration."
             )
-        self.fetch_token_counts = settings["fetch_token_counts"]
-        self.use_chat_completions = settings["use_chat_completions"]
+        self.model = settings["model"]
+        if self.api_type == "cohere" and not self.model:
+            raise ValueError(
+                "Model is mandatory for the Cohere API. Please fix your configuration."
+            )
+
+        # Build base URL and API endpoint from any path component
+        base_url: str = settings["base_url"]
+        api_endpoint = ""
+        match = self.URL_EXTRACTOR.match(base_url)
+        if match:
+            base_url, path = match.groups()
+            if path and path.lstrip("/"):
+                api_endpoint += path.rstrip("/")
         # OpenAI-compatible APIs
         if self.api_type in ("oobabooga", "openai", "tabbyapi", "aphrodite"):
             if self.use_chat_completions:
@@ -162,20 +175,18 @@ class OobaClient(http_client.SerializedHttpClient):
                     "Chat Completions API is not implemented yet. "
                     + "Please use legacy Completions API."
                 )
-                self.api_endpoint = "/chat/completions"
+                api_endpoint += "/v1/chat/completions"
             else:
-                self.api_endpoint = "/completions"
+                api_endpoint += "/v1/completions"
         # Cohere is just different
         elif self.api_type == "cohere":
             self.use_chat_completions = False # in case it's left set to true in the config
-            self.api_endpoint = "/chat"
+            api_endpoint += "/v1/chat"
 
+        self.api_endpoint = api_endpoint
         self.api_key = settings["api_key"]
-        self.model = settings["model"]
-        if self.api_type == "cohere" and not self.model:
-            raise ValueError(
-                "Model is mandatory for the Cohere API. Please fix your configuration."
-            )
+        super().__init__(self.SERVICE_NAME, base_url)
+
         if self.message_regex:
             self.fn_new_splitter = lambda: RegexSplitter(self.message_regex)
         else:
@@ -200,8 +211,6 @@ class OobaClient(http_client.SerializedHttpClient):
 
     async def _setup(self):
         return
-    async def __aenter__(self):
-        return self
 
     def get_stopping_strings(self) -> typing.List[str]:
         """
@@ -226,6 +235,14 @@ class OobaClient(http_client.SerializedHttpClient):
                 stopping_strings.append(stopping_string)
 
         return stopping_strings
+
+    def can_abort_generation(self) -> bool:
+        """
+        Indicates if the API type in use supports stopping generation.
+        """
+        if self.api_type == "oobabooga":
+            return True
+        return False
 
     def can_get_token_count(self) -> bool:
         """
@@ -256,36 +273,38 @@ class OobaClient(http_client.SerializedHttpClient):
         request = { "text": prompt }
 
         if self.api_type == "oobabooga":
-            url = self.base_url + self.OOBABOOGA_TOKENIZER_URI_PATH
+            url = self.OOBABOOGA_TOKENIZER_URI_PATH
         elif self.api_type in ("tabbyapi", "aphrodite"):
             # Currently the endpoint for both of these is the same
-            url = self.base_url + self.TABBYAPI_TOKENIZER_URI_PATH
+            url = self.TABBYAPI_TOKENIZER_URI_PATH
         elif self.api_type == "cohere":
-            url = self.base_url + self.COHERE_TOKENIZER_URI_PATH
+            url = self.COHERE_TOKENIZER_URI_PATH
             request.update({ "model": self.model })
 
         # As long as we're working with reasonable amounts of message, it shouldn't take long
-        timeout = aiohttp.ClientTimeout(total=30.0, connect=10.0, sock_connect=10.0)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(
-                url, headers=headers, json=request, verify_ssl=False
-            ) as response:
-                if response.status != 200:
-                    response_text = await response.text()
-                    raise http_client.OobaHttpClientError(
-                        f"Request failed with status {response.status}: {response_text}"
-                    )
-                result = await response.json()
+        async with self._get_session().post(
+            url, headers=headers, json=request, verify_ssl=False
+        ) as response:
+            if response.status != 200:
+                response_text = await response.text()
+                raise http_client.OobaHttpClientError(
+                    f"Request failed with status {response.status}: {response_text}"
+                )
+            result = await response.json()
 
-                # Endpoint for aphrodite-engine is the same as tabbyAPI, but not the response
-                # schema. Special handling is required.
-                if self.api_type == "aphrodite":
-                    return len(result.get("content"))
-                # Special handling for the Cohere API as well
-                if self.api_type == "cohere":
-                    return len(result.get("tokens"))
+            # Endpoint for aphrodite-engine is the same as tabbyAPI, but not the response
+            # schema. Special handling is required.
+            if self.api_type == "aphrodite":
+                # Added BOS or not depends entirely on the tokenizer loaded. Default is
+                # true, not many models change this. Subtract 1 token to account for BOS.
+                return int(result.get("content").get("value")) - 1
+            # Special handling for the Cohere API as well
+            if self.api_type == "cohere":
+                return len(result.get("tokens"))
 
-                return int(result.get("length")) # should always be an int but we cast just in case
+            # BOS token is always added by these APIs, so we remove it.
+            # Should always be an int but we cast just in case.
+            return int(result.get("length")) - 1
 
     async def request_by_message(
         self,
@@ -337,6 +356,7 @@ class OobaClient(http_client.SerializedHttpClient):
         response_iterator = self.request_by_token(prompt, stopping_strings)
         _first_iteration = True
         tokens = ""
+        last_response = None
         async for token in response_iterator:
             if token == SentenceSplitter.END_OF_INPUT:
                 if tokens:
@@ -344,29 +364,26 @@ class OobaClient(http_client.SerializedHttpClient):
                 break
             tokens += token
             now = time.perf_counter()
-            if _first_iteration:
-                # Wait an interval before returning the first group, as it will
-                # be only the first token and won't be much use. We set this here
-                # so there is no gap between the "last response" and now.
+            # Begin counting time after we have actually started receiving tokens,
+            # otherwise the initial message will just be the first token only.
+            if not last_response:
                 last_response = now
-                _first_iteration = False
             if now < last_response + interval:
                 continue
             yield tokens
             tokens = ""
             last_response = time.perf_counter()
 
-    async def stop(self) -> str:
+    async def stop(self) -> None:
         # New Ooba OpenAI API stopping logic
-        timeout = aiohttp.ClientTimeout(total=10.0) # shouldn't take long at all
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            url = self.base_url + self.OOBABOOGA_STOP_STREAM_URI_PATH
-            headers = {"accept": "application/json"}
-
-            async with session.post(url, data=json.dumps({}), headers=headers) as response:
+        url = self.OOBABOOGA_STOP_STREAM_URI_PATH
+        headers = {"accept": "application/json"}
+        async with self._get_session().post(url, headers=headers) as response:
+            if response.status != 200:
                 response_text = await response.text()
-                print(response_text)
-                return response_text
+                raise http_client.OobaHttpClientError(
+                    f"Request failed with status {response.status}: {response_text}"
+                )
 
     async def request_by_token(
         self,
@@ -433,71 +450,66 @@ class OobaClient(http_client.SerializedHttpClient):
                 ).replace("\n", "\\n")
             )
 
-        url = self.base_url + self.api_endpoint
-        # This request can take a long time depending on various factors.
-        # We leave the total as default (5*60, or 5 minutes)
-        timeout = aiohttp.ClientTimeout(connect=10.0, sock_connect=10.0)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(
-                url, headers=headers, json=request, verify_ssl=False
-            ) as response:
-                if response.status != 200:
-                    response_text = await response.text()
-                    raise http_client.OobaHttpClientError(
-                        f"Request failed with status {response.status}: {response_text}"
+        async with self._get_session().post(
+            self.api_endpoint, headers=headers, json=request, verify_ssl=False
+        ) as response:
+            if response.status != 200:
+                response_text = await response.text()
+                raise http_client.OobaHttpClientError(
+                    f"Request failed with status {response.status}: {response_text}"
+                )
+            if self.log_all_the_things:
+                print(f"Sent request:\n{json.dumps(request, indent=1)}")
+                if self.api_type == "cohere":
+                    print(
+                        "Prompt:\n"
+                        + f"{str(request['message']).encode('utf-8', 'replace')}"
                     )
-                if self.log_all_the_things:
-                    print(f"Sent request:\n{json.dumps(request, indent=1)}")
-                    if self.api_type == "cohere":
-                        print(
-                            "Prompt:\n"
-                            + f"{str(request['message']).encode('utf-8', 'replace')}"
-                        )
-                    elif self.use_chat_completions:
-                        print(
-                            "Messages:\n"
-                            + f"{str(request['messages']).encode('utf-8', 'replace')}"
-                        )
-                    else:
-                        print(
-                            "Prompt:\n"
-                            + f"{str(request['prompt']).encode('utf-8', 'replace')}"
-                        )
-                async for line in response.content:
-                    finished = False
-                    decoded_line = line.decode('utf-8').strip()
-                    if decoded_line.startswith("data: "):
-                        decoded_line = decoded_line[6:]  # Strip "data: "
-                    if decoded_line:
-                        try:
-                            event_data = json.loads(decoded_line)
-                            if "choices" in event_data:  # Handling the format with "choices"
-                                for choice in event_data.get("choices", []):
-                                    text = choice.get("text", "")
-                                    if text:
-                                        self.total_response_tokens += 1
-                                        if self.log_all_the_things:
-                                            print(text.encode(
-                                                'utf-8', 'replace'
-                                            ), end="", flush=True)
-                                        yield text
-                                    if choice.get("finish_reason"):
-                                        finished = True
-                                        break
-                            else:  # Handling other formats
-                                text = event_data.get("text", "")
-                                finished = event_data.get("is_finished", False)
+                elif self.use_chat_completions:
+                    print(
+                        "Messages:\n"
+                        + f"{str(request['messages']).encode('utf-8', 'replace')}"
+                    )
+                else:
+                    print(
+                        "Prompt:\n"
+                        + f"{str(request['prompt']).encode('utf-8', 'replace')}"
+                    )
+            async for line in response.content:
+                finished = False
+                decoded_line = line.decode('utf-8').strip()
+                if decoded_line.startswith("data: "):
+                    decoded_line = decoded_line[6:]  # Strip "data: "
+                if decoded_line:
+                    try:
+                        event_data = json.loads(decoded_line)
+                        if "choices" in event_data:  # Handling the format with "choices"
+                            for choice in event_data.get("choices", []):
+                                text = choice.get("text", "")
                                 if text:
+                                    self.total_response_tokens += 1
                                     if self.log_all_the_things:
-                                        print(text.encode('utf-8', 'replace'), end="", flush=True)
+                                        print(text.encode(
+                                            'utf-8', 'replace'
+                                        ), end="", flush=True)
                                     yield text
-                            if finished:
-                                break
-                        except json.JSONDecodeError:
-                            fancy_logger.get().debug(
-                                "We got an invalid JSON body! Ignoring and moving on."
-                            )
-                            continue
+                                if choice.get("finish_reason"):
+                                    finished = True
+                                    break
+                        else:  # Handling other formats
+                            text = event_data.get("text", "")
+                            finished = event_data.get("is_finished", False)
+                            if text:
+                                if self.log_all_the_things:
+                                    print(text.encode('utf-8', 'replace'), end="", flush=True)
+                                yield text
+                        if finished:
+                            break
+                    except json.JSONDecodeError:
+                        fancy_logger.get().debug(
+                            "We got an invalid JSON body! Ignoring and moving on."
+                        )
+                        continue
 
-                # Make sure to signal the end of input
-                yield MessageSplitter.END_OF_INPUT
+            # Make sure to signal the end of input
+            yield MessageSplitter.END_OF_INPUT
