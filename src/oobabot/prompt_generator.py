@@ -119,17 +119,14 @@ class PromptGenerator:
                 templates.Templates.BOT_SEQUENCE_SUFFIX, {}
             ),
         }
-        image_request_made = self.template_store.format(
+        self.image_request_made = self.template_store.format(
             templates.Templates.PROMPT_IMAGE_COMING,
             image_request_template_tokens
         )
-        self.image_request_made = image_request_made, len(image_request_made)
-
-        image_request_failed = self.template_store.format(
+        self.image_request_failed = self.template_store.format(
             templates.Templates.PROMPT_IMAGE_NOT_COMING,
             image_request_template_tokens
         )
-        self.image_request_failed = (image_request_failed, len(image_request_failed))
 
         if self.ooba_client.can_get_token_count():
             self.max_context_units = self.token_space - \
@@ -160,8 +157,8 @@ class PromptGenerator:
         prompt_without_history = self._generate(
             "",
             (
-                self.image_request_made[0] if self.image_request_made[1]
-                > self.image_request_failed[1] else self.image_request_failed[0]
+                self.image_request_made if len(self.image_request_made)
+                > len(self.image_request_failed) else self.image_request_failed
             ),
             guild_name="",
             channel_name=""
@@ -184,10 +181,9 @@ class PromptGenerator:
         if available_chars_for_history < required_history_size_chars:
             fancy_logger.get().warning(
                 "AI token space is too small for prompt_prefix and history "
-                + "by an estimated %d"
-                + " characters. You may lose history context. You can save space"
-                + " by shortening the persona or reducing the requested number of"
-                + " lines of history.",
+                + "by an estimated %d characters. You may lose history context. "
+                + "You can save space by shortening the persona or reducing the "
+                + "requested number of lines of history.",
                 required_history_size_chars - available_chars_for_history,
             )
         self.max_context_units = available_chars_for_history
@@ -207,6 +203,9 @@ class PromptGenerator:
         self,
         bot_user_id: int,
         message_history: typing.AsyncIterator[types.GenericMessage],
+        image_coming: str,
+        guild_name: str,
+        channel_name: str
     ) -> str:
         # add on more history, but only if we have room
         # if we don't have room, we'll just truncate the history
@@ -225,12 +224,9 @@ class PromptGenerator:
         )
         prompt_without_history = self._generate(
             "",
-            (
-                self.image_request_made[0] if self.image_request_made[1]
-                > self.image_request_failed[1] else self.image_request_failed[0]
-            ),
-            guild_name="",
-            channel_name=""
+            image_coming,
+            guild_name,
+            channel_name
         )
         try:
             prompt_units = await self.ooba_client.get_token_count(prompt_without_history)
@@ -423,18 +419,22 @@ class PromptGenerator:
         Generate a prompt for the AI to respond to.
         """
         message_history_txt = ""
+        if image_requested:
+            # True if image requested and SD is online
+            image_coming = self.image_request_made
+        elif image_requested is False:
+            # False if SD is offline and we can't
+            image_coming = self.image_request_failed
+        else:
+            # None if no image was requested
+            image_coming = ""
+
         if message_history:
             message_history_txt = await self._render_history(
                 bot_user_id,
                 message_history,
+                image_coming,
+                guild_name,
+                channel_name
             )
-        if image_requested:
-            # True if image requested and SD is online
-            image_coming = self.image_request_made[0]
-        elif image_requested is False:
-            # False if SD is offline and we can't
-            image_coming = self.image_request_failed[0]
-        else:
-            # None if no image was requested
-            image_coming = ""
         return self._generate(message_history_txt, image_coming, guild_name, channel_name)
