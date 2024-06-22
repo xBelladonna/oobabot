@@ -1144,7 +1144,7 @@ class DiscordBot(discord.Client):
             guild_name = ""
             channel_name = message.channel_name
 
-        prompt_prefix = await self.prompt_generator.generate(
+        prompt, author_names = await self.prompt_generator.generate(
             message_history=recent_messages,
             bot_user_id=self.bot_user_id,
             user_name=message.author_name,
@@ -1155,16 +1155,6 @@ class DiscordBot(discord.Client):
 
         stop_sequences: typing.List[str] = []
         if self.prevent_impersonation:
-            # Populate a list of stopping strings using the display names of the members
-            # who posted most recently, up to the history limit. We do this with a list
-            # comprehension which both preserves order, and has linear time complexity
-            # vs. quadratic time complexity for loops. We also use a dictionary conversion
-            # to de-duplicate instead of checking list membership, as this has constant
-            # time complexity vs. linear and also preserves order.
-            recent_members = dict.fromkeys([msg.author_name for msg in recent_messages_list])
-            recent_members.pop(self.persona.ai_name, None) # remove our own name
-            recent_members = recent_members.keys()
-
             # Utility functions to avoid code-duplication
             def _get_user_prompt_prefix(user_name: str) -> str:
                 return self.template_store.format(
@@ -1179,23 +1169,22 @@ class DiscordBot(discord.Client):
                 canonical_name = name.split()[0].strip().capitalize()
                 return canonical_name if len(canonical_name) >= 3 else name
 
-            for member_name in recent_members:
-                user_name = member_name
+            for author_name in author_names:
                 if self.prevent_impersonation == "standard":
-                    stop_sequences.append(_get_user_prompt_prefix(user_name))
+                    stop_sequences.append(_get_user_prompt_prefix(author_name))
                 elif self.prevent_impersonation == "aggressive":
-                    stop_sequences.append("\n" + _get_canonical_name(user_name))
+                    stop_sequences.append("\n" + _get_canonical_name(author_name))
                 elif self.prevent_impersonation == "comprehensive":
-                    stop_sequences.append(_get_user_prompt_prefix(user_name))
-                    stop_sequences.append("\n" + _get_canonical_name(user_name))
+                    stop_sequences.append(_get_user_prompt_prefix(author_name))
+                    stop_sequences.append("\n" + _get_canonical_name(author_name))
 
         fancy_logger.get().debug("Generating text response...")
-        response_stat = self.response_stats.log_request_arrived(prompt_prefix)
+        response_stat = self.response_stats.log_request_arrived(prompt)
         try:
             # If we're streaming our response as groups of tokens
             if self.stream_responses == "token":
                 generator = self.ooba_client.request_as_grouped_tokens(
-                    prompt_prefix,
+                    prompt,
                     stop_sequences,
                     interval=self.stream_responses_speed_limit
                 )
@@ -1203,12 +1192,12 @@ class DiscordBot(discord.Client):
             # If we're splitting or streaming our response by sentence
             if self.stream_responses == "sentence" or self.split_responses:
                 generator = self.ooba_client.request_by_message(
-                    prompt_prefix,
+                    prompt,
                     stop_sequences
                 )
                 return generator, response_stat
             # or finally, if we're not splitting our response
-            response = await self.ooba_client.request_as_string(prompt_prefix, stop_sequences)
+            response = await self.ooba_client.request_as_string(prompt, stop_sequences)
             return response, response_stat
 
         except asyncio.CancelledError as err:

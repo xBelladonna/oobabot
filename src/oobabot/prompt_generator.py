@@ -174,17 +174,23 @@ class PromptGenerator:
         system_message: str,
         guild_name: str,
         channel_name: str
-    ) -> str:
+    ) -> typing.Tuple[str, typing.List[str]]:
         """
         Renders the requested number of history messages to a text string,
         fully templated to be combined with the rest of the prompt. If
         we run out of room (either by estimation or token counting), we
         truncate the oldest messages so that the prompt fits within the
         model's context length.
+
+        Also collects the message author display names and returns them
+        in a list, ordered by most recently appearing to least recently
+        appearing, to use as stop sequences for impersonation prevention
+        purposes.
         """
         # history_messages is newest first, so figure out how many we can
         # take, then append them in reverse order
         history_messages: typing.Deque[str] = deque()
+        author_names: typing.List[str] = []
 
         # Instruct templates are static
         user_sequence_prefix = self.template_store.get(
@@ -265,6 +271,7 @@ class PromptGenerator:
 
             prompt_units += message_units
             history_messages.appendleft(message_str)
+            author_names.append(message.author_name)
 
         # then we append the example dialogue, if it exists, and there's room
         if self.example_dialogue:
@@ -317,6 +324,14 @@ class PromptGenerator:
                         remaining_messages -= 1
                         history_messages.appendleft(example_message)
 
+        # Populate a list of stop sequences using the display names of the members
+        # who posted most recently, up to the history limit. We use a dictionary
+        # conversion to de-duplicate instead of checking list membership, as this
+        # has constant time complexity vs. linear, and also preserves order.
+        author_names_dict: typing.Dict[str, None] = dict.fromkeys(author_names)
+        author_names_dict.pop(self.persona.ai_name, None) # remove our own name
+        author_names = list(author_names_dict.keys())
+
         fancy_logger.get().debug(
             "Fit %d messages in prompt.",
             len(history_messages)
@@ -329,7 +344,7 @@ class PromptGenerator:
             self.max_context_units - prompt_units
         )
 
-        return "".join(history_messages)
+        return "".join(history_messages), author_names
 
     def _render_prompt(
         self,
@@ -395,7 +410,7 @@ class PromptGenerator:
         guild_name: str,
         channel_name: str,
         image_requested: typing.Optional[bool] = None
-    ) -> str:
+    ) -> typing.Tuple[str, typing.List[str]]:
         """
         Generate a prompt for the AI to respond to.
 
@@ -407,6 +422,8 @@ class PromptGenerator:
         - rewrite_request - Ask the AI to rewrite its last response according to instructions
         """
         message_history_text = ""
+        author_names: typing.List[str] = []
+
         # if image requested and SD is online
         if image_requested:
             special_request = self.template_store.format(
@@ -429,11 +446,19 @@ class PromptGenerator:
             special_request = ""
 
         if message_history:
-            message_history_text = await self._render_history(
+            message_history_text, author_names = await self._render_history(
                 bot_user_id,
                 message_history,
                 special_request,
                 guild_name,
                 channel_name
             )
-        return self._render_prompt(message_history_text, special_request, guild_name, channel_name)
+
+        prompt = self._render_prompt(
+            message_history_text,
+            special_request,
+            guild_name,
+            channel_name
+        )
+
+        return prompt, author_names

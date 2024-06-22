@@ -87,7 +87,7 @@ class AudioResponder:
 
     async def _respond(self):
         transcript_history = self._transcript_history_iterator()
-        prompt_prefix = await self._prompt_generator.generate(
+        prompt, author_names = await self._prompt_generator.generate(
             bot_user_id=self.bot_user_id,
             message_history=transcript_history,
             user_name="",
@@ -96,7 +96,7 @@ class AudioResponder:
         )
 
         response = await self._ooba_client.request_as_string(
-            prompt_prefix, []
+            prompt, []
         )
         fancy_logger.get().debug("Received response: %s", response)
 
