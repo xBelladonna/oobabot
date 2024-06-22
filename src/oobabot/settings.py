@@ -471,6 +471,41 @@ class Settings:
         )
         self.discord_settings.add_setting(
             oesp.ConfigSetting[bool](
+                name="respond_to_latest_only",
+                default=False,
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        Whether to squash all messages received during the message
+                        accumulation period together and respond only once at the
+                        end. If set, the bot will respond to the latest message
+                        received, otherwise it will respond to each message
+                        individually in the order they were received.
+                        """
+                    )
+                ],
+            )
+        )
+        self.discord_settings.add_setting(
+            oesp.ConfigSetting[bool](
+                name="skip_in_progress_responses",
+                default=False,
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        If the bot receives a new message while in the middle of
+                        processing responses, cancel the current message queue
+                        and start a new response to the latest message instead.
+                        This takes effect regardless of whether the message
+                        accumulation period or respond_to_latest_only is set.
+                        Image generation requests will not be cancelled.
+                        """
+                    )
+                ],
+            )
+        )
+        self.discord_settings.add_setting(
+            oesp.ConfigSetting[bool](
                 name="include_lobotomize_response",
                 default=True,
                 description_lines=[
