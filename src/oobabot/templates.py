@@ -17,6 +17,7 @@ class Templates(enum.Enum):
     Enumeration of all different templates.
     """
 
+    COMMAND_ACKNOWLEDGEMENT = "command_acknowledgement"
     COMMAND_LOBOTOMIZE_RESPONSE = "command_lobotomize_response"
 
     IMAGE_DETACH = "image_detach"
@@ -95,6 +96,15 @@ class TemplateStore:
     TEMPLATES: typing.Dict[
         Templates, typing.Tuple[typing.List[TemplateToken], str, bool]
     ] = {
+        Templates.COMMAND_ACKNOWLEDGEMENT: (
+            [
+                TemplateToken.AI_NAME,
+                TemplateToken.NAME
+            ],
+            "Displayed in Discord for commands that warrant an acknowledgement. "
+            + "Only the user issuing the command will see this, and it is ephemeral.",
+            True,
+        ),
         Templates.COMMAND_LOBOTOMIZE_RESPONSE: (
             [
                 TemplateToken.AI_NAME,
@@ -419,6 +429,7 @@ class TemplateStore:
             Sorry, only {NAME} can press the buttons.
             """
         ),
+        Templates.COMMAND_ACKNOWLEDGEMENT: "Okay.",
         Templates.COMMAND_LOBOTOMIZE_RESPONSE: textwrap.dedent(
             """
             Ummmm... what were we talking about?

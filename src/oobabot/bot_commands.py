@@ -157,7 +157,13 @@ class BotCommands:
                 )
                 return
 
-            response = "Okay."
+            response = self.template_store.format(
+                templates.Templates.COMMAND_ACKNOWLEDGEMENT,
+                {
+                    templates.TemplateToken.AI_NAME: self.persona.ai_name,
+                    templates.TemplateToken.USER_NAME: interaction.user.display_name
+                }
+            )
             await interaction.response.send_message(response, ephemeral=True, silent=True)
 
         @discord.app_commands.command(
