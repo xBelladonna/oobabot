@@ -52,11 +52,15 @@ class ChannelMessage(GenericMessage):
     def __init__(
         self,
         /,
+        guild_id: int,
+        guild_name: str,
         mentions: typing.List[int],
         **kwargs
     ):
         super().__init__(**kwargs) # type: ignore
         self.mentions = mentions
+        self.guild_id = guild_id
+        self.guild_name = guild_name
 
     def is_mentioned(self, user_id: int) -> bool:
         return user_id in self.mentions
