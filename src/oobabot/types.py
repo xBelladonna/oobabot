@@ -43,10 +43,26 @@ class DirectMessage(GenericMessage):
     Represents a message sent directly to the bot.
     """
 
+class GroupMessage(GenericMessage):
+    """
+    Represents a message sent in a private group chat.
+    """
+
+    def __init__(
+        self,
+        /,
+        mentions: typing.List[int],
+        **kwargs
+    ):
+        super().__init__(**kwargs) # type: ignore
+        self.mentions = mentions
+
+    def is_mentioned(self, user_id: int) -> bool:
+        return user_id in self.mentions
+
 class ChannelMessage(GenericMessage):
     """
-    Represents a message sent in a channel, including
-    a private group chat or thread.
+    Represents a message sent in a channel or thread.
     """
 
     def __init__(
