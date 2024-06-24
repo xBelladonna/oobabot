@@ -186,6 +186,7 @@ class BotCommands:
                 self.decide_to_respond.guarantee_response(channel.id, message.id)
                 # log a fake mention so the bot considers responses from now on
                 self.decide_to_respond.log_mention(
+                    guild_id=channel.guild.id if channel.guild else channel.id,
                     channel_id=channel.id,
                     send_timestamp=interaction.created_at.timestamp()
                 )
@@ -228,6 +229,7 @@ class BotCommands:
             # this will cause the bot to monitor the channel
             # and consider unsolicited responses
             self.decide_to_respond.log_mention(
+                guild_id=channel.guild.id if channel.guild else channel.id,
                 channel_id=interaction.channel_id, # type: ignore
                 send_timestamp=interaction.created_at.timestamp()
             )
@@ -259,6 +261,7 @@ class BotCommands:
                 channel_name
             )
             self.decide_to_respond.log_mention(
+                guild_id=channel.guild.id if channel.guild else channel.id,
                 channel_id=interaction.channel_id, # type: ignore
                 send_timestamp=interaction.created_at.timestamp()
             )

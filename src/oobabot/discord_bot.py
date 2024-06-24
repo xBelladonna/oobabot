@@ -491,11 +491,10 @@ class DiscordBot(discord.Client):
                 ).replace("\n", "\\n")
             )
 
-        cap = self.decide_to_respond.get_unsolicited_channel_cap()
+        cap = self.decide_to_respond.unsolicited_channel_cap
         cap = str(cap) if cap > 0 else "<unlimited>"
         fancy_logger.get().debug(
-            "Unsolicited channel cap: %s",
-            cap,
+            "Unsolicited channel cap: %s", cap
         )
 
         if self.persona.wakewords:
@@ -887,6 +886,7 @@ class DiscordBot(discord.Client):
         if isinstance(response_channel, (discord.Thread, discord.abc.GuildChannel)):
             if is_summon_in_public_channel:
                 self.decide_to_respond.log_mention(
+                    response_channel.guild.id,
                     response_channel.id,
                     message.send_timestamp,
                 )

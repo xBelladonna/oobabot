@@ -11,7 +11,7 @@ from oobabot import persona
 from oobabot import types
 
 
-class LastReplyTimes(dict):
+class LastMentionTimes(dict):
     """
     A dictionary that keeps track of the last time we were mentioned
     in a channel.
@@ -26,12 +26,21 @@ class LastReplyTimes(dict):
         self.cache_timeout = cache_timeout
         self.unsolicited_channel_cap = unsolicited_channel_cap
 
-    def purge_outdated(self, latest_timestamp: float) -> None:
+    def purge_outdated(self, latest_timestamp: float) -> bool:
+        """
+        Removes mentions older than the cache timeout. If the
+        unsolicited channel cap is set, the oldest mentions
+        will be evicted to keep within the limit, even if the
+        mention timestamp was within the cache timeout.
+
+        Returns True if any mentions were retained, False if
+        there are no longer any mentions in the guild.
+        """
         oldest_time_to_keep = latest_timestamp - self.cache_timeout
 
-        if self.unsolicited_channel_cap > 0:
+        if self.unsolicited_channel_cap:
             # find the n-th largest timestamp
-            if self.unsolicited_channel_cap < len(self):
+            if len(self) > self.unsolicited_channel_cap:
                 nth_largest_timestamp = sorted(self.values())[
                     -self.unsolicited_channel_cap
                 ]
@@ -44,12 +53,26 @@ class LastReplyTimes(dict):
         self.clear()
         self.update(purged)
 
+        return bool(self)
+
     def log_mention(self, channel_id: int, send_timestamp: float) -> None:
+        """
+        Logs the provided timestamp to the provided channel as a mention.
+        """
         self[channel_id] = send_timestamp
 
-    def time_since_last_mention(self, message: types.ChannelMessage) -> float:
-        self.purge_outdated(message.send_timestamp)
-        return message.send_timestamp - self.get(message.channel_id, 0)
+    def time_since_last_mention(
+        self, message: types.ChannelMessage
+    ) -> typing.Optional[float]:
+        """
+        Get the time in seconds since the last mention, starting from
+        the timestamp of the provided message. If there is no recent
+        mention in the channel, return None.
+        """
+        last_mention_timestamp = self.get(message.channel_id, None)
+        if last_mention_timestamp is None:
+            return None
+        return message.send_timestamp - last_mention_timestamp
 
 
 class DecideToRespond:
@@ -93,11 +116,8 @@ class DecideToRespond:
         self.last_mention_cache_timeout = max(
             time for time, _ in self.time_vs_response_chance
         )
-        unsolicited_channel_cap = discord_settings["unsolicited_channel_cap"]
-        self.last_reply_times = LastReplyTimes(
-            self.last_mention_cache_timeout,
-            unsolicited_channel_cap
-        )
+        self.unsolicited_channel_cap = discord_settings["unsolicited_channel_cap"]
+        self.last_mention_times: typing.Dict[int, LastMentionTimes] = {}
 
         # Keep a set of message IDs per channel, to track whether they are
         # guaranteed a response. Technically we only need to track message
@@ -182,7 +202,10 @@ class DecideToRespond:
             return False
 
         # get response chance based on when we were last mentioned in this channel
-        time_since_last_mention = self.last_reply_times.time_since_last_mention(message)
+        time_since_last_mention = self.time_since_last_mention(message)
+        if time_since_last_mention is None:
+            return False
+
         response_chance = self.calc_interpolated_response_chance(
             time_since_last_mention,
             self.time_vs_response_chance
@@ -315,11 +338,44 @@ class DecideToRespond:
         # Ignore anything else
         return False, False
 
-    def log_mention(self, channel_id: int, send_timestamp: float) -> None:
-        self.last_reply_times.log_mention(channel_id, send_timestamp)
+    def log_mention(
+        self, guild_id: int, channel_id: int, send_timestamp: float
+    ) -> None:
+        """
+        Log a mention for the provided channel in the corresponding guild.
+        """
+        # Ensure the guild has a corresponding tracker
+        if guild_id not in self.last_mention_times:
+            self.last_mention_times[guild_id] = LastMentionTimes(
+                self.last_mention_cache_timeout,
+                self.unsolicited_channel_cap
+            )
+        # Log the mention
+        self.last_mention_times[guild_id].log_mention(channel_id, send_timestamp)
 
-    def get_unsolicited_channel_cap(self) -> int:
-        return self.last_reply_times.unsolicited_channel_cap
+    def time_since_last_mention(
+        self, message: types.ChannelMessage
+    ) -> typing.Optional[float]:
+        """
+        Gets the time since last mentioned, in seconds, in the channel of the
+        provided message, starting from its timestamp.
+        """
+        # Purge all channels and guilds without mentions within the cache timeout
+        purged = {
+            guild: last_mention_times
+            for guild, last_mention_times in self.last_mention_times.items()
+            if last_mention_times.purge_outdated(message.send_timestamp)
+        }
+        self.last_mention_times.clear()
+        self.last_mention_times.update(purged)
+
+        # Get guild last mention times
+        last_mention_times = self.last_mention_times.get(message.guild_id, None)
+        if not last_mention_times:
+            # If we have not been mentioned in the guild within the cache timeout,
+            # return None
+            return None
+        return last_mention_times.time_since_last_mention(message)
 
     def guarantee_response(self, channel_id: int, message_id: int) -> None:
         """

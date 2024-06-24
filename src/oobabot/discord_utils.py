@@ -102,6 +102,14 @@ def discord_message_to_generic_message(
         )
     ):
         return types.ChannelMessage(
+            guild_id=(
+                raw_message.guild.id
+                if raw_message.guild else raw_message.channel.id
+            ),
+            guild_name=(
+                raw_message.guild.name
+                if raw_message.guild else ""
+            ),
             mentions=[mention.id for mention in raw_message.mentions],
             **generic_args
         )
