@@ -3,6 +3,7 @@
 **`oobabot`** is a Discord bot which talks to Large Language Model AIs (like Llama, Mistral, ChatGPT, etc...), using just about any API-enabled backend.
 
 [oobabooga's text-generation-webui](https://github.com/oobabooga/text-generation-webui)
+
 [tabbyAPI](https://github.com/theroyallab/tabbyAPI)
 
 [aphrodite-engine](https://github.com/PygmalionAI/aphrodite-engine)
@@ -131,6 +132,7 @@ Here, you can see that NEW messages within 3 minutes of the bot's last reply wil
 
 - Between 3-5 minutes, the default chance drops to 70%
 - Between 5-10 minutes, the default chance drops to 50%
+- After 10 minutes, the bot stops responding and has to be mentioned again in some way (i.e. ping, reply, wakeword).
 
 Feel free to configure this to suit your needs! 
   

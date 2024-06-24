@@ -2,6 +2,8 @@
 """
 Package definition
 """
+from importlib.metadata import version
 
-# todo: sync this up automatically
-__version__ = "0.3.2"
+# If the project name ever changes, this must be updated to match.
+project_name = "oobabot"
+__version__ = version(project_name)
