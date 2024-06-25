@@ -58,6 +58,7 @@ class SerializedHttpClient(abc.ABC):
             await self._setup()
             self.is_set_up = True
         except (
+            OobaHttpClientError,
             aiohttp.ClientConnectionError,
             aiohttp.ClientError,
             ConnectionRefusedError,
@@ -65,7 +66,7 @@ class SerializedHttpClient(abc.ABC):
             asyncio.exceptions.TimeoutError,
         ) as err:
             raise OobaHttpClientError(
-                f"Could not connect to {self.service_name} server: [{self.base_url}]"
+                f"Could not connect to {self.service_name} server: {err}"
             ) from err
 
     def __init__(self, service_name: str, base_url: str):
@@ -93,7 +94,7 @@ class SerializedHttpClient(abc.ABC):
             )
         except AssertionError as err:
             raise OobaHttpClientError(
-                f"Could not connect to {self.service_name} server: [{self.base_url}]\n"
+                f"Could not connect to {self.service_name} server: {self.base_url}\n"
                 + "Ensure the base URL does not have a path component."
             ) from err
         return self
@@ -115,6 +116,6 @@ class SerializedHttpClient(abc.ABC):
             # with a base_url that has a path. This is a user-supplied
             # value, so catching this is grody but necessary.
             raise OobaHttpClientError(
-                f"Could not connect to {self.service_name} server: [{self.base_url}]\n"
+                f"Could not connect to {self.service_name} server: {self.base_url}\n"
                 + "Ensure the base URL does not have a path component."
             ) from err
