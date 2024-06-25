@@ -207,7 +207,25 @@ class OobaClient(http_client.SerializedHttpClient):
             )
 
     async def _setup(self):
-        return
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+
+        if self.api_type == "cohere":
+            async with self._get_session().post(
+                "/v1/check-api-key", headers=headers, verify_ssl=False
+            ) as response:
+                response_status = response.status
+        else:
+            async with self._get_session().get(
+                "/v1/models", headers=headers, verify_ssl=False
+            ) as response:
+                response_status = response.status
+        if response_status != 200:
+            raise http_client.OobaHttpClientError(
+                f"Request failed with status {response_status}"
+            )
 
     def get_stop_sequences(self) -> typing.List[str]:
         """

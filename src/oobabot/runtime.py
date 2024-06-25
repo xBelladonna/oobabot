@@ -169,7 +169,7 @@ class Runtime:
             response_stats=self.response_stats,
         )
 
-    def test_connections(self) -> typing.Tuple[bool, bool]:
+    def test_connections(self) -> bool:
         """
         Tests that we can connect to all services we depend on.
         Does not test Discord connectivity.
@@ -187,16 +187,15 @@ class Runtime:
                 client.test_connection()
                 fancy_logger.get().info("Connected to %s!", client.service_name)
             except (ValueError, http_client.OobaHttpClientError) as err:
-                fancy_logger.get().warning(
-                    "Could not connect to %s server: [%s]",
-                    client.service_name,
-                    client.base_url,
-                )
-                fancy_logger.get().warning("Please check the URL and try again.")
+                err_str = f"Could not connect to {client.service_name} server."
                 if str(err.__cause__):
-                    fancy_logger.get().error("Reason: %s", err.__cause__)
-                return client is self.ooba_client, False
-        return False, True
+                    err_str += f" Reason: {err.__cause__}"
+                if client is self.ooba_client:
+                    fancy_logger.get().error(err_str)
+                    raise ConnectionError from err
+                fancy_logger.get().warning(err_str)
+                return False
+        return True
 
     async def run(self):
         """

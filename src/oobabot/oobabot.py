@@ -91,8 +91,9 @@ class Oobabot:
 
         with self.runtime_lock:
             self.runtime = runtime.Runtime(self.settings)
-            mandatory, test_passed = self.runtime.test_connections()
-            if mandatory and not test_passed:
+            try:
+                self.runtime.test_connections()
+            except ConnectionError:
                 # test_connections will have logged the error
                 self.runtime = None
                 return
