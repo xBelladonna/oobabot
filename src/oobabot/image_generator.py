@@ -61,7 +61,8 @@ class StableDiffusionImageView(discord.ui.View):
         image_prompt: str,
         message: types.GenericMessage,
         timeout: typing.Optional[float],
-        template_store: templates.TemplateStore
+        template_store: templates.TemplateStore,
+        avatar_prompt: typing.Optional[str] = None
     ):
         super().__init__(timeout=timeout)
 
@@ -108,7 +109,7 @@ class StableDiffusionImageView(discord.ui.View):
 
                 # generate a new image
                 regen_task = stable_diffusion_client.generate_image(
-                    image_prompt, is_channel_nsfw
+                    avatar_prompt or image_prompt, is_channel_nsfw
                 )
                 regen_file = await image_task_to_file(regen_task, image_prompt, self.send_timestamp)
 
@@ -282,6 +283,7 @@ class ImageGenerator:
         self.image_words: typing.List[str] = sd_settings["image_words"]
         self.avatar_words: typing.List[str] = sd_settings["avatar_words"]
         self.avatar_prompt: str = sd_settings["avatar_prompt"]
+        self.nsfw_dms: bool = sd_settings["nsfw_dms"]
         self.timeout: typing.Optional[float] = sd_settings["timeout"] or None
         self.ooba_client = ooba_client
         self.prompt_generator = prompt_generator
@@ -337,12 +339,23 @@ class ImageGenerator:
         """
 
         is_channel_nsfw = False
-        # note: public threads in NSFW channels are not considered here
-        if isinstance(raw_message.channel, discord.TextChannel):
-            is_channel_nsfw = raw_message.channel.is_nsfw()
 
+        if isinstance(
+            raw_message.channel,
+            (
+                discord.TextChannel,
+                discord.VoiceChannel,
+                discord.Thread
+            )
+        ):
+            is_channel_nsfw = raw_message.channel.is_nsfw()
+        # Mark DMs and group DMs as NSFW, if configured
+        elif self.nsfw_dms:
+            is_channel_nsfw = True
+
+        avatar_prompt = self.substitute_avatar_prompt(image_prompt)
         image_task = self.stable_diffusion_client.generate_image(
-            image_prompt, is_channel_nsfw
+            avatar_prompt or image_prompt, is_channel_nsfw
         )
         send_timestamp = message.send_timestamp
 
@@ -370,6 +383,7 @@ class ImageGenerator:
             self.stable_diffusion_client,
             is_channel_nsfw=is_channel_nsfw,
             image_prompt=image_prompt,
+            avatar_prompt=avatar_prompt,
             message=message,
             timeout=self.timeout,
             template_store=self.template_store
@@ -393,9 +407,10 @@ class ImageGenerator:
         regen_view.image_message = image_message
         return image_message
 
-    def maybe_get_image_prompt(
-        self, message: str
-    ) -> typing.Optional[str]:
+    def maybe_get_image_prompt(self, message: str) -> typing.Optional[str]:
+        """
+        Get image keyphrases from some text, if any, otherwise return None.
+        """
         for image_pattern in self.image_patterns:
             match = image_pattern.search(message)
             if not match:
@@ -404,21 +419,26 @@ class ImageGenerator:
             if len(image_prompt) < self.MIN_IMAGE_PROMPT_LENGTH:
                 continue
             fancy_logger.get().debug("Found image prompt: %s", image_prompt)
-            # See if we're asked for our avatar and substitute in our avatar prompt
-            for avatar_pattern in self.avatar_patterns:
-                match = avatar_pattern.search(image_prompt)
-                if not match:
-                    continue
-                fancy_logger.get().debug(
-                    "Found request for self-portrait ('%s') in image prompt, "
-                    + "substituting avatar prompt.",
-                    match.group(0)
-                )
-                image_prompt = avatar_pattern.sub(
-                    f"{self.avatar_prompt}, ", image_prompt
-                ).strip(", ")
-                fancy_logger.get().debug("Final image prompt: %s", image_prompt)
             return image_prompt
+
+    def substitute_avatar_prompt(self, image_prompt: str) -> typing.Optional[str]:
+        """
+        Return the image prompt with the first avatar keyphrase substituted with
+        the configured avatar prompt, if any, otherwise return None.
+        """
+        for avatar_pattern in self.avatar_patterns:
+            avatar_match = avatar_pattern.search(image_prompt)
+            if not avatar_match:
+                continue
+            fancy_logger.get().debug(
+                "Found request for self-portrait ('%s') in image prompt, "
+                + "substituting avatar prompt.",
+                avatar_match.group(0)
+            )
+            avatar_prompt = avatar_pattern.sub(
+                f"{self.avatar_prompt}, ", image_prompt
+            ).strip(", ")
+            return avatar_prompt
 
     def generate_image(
         self,

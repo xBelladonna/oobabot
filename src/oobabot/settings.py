@@ -1243,6 +1243,20 @@ class Settings:
             )
         )
         self.stable_diffusion_settings.add_setting(
+            oesp.ConfigSetting[bool](
+                name="nsfw_dms",
+                default=False,
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        Whether to mark DMs and group DMs as NSFW,
+                        since this can't be detected automatically.
+                        """
+                    )
+                ],
+            )
+        )
+        self.stable_diffusion_settings.add_setting(
             oesp.ConfigSetting[float](
                 name="timeout",
                 default=180.0,
