@@ -22,15 +22,15 @@ from oobabot import voice_client
 
 class Oobabot:
     """
-    Main bot class.  Load settings, creates helper objects,
+    Main bot class. Load settings, creates helper objects,
     and invokes the bot loop.
 
     Methods:
         constructor: Loads settings from the command line, environment
-            variables, and config file.  This config may be changed
+            variables, and config file. This config may be changed
             before calling start().
-        start: Start the bot.  Blocks until the bot exits.
-        stop: Stop the bot.  Blocks until the bot exits.
+        start: Start the bot. Blocks until the bot exits.
+        stop: Stop the bot. Blocks until the bot exits.
         is_voice_enabled: Returns True if the bot is configured to
             participate in voice channels.
         current_voice_transcript (property): Returns the current
@@ -54,7 +54,7 @@ class Oobabot:
     ):
         """
         Initialize the bot, and load settings from the command line,
-        environment variables, and config file.  These will be
+        environment variables, and config file. These will be
         available in self.settings.
 
         self.settings is an :py:class:`oobabot.settings.Settings` object.
@@ -78,10 +78,10 @@ class Oobabot:
 
     def start(self):
         """
-        Start the bot.  Blocks until the bot exits.
+        Start the bot. Blocks until the bot exits.
 
         When running inside another process, the bot will exit
-        when another thread calls stop().  Otherwise it will
+        when another thread calls stop(). Otherwise it will
         exit when the user presses Ctrl-C, or the process receives
         a SIGTERM or SIGINT signal.
         """
@@ -102,7 +102,7 @@ class Oobabot:
     # pylint: disable=R1732
     def stop(self) -> bool:
         """
-        Stop the bot.  Blocks until the bot exits.
+        Stop the bot. Blocks until the bot exits.
         """
         result = self.runtime_lock.acquire(timeout=5)
         if result:
@@ -123,7 +123,7 @@ class Oobabot:
     @classmethod
     def test_discord_token(cls, discord_token: str) -> bool:
         """
-        Tests a discord token to see if it's valid.  Can be called from any thread.
+        Tests a discord token to see if it's valid. Can be called from any thread.
 
         Requires Internet connectivity.
 
@@ -136,7 +136,7 @@ class Oobabot:
         """
         Generates an invite URL for the bot with the given token.
 
-        Can be called from any thread.  Does not require Internet connectivity.
+        Can be called from any thread. Does not require Internet connectivity.
         """
         bot_user_id = discord_utils.get_user_id_from_token(discord_token)
         return discord_utils.generate_invite_url(bot_user_id)
@@ -161,7 +161,7 @@ class Oobabot:
     ) -> typing.List["types.VoiceMessage"]:
         """
         If the bot is currently in a voice channel, returns the transcript
-        of what's being said.  Otherwise, returns an empty list.
+        of what's being said. Otherwise, returns an empty list.
         """
         client = voice_client.VoiceClient.current_instance
         if not client:
@@ -204,7 +204,7 @@ class Oobabot:
 
 def run_cli():
     """
-    Run the bot from the command line.  Blocks until the bot exits.
+    Run the bot from the command line. Blocks until the bot exits.
 
     This is the main entrypoint for the CLI.
 
@@ -243,14 +243,6 @@ def run_cli():
         else:
             print("# oobabot: config.yml output successfully", file=sys.stderr)
         return
-
-    if not oobabot.settings.discord_settings.get("discord_token"):
-        msg = (
-            f"Please set the '{oobabot.settings.DISCORD_TOKEN_ENV_VAR}' "
-            + "environment variable to your bot's discord token."
-        )
-        print(msg, file=sys.stderr)
-        sys.exit(1)
 
     if oobabot.settings.general_settings.get("invite_url"):
         url = oobabot.generate_invite_url(

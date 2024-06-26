@@ -62,8 +62,8 @@ def discord_message_to_generic_message(
         "author_is_bot": raw_message.author.bot,
         "send_timestamp": raw_message.created_at.timestamp(),
         "reference_message_id": raw_message.reference.message_id
-        if raw_message.reference
-        else "",
+        if raw_message.reference and raw_message.reference.message_id
+        else 0
     }
     if isinstance(raw_message.channel, discord.DMChannel):
         return types.DirectMessage(**generic_args)
@@ -73,12 +73,12 @@ def discord_message_to_generic_message(
             discord.TextChannel,
             discord.GroupChannel,
             discord.Thread,
-            discord.VoiceChannel,
-        ),
+            discord.VoiceChannel
+        )
     ):
         return types.ChannelMessage(
             mentions=[mention.id for mention in raw_message.mentions],
-            **generic_args,
+            **generic_args
         )
     fancy_logger.get().warning(
         f"Unknown channel type {type(raw_message.channel)}, "
@@ -89,13 +89,13 @@ def discord_message_to_generic_message(
 
 def replace_user_mention_ids_with_names(
     generic_message: types.GenericMessage,
-    fn_user_id_to_name: typing.Callable[[re.Match[str]], str],
+    fn_user_id_to_name: typing.Callable[[re.Match[str]], str]
 ):
     """
     Replace user ID mentions with the user's chosen display
     name in the given guild (aka server)
     """
-    # it looks like normal IDs are 18 digits.  But give it some
+    # it looks like normal IDs are 18 digits. But give it some
     # wiggle room in case things change in the future.
     # e.g.: <@009999999999999999>
     at_mention_pattern = r"<@(\d{16,20})>"
@@ -112,7 +112,7 @@ def replace_user_mention_ids_with_names(
 
 async def replace_channel_mention_ids_with_names(
     client: discord.Client,
-    generic_message: types.GenericMessage,
+    generic_message: types.GenericMessage
 ):
     """
     Replace user ID mentions with the user's chosen display
@@ -125,9 +125,12 @@ async def replace_channel_mention_ids_with_names(
         if not match:
             break
         channel_id = int(match.group(1))
-        channel = await client.fetch_channel(channel_id)
+        channel = (
+            client.get_channel(channel_id)
+            or await client.fetch_channel(channel_id)
+        )
         if channel:
-            channel_name = channel.name
+            channel_name = channel.name # type: ignore
             if " " in channel_name:
                 channel_name = f'"{channel_name}"'
         else:
@@ -142,10 +145,10 @@ async def replace_channel_mention_ids_with_names(
 def dm_user_id_to_name(
     bot_user_id: int,
     bot_name: str,
-    user_name: str,
+    user_name: str
 ) -> typing.Callable[[re.Match[str]], str]:
     """
-    Replace user ID mentions with the bot's name.  Used when
+    Replace user ID mentions with the bot's name. Used when
     we are in a DM with the bot.
     """
     if " " in bot_name:
@@ -164,7 +167,7 @@ def dm_user_id_to_name(
 
 
 def group_user_id_to_name(
-   group: discord.GroupChannel,
+   group: discord.GroupChannel
 ) -> typing.Callable[[re.Match[str]], str]:
     def _replace_user_id_mention(match: typing.Match[str]) -> str:
         user_id = int(match.group(1))
@@ -184,7 +187,7 @@ def group_user_id_to_name(
 
 
 def guild_user_id_to_name(
-    guild: discord.Guild,
+    guild: discord.Guild
 ) -> typing.Callable[[re.Match[str]], str]:
     def _replace_user_id_mention(match: typing.Match[str]) -> str:
         user_id = int(match.group(1))
@@ -226,7 +229,7 @@ async def test_discord_token(discord_token: str) -> bool:
             raise
         fancy_logger.get().warning(
             "The bot token you provided does not have the required "
-            + "gateway intents.  Did you remember to enable both "
+            + "gateway intents. Did you remember to enable both "
             + "'SERVER MEMBERS INTENT' and 'MESSAGE CONTENT INTENT' "
             + "in the bot's settings on Discord?"
         )
@@ -334,7 +337,7 @@ def _file_exists_and_is_file(filepath: typing.Optional[str]) -> typing.Optional[
 
 def validate_discrivener_locations(
     discrivener_location: str,
-    discrivener_model_location: str,
+    discrivener_model_location: str
 ) -> typing.Tuple[typing.Optional[str], typing.Optional[str]]:
     """
     Verify that the file discrivener_location exists
@@ -359,11 +362,11 @@ def validate_discrivener_locations(
             actual_discrivener_location = None
 
     actual_model_location = _file_exists_and_is_file(discrivener_model_location)
-    return (actual_discrivener_location, actual_model_location)
+    return actual_discrivener_location, actual_model_location
 
 
 # the following class was modified from O'Reilly's Python Cookbook,
-# chapter 5, section 19.  Its use is allowed under this license:
+# chapter 5, section 19. Its use is allowed under this license:
 # Copyright (c) 2001, Sébastien Keim
 # All rights reserved.
 # Redistribution and use in source and binary forms, with or without

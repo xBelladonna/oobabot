@@ -8,7 +8,6 @@ import datetime
 import enum
 import typing
 
-
 class GenericMessage:
     """
     Represents a message from a user.
@@ -21,10 +20,10 @@ class GenericMessage:
         channel_id: int,
         channel_name: str,
         message_id: int,
-        reference_message_id,
+        reference_message_id: int,
         body_text: str,
         author_is_bot: bool,
-        send_timestamp: float,
+        send_timestamp: float
     ):
         self.author_id = author_id
         self.author_name = author_name
@@ -39,12 +38,10 @@ class GenericMessage:
     def is_empty(self) -> bool:
         return not self.body_text.strip()
 
-
 class DirectMessage(GenericMessage):
     """
     Represents a message sent directly to the bot.
     """
-
 
 class ChannelMessage(GenericMessage):
     """
@@ -56,9 +53,9 @@ class ChannelMessage(GenericMessage):
         self,
         /,
         mentions: typing.List[int],
-        **kwargs,
+        **kwargs
     ):
-        super().__init__(**kwargs)  # type: ignore
+        super().__init__(**kwargs) # type: ignore
         self.mentions = mentions
 
     def is_mentioned(self, user_id: int) -> bool:
@@ -76,7 +73,7 @@ class FancyAuthor:
         author_is_bot: bool,
         author_name: str,
         author_accent_color: typing.Tuple[int, int, int],
-        author_avatar_url: typing.Optional[str],
+        author_avatar_url: typing.Optional[str]
     ):
         self._user_id = user_id
         self._author_is_bot = author_is_bot
@@ -136,7 +133,6 @@ class DiscrivenerMessageType(str, enum.Enum):
     USER_JOIN = "UserJoin"
     USER_LEAVE = "UserLeave"
 
-
 class DiscrivenerMessage(abc.ABC):
     """
     Base class for all Discrivener messages.
@@ -147,7 +143,6 @@ class DiscrivenerMessage(abc.ABC):
         ...
 
     type: DiscrivenerMessageType
-
 
 # not an actual GenericMessage, but still a message
 class VoiceMessage(DiscrivenerMessage):
@@ -160,7 +155,7 @@ class VoiceMessage(DiscrivenerMessage):
         self,
         user_id: int,
         start_time: datetime.datetime,
-        duration: datetime.timedelta,
+        duration: datetime.timedelta
     ):
         self._user_id = user_id
         self._start_time = start_time
@@ -200,7 +195,6 @@ class VoiceMessage(DiscrivenerMessage):
         """
         Returns whether the user who sent the message is a bot.
         """
-
 
 class VoiceMessageWithTokens(VoiceMessage):
     """

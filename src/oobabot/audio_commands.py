@@ -87,7 +87,8 @@ class AudioCommands:
 
             fancy_logger.get().debug(
                 "%s called by user '%s'",
-                interaction.command.name, interaction.user.name,
+                interaction.command.name, # type: ignore
+                interaction.user.name
             )
 
             voice_channel = self._discover_voice_channel(interaction)

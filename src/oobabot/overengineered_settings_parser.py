@@ -33,7 +33,11 @@ class ConfigFileMissingError(Exception):
 
 
 SettingDictType = typing.Dict[
-    str, typing.Union[bool, int, float, str, typing.List[str]]
+    str, typing.Union[
+        bool, int, float, str, typing.List[str], typing.Dict[
+            str, typing.Union[bool, int, str]
+        ]
+    ]
 ]
 
 SettingValueType = typing.Union[
@@ -163,12 +167,12 @@ class ConfigSetting(typing.Generic[T]):
             return
         if not self.place_default_in_yaml and yaml[self.name] is None:
             # if we didn't place the default in the yaml, and the setting
-            # is now blank, that's no surprise.  Keep the default
+            # is now blank, that's no surprise. Keep the default
             # rather than overwriting it with None
             return
         value = yaml[self.name]
         # if value is a dict, it's possible that it only contains
-        # some, but not all of the keys that we need.  So we want to
+        # some, but not all of the keys that we need. So we want to
         # merge it with the default dict, overwriting the default
         # values with the values from the yaml
         if isinstance(value, dict):
@@ -179,8 +183,8 @@ class ConfigSetting(typing.Generic[T]):
                     f"Setting {self.name} is a dict, but the default value is not"
                 )
         # note: keeping the type checker happy across python versions
-        # here is actually kinda hard.  It's worried about what the
-        # values in the combined dict might be.  But really it's fine,
+        # here is actually kinda hard. It's worried about what the
+        # values in the combined dict might be. But really it's fine,
         # so just tell it to chill.
         self.set_value(value)  # type: ignore
 
@@ -374,7 +378,7 @@ def load(
 ) -> argparse.ArgumentParser:
     """
     Load settings from defaults, config.yml, and command line arguments
-    in that order.  Later sources will overwrite earlier ones.
+    in that order. Later sources will overwrite earlier ones.
 
     Returns the argparse parser, which can be used to print out the help
     message.
@@ -393,8 +397,8 @@ START_COMMENT = textwrap.dedent(
     """
     # Welcome to Oobabot!
     #
-    # This is the configuration file for Oobabot.  It is a YAML file, and
-    # comments are allowed.  Oobabot attempts to load a file named
+    # This is the configuration file for Oobabot. It is a YAML file, and
+    # comments are allowed. Oobabot attempts to load a file named
     # "config.yml" from the current directory when it is run.
     #
     """

@@ -119,17 +119,17 @@ class PromptGenerator:
                 templates.Templates.BOT_SEQUENCE_SUFFIX, {}
             ),
         }
-        self.image_request_made = self.template_store.format(
+        image_request_made = self.template_store.format(
             templates.Templates.PROMPT_IMAGE_COMING,
             image_request_template_tokens
         )
-        self.image_request_made = (self.image_request_made, len(self.image_request_made))
+        self.image_request_made = image_request_made, len(image_request_made)
 
-        self.image_request_failed = self.template_store.format(
+        image_request_failed = self.template_store.format(
             templates.Templates.PROMPT_IMAGE_NOT_COMING,
             image_request_template_tokens
         )
-        self.image_request_failed = (self.image_request_failed, len(self.image_request_failed))
+        self.image_request_failed = (image_request_failed, len(image_request_failed))
 
         if self.ooba_client.can_get_token_count():
             self.max_context_units = self.token_space - \
@@ -164,7 +164,7 @@ class PromptGenerator:
                 > self.image_request_failed[1] else self.image_request_failed[0]
             ),
             guild_name="",
-            response_channel=""
+            channel_name=""
         )
 
         # how many chars might we have available for history?
@@ -185,7 +185,7 @@ class PromptGenerator:
             fancy_logger.get().warning(
                 "AI token space is too small for prompt_prefix and history "
                 + "by an estimated %d"
-                + " characters.  You may lose history context.  You can save space"
+                + " characters. You may lose history context. You can save space"
                 + " by shortening the persona or reducing the requested number of"
                 + " lines of history.",
                 required_history_size_chars - available_chars_for_history,
@@ -230,7 +230,7 @@ class PromptGenerator:
                 > self.image_request_failed[1] else self.image_request_failed[0]
             ),
             guild_name="",
-            response_channel=""
+            channel_name=""
         )
         try:
             prompt_units = await self.ooba_client.get_token_count(prompt_without_history)
@@ -240,10 +240,12 @@ class PromptGenerator:
         # first we process and append the chat transcript
         context_full = False
         async for message in message_history:
-            if not message.body_text:
+            if context_full:
+                break
+            if message.is_empty():
                 continue
 
-            if message.author_is_bot and message.author_id is bot_user_id:
+            if message.author_id == bot_user_id:
                 line = self.template_store.format(
                     templates.Templates.BOT_SEQUENCE_PREFIX,
                     {},
@@ -286,14 +288,15 @@ class PromptGenerator:
             except ValueError:
                 line_units = len(line)
 
-            if line_units >= self.max_context_units - prompt_units:
+            units_left = self.max_context_units - prompt_units
+            if line_units >= units_left:
                 context_full = True
-                num_discarded_lines = self.history_lines - len(history_lines)
-                fancy_logger.get().warning(
-                    "Ran out of context space, discarding %d lines of chat history.",
-                    num_discarded_lines,
-                )
-                break
+                if line_units > units_left:
+                    fancy_logger.get().warning(
+                        "Ran out of context space, discarding %d lines of chat history.",
+                        self.history_lines - len(history_lines)
+                    )
+                    break
 
             prompt_units += line_units
             history_lines.append(line)
@@ -308,11 +311,11 @@ class PromptGenerator:
                 context_full = prompt_units + separator_units >= self.max_context_units
 
             if not context_full:
-                prompt_units += separator_units
                 remaining_lines = self.history_lines - len(history_lines)
 
                 if remaining_lines > 0:
                     # append the section separator (and newline) to the top which becomes the bottom
+                    prompt_units += separator_units
                     history_lines.append(section_separator + "\n")
                     # split example dialogue into lines and keep the newlines by rebuilding the list
                     # in a list comprehension
@@ -367,7 +370,7 @@ class PromptGenerator:
         message_history_txt: str,
         image_coming: str,
         guild_name: str,
-        response_channel: str,
+        channel_name: str,
     ) -> str:
         current_datetime = self.get_datetime()
         prompt = self.template_store.format(
@@ -393,7 +396,7 @@ class PromptGenerator:
                 ),
                 templates.TemplateToken.IMAGE_COMING: image_coming,
                 templates.TemplateToken.GUILDNAME: guild_name,
-                templates.TemplateToken.CHANNELNAME: response_channel,
+                templates.TemplateToken.CHANNELNAME: channel_name,
                 templates.TemplateToken.CURRENTDATETIME: current_datetime,
             },
         )
@@ -407,10 +410,10 @@ class PromptGenerator:
     async def generate(
         self,
         message_history: typing.Optional[typing.AsyncIterator[types.GenericMessage]],
-        image_requested: typing.Optional[bool],
         bot_user_id: int,
         guild_name: str,
-        response_channel: str,
+        channel_name: str,
+        image_requested: typing.Optional[bool] = None
     ) -> str:
         """
         Generate a prompt for the AI to respond to.
@@ -430,4 +433,4 @@ class PromptGenerator:
         else:
             # None if no image was requested
             image_coming = ""
-        return self._generate(message_history_txt, image_coming, guild_name, response_channel)
+        return self._generate(message_history_txt, image_coming, guild_name, channel_name)

@@ -107,7 +107,7 @@ class ColorfulLoggingFormatter(logging.Formatter):
         if self.fn_format_message:
             record = logging.makeLogRecord(record.__dict__)
             record.msg = self.fn_format_message(record.msg)
-            # record.args is a tuple.  Call self.fn_format_message for each
+            # record.args is a tuple. Call self.fn_format_message for each
             # element of the tuple, and then reassemble the tuple.
             if record.args:
                 record.args = tuple(self.fn_format_message(arg) for arg in record.args)
@@ -180,7 +180,7 @@ def init_logging(
 
 
 # the following class was modified from O'Reilly's Python Cookbook,
-# chapter 5, section 19.  Its use is allowed under this license:
+# chapter 5, section 19. Its use is allowed under this license:
 # Copyright (c) 2001, Sébastien Keim
 # All rights reserved.
 # Redistribution and use in source and binary forms, with or without
@@ -305,7 +305,7 @@ recent_logs = RingBufferedHandler()
 #     """
 #     Decorator for async tasks that logs unhandled exceptions.
 #     This is useful for tasks that won't be awaited until the
-#     program exits.  With this, the error will be logged as it
+#     program exits. With this, the error will be logged as it
 #     happens, rather than when the task is awaited.
 #     """
 

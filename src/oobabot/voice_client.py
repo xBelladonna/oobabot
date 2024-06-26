@@ -337,10 +337,10 @@ class VoiceClient(discord.VoiceProtocol):
 
             # we're disconnected, so have the voice_client disconnect
             # too... however we can't call disconnect() here because
-            # we would create a deadlock.  The disconnect() method
+            # we would create a deadlock. The disconnect() method
             # will terminate the process, then wait for its notification
             # threads to exit... and we're on the notification thread
-            # right now.  So to break the loop, use asyncio to schedule
+            # right now. So to break the loop, use asyncio to schedule
             # the disconnect() call to happen later.
             loop = asyncio.get_event_loop()
             if not loop:

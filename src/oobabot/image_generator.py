@@ -5,7 +5,6 @@ Generates images from Stable Diffusion
 
 import asyncio
 import io
-import os
 import re
 import typing
 
@@ -30,13 +29,10 @@ async def image_task_to_file(
     img_bytes = image_task.result()
     file_of_bytes = io.BytesIO(img_bytes)
     file = discord.File(file_of_bytes)
-    if os.environ.get("TZ"):
-        tz=ZoneInfo(os.environ.get("TZ"))
-    else:
-        tz=None
-    timestamp = datetime.fromtimestamp(send_timestamp, tz=tz).strftime("%y%m%d_%H%M%S_%Z")
+    tz = ZoneInfo("UTC")
+    timestamp = datetime.fromtimestamp(send_timestamp, tz).strftime("%y%m%d_%H%M%SZ")
     file.filename = f"{timestamp}.png"
-    file.description = f"image generated from '{image_request}'"
+    file.description = f"Image generated from '{image_request}'"
     return file
 
 
@@ -52,7 +48,7 @@ class StableDiffusionImageView(discord.ui.View):
 
     # these two phrases (along with exactly two periods)
     # in "Drawing.." were chosen because they render at
-    # the exact same width as each other.  If they don't,
+    # the exact same width as each other. If they don't,
     # the buttons will shift to the left and right as the
     # labels are swapped.
     LABEL_TRY_AGAIN = "Try Again"
@@ -64,12 +60,11 @@ class StableDiffusionImageView(discord.ui.View):
         is_channel_nsfw: bool,
         image_prompt: str,
         message: types.GenericMessage,
-        timeout: float,
-        template_store: templates.TemplateStore,
+        timeout: typing.Optional[float],
+        template_store: templates.TemplateStore
     ):
         super().__init__(timeout=timeout)
 
-        self.timeout = timeout
         self.template_store = template_store
 
         # only the user who requested generation of the image
@@ -86,7 +81,7 @@ class StableDiffusionImageView(discord.ui.View):
         btn_try_again = discord.ui.Button(
             label=self.LABEL_TRY_AGAIN,
             style=discord.ButtonStyle.blurple,
-            row=1,
+            row=1
         )
         self.image_message = None
 
@@ -101,7 +96,7 @@ class StableDiffusionImageView(discord.ui.View):
 
                 # we disable all three buttons because otherwise
                 # the lock_in and delete buttons will flicker
-                # when we disable the try_again button.  And it
+                # when we disable the try_again button. And it
                 # doesn't make much sense for them to work anyway
                 # when the button is being regenerated.
                 btn_try_again.disabled = True
@@ -200,19 +195,31 @@ class StableDiffusionImageView(discord.ui.View):
             await self.delete_image()
 
     def get_image_message_text(self) -> str:
-        # we truncate to zero using int() because we're calculating a remainder
-        timeout_string = f"{int(self.timeout / 60)} minutes"
-        timeout_remainder = self.timeout - (int(self.timeout / 60) * 60)
-        if timeout_remainder > 0:
-            timeout_string += f" and {timeout_remainder} seconds"
+        if self.timeout:
+            timeout_string = ""
+            # we truncate to zero using int() because we're calculating a remainder
+            timeout_mins = int(self.timeout / 60)
+            if timeout_mins:
+                timeout_string += f"{timeout_mins} minute"
+                if timeout_mins > 1:
+                    timeout_string += "s"
+            timeout_secs = self.timeout - (int(self.timeout / 60) * 60)
+            if timeout_secs > 0:
+                if timeout_mins:
+                    timeout_string += " and "
+                timeout_string += f"{timeout_secs} second"
+                if timeout_secs > 1:
+                    timeout_string += "s"
+        else:
+            timeout_string = "<never>"
 
         return self.template_store.format(
             templates.Templates.IMAGE_CONFIRMATION,
             {
                 templates.TemplateToken.NAME: self.requesting_user_name,
                 templates.TemplateToken.IMAGE_PROMPT: self.image_prompt,
-                templates.TemplateToken.IMAGE_TIMEOUT: timeout_string,
-            },
+                templates.TemplateToken.IMAGE_TIMEOUT: timeout_string
+            }
         )
 
     def _get_message(self, message_type: templates.Templates) -> str:
@@ -220,8 +227,8 @@ class StableDiffusionImageView(discord.ui.View):
             message_type,
             {
                 templates.TemplateToken.NAME: self.requesting_user_name,
-                templates.TemplateToken.IMAGE_PROMPT: self.image_prompt,
-            },
+                templates.TemplateToken.IMAGE_PROMPT: self.image_prompt
+            }
         )
 
     async def diy_interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -244,7 +251,7 @@ class StableDiffusionImageView(discord.ui.View):
         error_message = self._get_message(templates.Templates.IMAGE_UNAUTHORIZED)
         await interaction.response.send_message(
             content=error_message,
-            ephemeral=True,
+            ephemeral=True
         )
         return False
 
@@ -269,16 +276,16 @@ class ImageGenerator:
         prompt_generator: prompt_generator.PromptGenerator,
         sd_settings: typing.Dict[str, typing.Any],
         stable_diffusion_client: sd_client.StableDiffusionClient,
-        template_store: templates.TemplateStore,
+        template_store: templates.TemplateStore
     ):
-        self.ai_name = persona_settings.get("ai_name", "")
+        self.ai_name: str = persona_settings["ai_name"]
+        self.image_words: typing.List[str] = sd_settings["image_words"]
+        self.avatar_words: typing.List[str] = sd_settings["avatar_words"]
+        self.avatar_prompt: str = sd_settings["avatar_prompt"]
+        self.timeout: typing.Optional[float] = sd_settings["timeout"] or None
         self.ooba_client = ooba_client
-        self.image_words = sd_settings.get("image_words", [])
-        self.avatar_words = [x.lower() for x in sd_settings.get("avatar_words", [])]
-        self.avatar_prompt = sd_settings.get("avatar_prompt", "")
         self.prompt_generator = prompt_generator
         self.stable_diffusion_client = stable_diffusion_client
-        self.timeout = float(sd_settings.get("timeout", 180))
         self.template_store = template_store
 
         self.image_patterns = [
@@ -319,17 +326,32 @@ class ImageGenerator:
         message: types.GenericMessage,
         raw_message: discord.Message,
         response_channel: discord.abc.Messageable,
-    ) -> discord.Message:
-        is_channel_nsfw = False
+    ) -> typing.Optional[discord.Message]:
+        """
+        Generate an image from the provided image prompt, subtituting it with the
+        avatar prompt, if necessary and configured, then post it to the response
+        channel as a reply to the image request (if the original message is in
+        the response channel).
 
+        Returns the sent Discord message, or None if it couldn't be sent.
+        """
+
+        is_channel_nsfw = False
         # note: public threads in NSFW channels are not considered here
         if isinstance(raw_message.channel, discord.TextChannel):
             is_channel_nsfw = raw_message.channel.is_nsfw()
 
         image_task = self.stable_diffusion_client.generate_image(
-            image_prompt, is_channel_nsfw=is_channel_nsfw
+            image_prompt, is_channel_nsfw
         )
         send_timestamp = message.send_timestamp
+
+        kwargs = {}
+        # we can only pass a reference if the message is in the same channel
+        # as the original request. Also, send() won't take None of this
+        # argument, so we need to conditionally add it.
+        if raw_message.channel == response_channel:
+            kwargs["reference"] = raw_message
 
         try:
             file = await image_task_to_file(image_task, image_prompt, send_timestamp)
@@ -339,10 +361,10 @@ class ImageGenerator:
                 templates.Templates.IMAGE_GENERATION_ERROR,
                 {
                     templates.TemplateToken.NAME: message.author_name,
-                    templates.TemplateToken.IMAGE_PROMPT: image_prompt,
-                },
+                    templates.TemplateToken.IMAGE_PROMPT: image_prompt
+                }
             )
-            return await response_channel.send(error_message, reference=raw_message)
+            return await response_channel.send(error_message, **kwargs)
 
         regen_view = StableDiffusionImageView(
             self.stable_diffusion_client,
@@ -350,22 +372,24 @@ class ImageGenerator:
             image_prompt=image_prompt,
             message=message,
             timeout=self.timeout,
-            template_store=self.template_store,
+            template_store=self.template_store
         )
 
-        kwargs = {}
-        # we can only pass a reference if the message is in the same channel
-        # as the original request.  Also, send() won't take None of this
-        # argument, so we need to conditionally add it.
-        if raw_message.channel == response_channel:
-            kwargs["reference"] = raw_message
-
-        image_message = await response_channel.send(
-            content=regen_view.get_image_message_text(),
-            file=file,
-            view=regen_view,
-            **kwargs,
-        )
+        try:
+            image_message = await response_channel.send(
+                content=regen_view.get_image_message_text(),
+                file=file,
+                view=regen_view,
+                **kwargs
+            )
+        except discord.HTTPException as err:
+            if err.status == 400 and err.code == 50035:
+                fancy_logger.get().warning(
+                    "Original message was deleted before we could reply with the image. "
+                    + "Aborting response."
+                )
+                return
+            raise err
         regen_view.image_message = image_message
         return image_message
 
@@ -374,38 +398,44 @@ class ImageGenerator:
     ) -> typing.Optional[str]:
         for image_pattern in self.image_patterns:
             match = image_pattern.search(message)
-            if match:
-                image_prompt = match.group(3)
-                if len(image_prompt) < self.MIN_IMAGE_PROMPT_LENGTH:
+            if not match:
+                continue
+            image_prompt = match.group(3)
+            if len(image_prompt) < self.MIN_IMAGE_PROMPT_LENGTH:
+                continue
+            fancy_logger.get().debug("Found image prompt: %s", image_prompt)
+            # See if we're asked for our avatar and substitute in our avatar prompt
+            for avatar_pattern in self.avatar_patterns:
+                match = avatar_pattern.search(image_prompt)
+                if not match:
                     continue
-                fancy_logger.get().debug("Found image prompt: %s", image_prompt)
-                # see if we're asked for our avatar and substitute in our avatar prompt
-                for avatar_pattern in self.avatar_patterns:
-                    match = avatar_pattern.search(image_prompt)
-                    if match:
-                        fancy_logger.get().debug(
-                            "Found request for self-portrait ('%s') in image prompt, "
-                            + "substituting avatar prompt.",
-                            match.group(0),
-                        )
-                        image_prompt = avatar_pattern.sub(
-                            f"{self.avatar_prompt}, ", image_prompt
-                        ).strip(", ")
-                        fancy_logger.get().debug("Final image prompt: %s", image_prompt)
-                return image_prompt
-        return
+                fancy_logger.get().debug(
+                    "Found request for self-portrait ('%s') in image prompt, "
+                    + "substituting avatar prompt.",
+                    match.group(0)
+                )
+                image_prompt = avatar_pattern.sub(
+                    f"{self.avatar_prompt}, ", image_prompt
+                ).strip(", ")
+                fancy_logger.get().debug("Final image prompt: %s", image_prompt)
+            return image_prompt
 
-    async def generate_image(
+    def generate_image(
         self,
         user_image_keywords: str,
         message: types.GenericMessage,
         raw_message: discord.Message,
         response_channel: discord.abc.Messageable,
-    ) -> asyncio.Task[discord.Message]:
+    ) -> asyncio.Task[typing.Optional[discord.Message]]:
         """
-        Kick off a task to generate an image, post it to the channel,
+        Schedule a task to generate an image, post it to the channel,
         and return message the image is posted in.
         """
         return asyncio.create_task(
-            self._generate_image(user_image_keywords, message, raw_message, response_channel)
+            self._generate_image(
+                user_image_keywords,
+                message,
+                raw_message,
+                response_channel
+            )
         )
