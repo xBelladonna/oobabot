@@ -340,10 +340,15 @@ def generate_invite_url(bot_user_id: int) -> str:
         send_messages=True,
         create_public_threads=True,
         send_messages_in_threads=True,
+        manage_messages=True,
+        embed_links=True,
         attach_files=True,
         read_message_history=True,
         read_messages=True,
         add_reactions=True,
+        connect=True,
+        speak=True,
+        use_voice_activation=True
     ).value
 
     return (
