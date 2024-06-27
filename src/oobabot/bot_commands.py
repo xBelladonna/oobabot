@@ -158,7 +158,7 @@ class BotCommands:
                 return
 
             response = "Okay."
-            await interaction.response.send_message(response, ephemeral=True)
+            await interaction.response.send_message(response, ephemeral=True, silent=True)
 
         @discord.app_commands.command(
             name="poke",
@@ -209,16 +209,6 @@ class BotCommands:
                 await discord_utils.fail_interaction(interaction)
                 return
 
-            # if reply_in_thread is True, we don't want our bot to
-            # speak in guild channels, only threads and private messages
-            if self.reply_in_thread:
-                if not channel or isinstance(channel, discord.TextChannel):
-                    await discord_utils.fail_interaction(
-                        interaction,
-                        f"{self.persona.ai_name} may only speak in threads"
-                    )
-                    return
-
             channel_name = discord_utils.get_channel_name(channel)
             fancy_logger.get().debug(
                 "/%s called by user '%s' in %s",
@@ -226,8 +216,18 @@ class BotCommands:
                 interaction.user.name,
                 channel_name
             )
-            # this will cause the bot to monitor the channel
-            # and consider unsolicited responses
+
+            # if reply_in_thread is True, we don't want our bot to
+            # speak in guild channels, only threads and private messages
+            if self.reply_in_thread:
+                if not channel or not isinstance(
+                    channel, (discord.abc.PrivateChannel, discord.Thread)
+                ):
+                    await discord_utils.fail_interaction(
+                        interaction,
+                        "I may only speak in threads."
+                    )
+                    return
             self.decide_to_respond.log_mention(
                 guild_id=channel.guild.id if channel.guild else channel.id,
                 channel_id=interaction.channel_id, # type: ignore
@@ -240,7 +240,7 @@ class BotCommands:
 
         @discord.app_commands.command(
             name="edit",
-            description=f"Edit {self.persona.ai_name}'s most recent message in the channel "
+            description=f"Replace {self.persona.ai_name}'s most recent message in the channel "
             + "with the provided message."
         )
         @discord.app_commands.rename(text_to_send="message")
@@ -275,10 +275,15 @@ class BotCommands:
                     bot_last_message = message
                     break
 
-            if bot_last_message:
-                await interaction.response.defer(ephemeral=True)
-                await bot_last_message.edit(content=text_to_send)
-                await interaction.delete_original_response()
+            if not bot_last_message:
+                await discord_utils.fail_interaction(
+                    interaction,
+                    f"Can't find my last message in the last {self.history_lines} messages."
+                )
+                return
+            await interaction.response.defer(ephemeral=True)
+            await bot_last_message.edit(content=text_to_send)
+            await interaction.delete_original_response()
 
         @discord.app_commands.command(
             name="lobotomize",
@@ -315,24 +320,20 @@ class BotCommands:
             # message before that if we're including our response.
             # tell the Repetition Tracker to hide messages
             # before this message
-            sent_message = await interaction.original_response()
+            hide_message = await interaction.original_response()
             if not self.include_lobotomize_response:
                 fancy_logger.get().debug("Excluding bot response from chat history.")
-                self.repetition_tracker.hide_messages_before(
-                    channel_id=channel.id,
-                    message_id=sent_message.id
-                )
-                return
-            finished = False
-            async for message in channel.history(limit=self.history_lines):
-                if finished:
-                    self.repetition_tracker.hide_messages_before(
-                        channel_id=channel.id,
-                        message_id=message.id
-                    )
-                    break
-                if message.id == sent_message.id:
-                    finished = True
+                finished = False
+                async for message in channel.history(limit=self.history_lines):
+                    if finished:
+                        hide_message = message
+                        break
+                    if message.id == hide_message.id:
+                        finished = True
+            self.repetition_tracker.hide_messages_before(
+                channel_id=channel.id,
+                message_id=hide_message.id
+            )
 
         fancy_logger.get().debug(
             "Registering commands, sometimes this takes a while..."
@@ -348,7 +349,7 @@ class BotCommands:
         if self.audio_commands:
             self.audio_commands.add_commands(tree)
 
-        commands = await tree.sync(guild=None)
+        commands = await tree.sync()
         for command in commands:
             fancy_logger.get().info(
                 "Registered command: %s: %s", command.name, command.description

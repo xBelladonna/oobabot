@@ -143,8 +143,8 @@ class AudioResponder:
                 yield types.GenericMessage(
                     author_id=message.user_id,
                     author_name=author_name,
-                    channel_id=0,
-                    channel_name="",
+                    channel_id=self._channel.id,
+                    channel_name=self._channel.name,
                     message_id=0,
                     reference_message_id=0,
                     body_text=message.text,

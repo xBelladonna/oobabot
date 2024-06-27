@@ -85,11 +85,17 @@ class SerializedHttpClient(abc.ABC):
 
     async def __aenter__(self):
         connector = aiohttp.TCPConnector(limit_per_host=1)
-        self._session = aiohttp.ClientSession(
-            base_url=self.base_url,
-            connector=connector,
-            timeout=self.HTTP_CLIENT_TIMEOUT_SECONDS,
-        )
+        try:
+            self._session = aiohttp.ClientSession(
+                base_url=self.base_url,
+                connector=connector,
+                timeout=self.HTTP_CLIENT_TIMEOUT_SECONDS,
+            )
+        except AssertionError as err:
+            raise OobaHttpClientError(
+                f"Could not connect to {self.service_name} server: [{self.base_url}]\n"
+                + "Ensure the base URL does not have a path component."
+            ) from err
         return self
 
     async def __aexit__(self, *_err):
