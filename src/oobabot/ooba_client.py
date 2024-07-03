@@ -145,6 +145,7 @@ class OobaClient(http_client.SerializedHttpClient):
         self.request_params = settings["request_params"]
         self.log_all_the_things = settings["log_all_the_things"]
         self.fetch_token_counts = settings["fetch_token_counts"]
+        self.extend_stop_sequences = settings["extend_stop_sequences"]
         self.use_chat_completions = settings["use_chat_completions"]
         self.api_type = settings["api_type"].lower()
         if self.api_type not in ("oobabooga", "openai", "tabbyapi", "aphrodite", "cohere"):
@@ -234,20 +235,18 @@ class OobaClient(http_client.SerializedHttpClient):
         includes any system and user beginning of sequence markers.
         """
 
-        stop_sequences = self.request_params.get("stop", [])
-        sequence_templates = [
-            templates.Templates.SYSTEM_SEQUENCE_PREFIX,
-            templates.Templates.SYSTEM_SEQUENCE_SUFFIX,
-            templates.Templates.USER_SEQUENCE_PREFIX,
-            templates.Templates.USER_SEQUENCE_SUFFIX,
-        ]
-        for sequence_template in sequence_templates:
-            stop_sequence = self.template_store.format(
-                sequence_template,
-                {},
-            ).strip()
-            if stop_sequence and stop_sequence not in stop_sequences:
-                stop_sequences.append(stop_sequence)
+        stop_sequences = self.request_params.get("stop", []).copy()
+        if self.extend_stop_sequences:
+            sequence_templates = [
+                templates.Templates.SYSTEM_SEQUENCE_PREFIX,
+                templates.Templates.SYSTEM_SEQUENCE_SUFFIX,
+                templates.Templates.USER_SEQUENCE_PREFIX,
+                templates.Templates.USER_SEQUENCE_SUFFIX,
+            ]
+            for sequence_template in sequence_templates:
+                stop_sequence = self.template_store.get(sequence_template).strip()
+                if stop_sequence and stop_sequence not in stop_sequences:
+                    stop_sequences.append(stop_sequence)
 
         return stop_sequences
 
@@ -412,7 +411,7 @@ class OobaClient(http_client.SerializedHttpClient):
         request.update(self.request_params)
         # Build list of stop sequences from the oobabooga request_params
         # and our additional runtime-generated sequences, if any
-        stop_sequences = self.request_params["stop"] + stop_sequences
+        stop_sequences = self.get_stop_sequences() + stop_sequences
         # then if there are any stop sequences at all, we handle API special cases
         if stop_sequences:
             if self.api_type in ("oobabooga", "openai", "tabbyapi"):

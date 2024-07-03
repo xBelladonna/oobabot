@@ -1084,6 +1084,22 @@ class Settings:
         )
         self.oobabooga_settings.add_setting(
             oesp.ConfigSetting[bool](
+                name="extend_stop_sequences",
+                default=True,
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        Add any configured system and/or user instruct templates to the list
+                        of stop sequences that are sent to the text generation backend. If
+                        the AI generates any of these sequences, the backend will stop
+                        generating and return the response immediately.
+                        """
+                    )
+                ]
+            )
+        )
+        self.oobabooga_settings.add_setting(
+            oesp.ConfigSetting[bool](
                 name="use_chat_completions",
                 default=False,
                 description_lines=[
