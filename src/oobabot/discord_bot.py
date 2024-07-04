@@ -1671,6 +1671,17 @@ class DiscordBot(discord.Client):
             generic_message = discord_utils.discord_message_to_generic_message(message)
             return generic_message, False
 
+        # Don't include system messages
+        if message.type not in (
+            discord.MessageType.default,
+            discord.MessageType.reply
+        ):
+            return None, True
+
+        # Don't include hidden messages
+        if self.decide_to_respond.is_hidden_message(message.content):
+            return None, True
+
         generic_message = discord_utils.discord_message_to_generic_message(message)
 
         if generic_message.author_id == self.bot_user_id:
