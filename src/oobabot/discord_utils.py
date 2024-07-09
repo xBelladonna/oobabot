@@ -115,7 +115,7 @@ def discord_message_to_generic_message(
         )
     fancy_logger.get().warning(
         f"Unknown channel type {type(raw_message.channel)}, "
-        + f"unsolicited replies disabled.: {raw_message.channel}"
+        + f"unsolicited replies disabled: {raw_message.channel}"
     )
     return types.GenericMessage(**generic_args)
 
@@ -222,7 +222,6 @@ def dm_user_id_to_name(
 
     def _replace_user_id_mention(match: typing.Match[str]) -> str:
         user_id = int(match.group(1))
-        print(f"bot_user_id={bot_user_id}, user_id={user_id}")
         if user_id == bot_user_id:
             return f"@{bot_name}"
         return f"@{user_name}"

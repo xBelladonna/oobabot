@@ -60,7 +60,7 @@ def _make_template_comment(
         tokens_desc_tuple[1],
         ".",
         f"Allowed tokens: {', '.join([str(t) for t in tokens_desc_tuple[0]])}",
-        ".",
+        "."
     ]
 
 
@@ -82,13 +82,13 @@ class Settings:
         # (seconds, base % chance of an unsolicited response)
         (180.0, 0.99),
         (300.0, 0.70),
-        (60.0 * 10, 0.50),
+        (60.0 * 10, 0.50)
     ]
     VOICE_TIME_VS_RESPONSE_CHANCE: typing.List[typing.Tuple[float, float]] = [
         # (seconds, base % chance of an unsolicited response)
         (30.0,  0.95),
         (60.0,  0.90),
-        (180.0, 0.85),
+        (180.0, 0.85)
     ]
 
     # increased chance of responding to a message if it ends with
@@ -216,7 +216,7 @@ class Settings:
         "sampler_name",
         "seed",
         "height",
-        "width",
+        "width"
     ]
 
     # words to look for in the prompt to indicate that the user
@@ -228,7 +228,7 @@ class Settings:
         "make",
         "generate",
         "post",
-        "upload",
+        "upload"
     ]
 
     DEFAULT_AVATAR_WORDS: typing.List[str] = [
@@ -238,7 +238,7 @@ class Settings:
         "your pfp",
         "your profile pic",
         "yourself",
-        "you",
+        "you"
     ]
 
     # ENVIRONMENT VARIABLES ####
@@ -265,7 +265,7 @@ class Settings:
                 name="help",
                 default=False,
                 description_lines=[],
-                cli_args=["-h", "--help"],
+                cli_args=["-h", "--help"]
             )
         )
         # read a path to a config file from the command line
@@ -281,7 +281,7 @@ class Settings:
                         """
                     )
                 ],
-                cli_args=["-c", "--config"],
+                cli_args=["-c", "--config"]
             )
         )
         self.general_settings.add_setting(
@@ -296,7 +296,7 @@ class Settings:
                         reflected in this file.
                         """
                     )
-                ],
+                ]
             )
         )
         self.general_settings.add_setting(
@@ -312,7 +312,7 @@ class Settings:
                         """
                     ),
                 ],
-                cli_args=["--invite-url"],
+                cli_args=["--invite-url"]
             )
         )
 
@@ -332,7 +332,7 @@ class Settings:
                         Name the AI will use to refer to itself.
                         """
                     )
-                ],
+                ]
             )
         )
         self.persona_settings.add_setting(
@@ -350,7 +350,7 @@ class Settings:
                     ),
                     _make_template_comment(([templates.TemplateToken.AI_NAME], "", True))[2],
                 ],
-                show_default_in_yaml=False,
+                show_default_in_yaml=False
             )
         )
         # path to a json or txt file containing persona
@@ -373,7 +373,7 @@ class Settings:
                         """
                     )
                 ],
-                include_in_argparse=False,
+                show_default_in_yaml=False
             )
         )
         self.persona_settings.add_setting(
@@ -392,6 +392,7 @@ class Settings:
                         """
                     )
                 ],
+                include_in_argparse=False
             )
         )
 
@@ -420,6 +421,20 @@ class Settings:
             )
         )
         self.discord_settings.add_setting(
+            oesp.ConfigSetting[str](
+                name="log_level",
+                default="DEBUG",
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        Set the log level. Valid values are:
+                        CRITICAL, ERROR, WARNING, INFO, DEBUG
+                        """
+                    )
+                ]
+            )
+        )
+        self.discord_settings.add_setting(
             oesp.ConfigSetting[int](
                 name="history_lines",
                 default=7,
@@ -431,135 +446,7 @@ class Settings:
                         than this, due to the model's context length limit.
                         """
                     )
-                ],
-            )
-        )
-        self.discord_settings.add_setting(
-            oesp.ConfigSetting[float](
-                name="message_accumulation_period",
-                default=0.0,
-                description_lines=[
-                    textwrap.dedent(
-                        """
-                        Time in seconds (rounded to the nearest single decimal, i.e.
-                        in increments of 0.1) that the bot will wait for additional
-                        messages before deciding to respond. Useful if people post
-                        messages shortly after each other, or for use with bots like
-                        PluralKit or Tupperbox that proxy your messages as another
-                        username and delete the original message.
-                        """
-                    )
-                ],
-            )
-        )
-        self.discord_settings.add_setting(
-            oesp.ConfigSetting[int](
-                name="continue_on_additional_messages",
-                default=0,
-                description_lines=[
-                    textwrap.dedent(
-                        """
-                        If this number of messages is added to the message queue
-                        while the bot is accumulating messages according to the
-                        period above, the bot will stop waiting and immediately
-                        begin processing the message queue. A value of 0 means
-                        this feature is disabled.
-                        """
-                    )
-                ],
-            )
-        )
-        self.discord_settings.add_setting(
-            oesp.ConfigSetting[bool](
-                name="respond_to_latest_only",
-                default=False,
-                description_lines=[
-                    textwrap.dedent(
-                        """
-                        Whether to squash all messages received during the message
-                        accumulation period together and respond only once at the
-                        end. If set, the bot will respond to the latest message
-                        received, otherwise it will respond to each message
-                        individually in the order they were received.
-                        """
-                    )
-                ],
-            )
-        )
-        self.discord_settings.add_setting(
-            oesp.ConfigSetting[bool](
-                name="skip_in_progress_responses",
-                default=False,
-                description_lines=[
-                    textwrap.dedent(
-                        """
-                        If the bot receives a new message while in the middle of
-                        processing responses, cancel the current message queue
-                        and start a new response to the latest message instead.
-                        This takes effect regardless of whether the message
-                        accumulation period or respond_to_latest_only is set.
-                        Image generation requests will not be cancelled.
-                        """
-                    )
-                ],
-            )
-        )
-        self.discord_settings.add_setting(
-            oesp.ConfigSetting[bool](
-                name="include_lobotomize_response",
-                default=True,
-                description_lines=[
-                    textwrap.dedent(
-                        """
-                        Whether or not to include the bot's /lobotomize response
-                        in the history following the command.
-                        """
-                    )
-                ],
-            )
-        )
-        self.discord_settings.add_setting(
-            oesp.ConfigSetting[bool](
-                name="ignore_dms",
-                default=False,
-                description_lines=[
-                    textwrap.dedent(
-                        """
-                        If set, the bot will not respond to direct messages.
-                        """
-                    )
-                ],
-            )
-        )
-        self.discord_settings.add_setting(
-            oesp.ConfigSetting[bool](
-                name="ignore_bots",
-                default=True,
-                description_lines=[
-                    textwrap.dedent(
-                        """
-                        If set, the bot will not respond to other bots' messages.
-                        Be careful when disabling this, as your bot may get into
-                        infinite loops with other bots.
-                        """
-                    )
-                ],
-            )
-        )
-        self.discord_settings.add_setting(
-            oesp.ConfigSetting[typing.List[str]](
-                name="ignore_prefixes",
-                default=[],
-                description_lines=[
-                    textwrap.dedent(
-                        """
-                        This is a list of strings that the bot will ignore if
-                        messages begin with any of them. These messages will be
-                        hidden from the chat history.
-                        """
-                    )
-                ],
-                show_default_in_yaml=False
+                ]
             )
         )
         self.discord_settings.add_setting(
@@ -585,22 +472,7 @@ class Settings:
                         """
                     )
                 ],
-            )
-        )
-        # log level
-        self.discord_settings.add_setting(
-            oesp.ConfigSetting[str](
-                name="log_level",
-                default="DEBUG",
-                description_lines=[
-                    textwrap.dedent(
-                        """
-                        Set the log level. Valid values are:
-                        CRITICAL, ERROR, WARNING, INFO, DEBUG
-                        """
-                    )
-                ],
-                include_in_argparse=False,
+                show_default_in_yaml=False
             )
         )
         self.discord_settings.add_setting(
@@ -614,7 +486,303 @@ class Settings:
                         if it is not already in one.
                         """
                     )
+                ]
+            )
+        )
+        self.discord_settings.add_setting(
+            oesp.ConfigSetting[float](
+                name="message_accumulation_period",
+                default=0.0,
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        Time in seconds (rounded to the nearest single decimal, i.e.
+                        in increments of 0.1) that the bot will wait for additional
+                        messages before deciding to respond. Useful if people post
+                        messages shortly after each other, or for use with bots like
+                        PluralKit or Tupperbox that proxy your messages as another
+                        username and delete the original message.
+                        """
+                    )
+                ]
+            )
+        )
+        self.discord_settings.add_setting(
+            oesp.ConfigSetting[int](
+                name="continue_on_additional_messages",
+                default=0,
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        If this number of messages is added to the message queue
+                        while the bot is accumulating messages according to the
+                        period above, the bot will stop waiting and immediately
+                        begin processing the message queue. A value of 0 means
+                        this feature is disabled.
+                        """
+                    )
+                ]
+            )
+        )
+        self.discord_settings.add_setting(
+            oesp.ConfigSetting[bool](
+                name="respond_to_latest_only",
+                default=False,
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        Whether to squash all messages received during the message
+                        accumulation period together and respond only once at the
+                        end. If set, the bot will respond to the latest message
+                        received, otherwise it will respond to each message
+                        individually in the order they were received.
+                        """
+                    )
+                ]
+            )
+        )
+        self.discord_settings.add_setting(
+            oesp.ConfigSetting[bool](
+                name="skip_in_progress_responses",
+                default=False,
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        If the bot receives a new message while in the middle of
+                        processing responses, cancel the current message queue
+                        and start a new response to the latest message instead.
+                        This takes effect regardless of whether the message
+                        accumulation period or respond_to_latest_only is set.
+                        Image generation requests will not be cancelled.
+                        """
+                    )
+                ]
+            )
+        )
+        self.discord_settings.add_setting(
+            oesp.ConfigSetting[str](
+                name="stream_responses",
+                default="",
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        FEATURE PREVIEW: Stream responses into a single message as
+                        they are generated. If not set, the feature is disabled.
+                        Note: may be janky
+                        """
+                    ),
+                    "There are 2 options:",
+                    textwrap.dedent(
+                        """
+                        token: Stream responses by groups of tokens, whose size is defined
+                        by the stremaing speed limit.
+                        """
+                    ),
+                    textwrap.dedent(
+                        """
+                        sentence: Stream responses sentence by sentence. Useful if streaming
+                        by token is too janky but not splitting responses is too slow. Note:
+                        this will cause newlines to be lost, as the responses are returned
+                        from the client without newlines.
+                        """
+                    )
                 ],
+                show_default_in_yaml=False
+            )
+        )
+        self.discord_settings.add_setting(
+            oesp.ConfigSetting[float](
+                name="stream_responses_speed_limit",
+                default=0.7,
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        FEATURE PREVIEW: When streaming responses, cap the
+                        rate at which we send updates to Discord to be no
+                        more than once per this many seconds.
+
+                        This does not guarantee that updates will be sent this
+                        fast, only that they will not be sent any faster than
+                        this rate.
+
+                        This is useful because Discord has a rate limit on
+                        how often you can send messages, and if you exceed
+                        it, the updates will suddenly become slow.
+
+                        Example: 0.2 means we will send updates no faster
+                        than 5 times per second.
+                        """
+                    )
+                ]
+            )
+        )
+        self.discord_settings.add_setting(
+            oesp.ConfigSetting[bool](
+                name="dont_split_responses",
+                default=False,
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        Post the entire response as a single message, rather than
+                        splitting it into separate messages by sentence.
+                        """
+                    )
+                ]
+            )
+        )
+        self.discord_settings.add_setting(
+            oesp.ConfigSetting[bool](
+                name="ignore_dms",
+                default=False,
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        If set, the bot will not respond to direct messages.
+                        """
+                    )
+                ]
+            )
+        )
+        self.discord_settings.add_setting(
+            oesp.ConfigSetting[bool](
+                name="ignore_bots",
+                default=True,
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        If set, the bot will not respond to other bots' messages.
+                        Be careful when disabling this, as your bot may get into
+                        infinite loops with other bots.
+                        """
+                    )
+                ]
+            )
+        )
+        self.discord_settings.add_setting(
+            oesp.ConfigSetting[typing.List[str]](
+                name="ignore_prefixes",
+                default=[],
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        This is a list of strings that the bot will ignore if
+                        messages begin with any of them. These messages will be
+                        hidden from the chat history.
+                        """
+                    )
+                ],
+                show_default_in_yaml=False
+            )
+        )
+        self.discord_settings.add_setting(
+            oesp.ConfigSetting[int](
+                name="unsolicited_channel_cap",
+                default=3,
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        Adds a limit to the number of channels per guild the
+                        bot will post unsolicited responses in at the same
+                        time. This is to prevent the bot from being too noisy
+                        in large servers.
+
+                        When set, only the most recent N channels the bot has
+                        been summoned in will have a chance of receiving an
+                        unsolicited response. The bot will still respond to
+                        @-mentions and wake words in any channel it can access.
+
+                        Set to 0 to disable this feature.
+                        """
+                    )
+                ]
+            )
+        )
+        self.discord_settings.add_setting(
+            oesp.ConfigSetting[typing.List[str]](
+                name="time_vs_response_chance",
+                default=[str(x) for x in self.TIME_VS_RESPONSE_CHANCE],
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        Time vs. response chance - calibration table.
+                        Chance is interpolated according to the time and
+                        used to decide the unsolicited response chance.
+                        """
+                    ),
+                    textwrap.dedent(
+                        """
+                        List of tuples with time in seconds and response
+                        chance as float between 0-1.
+                        """
+                    )
+                ],
+                include_in_argparse=False,
+                show_default_in_yaml=False,
+                place_default_in_yaml=True
+            )
+        )
+        self.discord_settings.add_setting(
+            oesp.ConfigSetting[typing.List[str]](
+                name="voice_time_vs_response_chance",
+                default=[str(x) for x in self.VOICE_TIME_VS_RESPONSE_CHANCE],
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        Same calibration table as above but for voice calls. The difference is that
+                        we use the last entry's response chance as a fallback instead of refusing
+                        to respond after the specified duration, since it's assumed all voice
+                        responses are solicited.
+                        """
+                    )
+                ],
+                include_in_argparse=False,
+                show_default_in_yaml=False,
+                place_default_in_yaml=True
+            )
+        )
+        self.discord_settings.add_setting(
+            oesp.ConfigSetting[float](
+                name="interrobang_bonus",
+                default=0.3,
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        How much to increase response chance by if the message ends with ? or !
+                        """
+                    )
+                ],
+                include_in_argparse=False
+            )
+        )
+        self.discord_settings.add_setting(
+            oesp.ConfigSetting[bool](
+                name="disable_unsolicited_replies",
+                default=False,
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        If set, the bot will not respond to any messages that
+                        do not @-mention it or include a wakeword.
+
+                        If unsolicited responses are disabled, the unsolicited_channel_cap
+                        setting will have no effect.
+                        """
+                    )
+                ]
+            )
+        )
+        self.discord_settings.add_setting(
+            oesp.ConfigSetting[bool](
+                name="include_lobotomize_response",
+                default=True,
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        Whether or not to include the bot's /lobotomize response
+                        in the history following the command.
+                        """
+                    )
+                ]
             )
         )
         self.discord_settings.add_setting(
@@ -629,8 +797,8 @@ class Settings:
                         and prevent the AI from inventing nonexistent characters and
                         speaking as them.
                         """
-                    ),
-                ],
+                    )
+                ]
             )
         )
         self.discord_settings.add_setting(
@@ -660,6 +828,8 @@ class Settings:
                     )
                 ],
                 include_in_argparse=False,
+                show_default_in_yaml=False,
+                place_default_in_yaml=True
             )
         )
         self.discord_settings.add_setting(
@@ -696,168 +866,25 @@ class Settings:
                         in mind the sequence limit if you are using OpenAI, as they will
                         be truncated at 4 sequences even if there otherwise would be more.
                         """
-                    ),
-                ],
-            )
-        )
-        self.discord_settings.add_setting(
-            oesp.ConfigSetting[str](
-                name="stream_responses",
-                default="",
-                description_lines=[
-                    textwrap.dedent(
-                        """
-                        FEATURE PREVIEW: Stream responses into a single message as
-                        they are generated. If not set, the feature is disabled.
-                        Note: may be janky
-                        """
-                    ),
-                    "There are 2 options:",
-                    textwrap.dedent(
-                        """
-                        token: Stream responses by groups of tokens, whose size is defined
-                        by the stremaing speed limit.
-                        """
-                    ),
-                    textwrap.dedent(
-                        """
-                        sentence: Stream responses sentence by sentence. Useful if streaming
-                        by token is too janky but not splitting responses is too slow. Note:
-                        this will cause newlines to be lost, as the responses are returned
-                        from the client without newlines.
-                        """
-                    ),
-                ],
-            )
-        )
-        self.discord_settings.add_setting(
-            oesp.ConfigSetting[float](
-                name="stream_responses_speed_limit",
-                default=0.7,
-                description_lines=[
-                    textwrap.dedent(
-                        """
-                        FEATURE PREVIEW: When streaming responses, cap the
-                        rate at which we send updates to Discord to be no
-                        more than once per this many seconds.
-
-                        This does not guarantee that updates will be sent
-                        this fast. Only that they will not be sent any
-                        faster than this rate.
-
-                        This is useful because Discord has a rate limit on
-                        how often you can send messages, and if you exceed
-                        it, the updates will suddenly become slow.
-
-                        Example: 0.2 means we will send updates no faster
-                        than 5 times per second.
-                        """
                     )
                 ],
-                include_in_argparse=False,
-            )
-        )
-        self.discord_settings.add_setting(
-            oesp.ConfigSetting[bool](
-                name="dont_split_responses",
-                default=False,
-                description_lines=[
-                    textwrap.dedent(
-                        """
-                        Post the entire response as a single message, rather than
-                        splitting it into separate messages by sentence.
-                        """
-                    )
-                ],
+                show_default_in_yaml=False
             )
         )
         self.discord_settings.add_setting(
             oesp.ConfigSetting[int](
-                name="unsolicited_channel_cap",
-                default=3,
+                name="retries",
+                default=0,
                 description_lines=[
                     textwrap.dedent(
                         """
-                        Adds a limit to the number of channels per guild the
-                        bot will post unsolicited responses in at the same
-                        time. This is to prevent the bot from being too noisy
-                        in large servers.
-
-                        When set, only the most recent N channels the bot has
-                        been summoned in will have a chance of receiving an
-                        unsolicited response. The bot will still respond to
-                        @-mentions and wake words in any channel it can access.
-
-                        Set to 0 to disable this feature.
+                        Maximum number of times we will re-query the text generation
+                        API to get a response. Useful if the API returns an empty
+                        response occasionally or the response was aborted by the
+                        immersion-breaking filter.
                         """
                     )
-                ],
-                include_in_argparse=False,
-            )
-        )
-        self.discord_settings.add_setting(
-            oesp.ConfigSetting[bool](
-                name="disable_unsolicited_replies",
-                default=False,
-                description_lines=[
-                    textwrap.dedent(
-                        """
-                        If set, the bot will not respond to any messages that
-                        do not @-mention it or include a wakeword.
-
-                        If unsolicited responses are disabled, the unsolicited_channel_cap
-                        setting will have no effect.
-                        """
-                    )
-                ],
-                include_in_argparse=False,
-            )
-        )
-        self.discord_settings.add_setting(
-            oesp.ConfigSetting[typing.List[str]](
-                name="time_vs_response_chance",
-                default=[str(x) for x in self.TIME_VS_RESPONSE_CHANCE],
-                description_lines=[
-                    textwrap.dedent(
-                        """
-                        Time vs. response chance - calibration table.
-                        List of tuples with time in seconds and response
-                        chance as float between 0-1.
-                        """
-                    )
-                ],
-                include_in_argparse=False,
-            )
-        )
-        self.discord_settings.add_setting(
-            oesp.ConfigSetting[typing.List[str]](
-                name="voice_time_vs_response_chance",
-                default=[str(x) for x in self.VOICE_TIME_VS_RESPONSE_CHANCE],
-                description_lines=[
-                    textwrap.dedent(
-                        """
-                        Same calibration table as above but for voice calls. The difference is that
-                        we use the last entry's response chance as a fallback instead of refusing
-                        to respond after the specified duration, since it's assumed all voice
-                        responses are solicited.
-                        """
-                    )
-                ],
-                include_in_argparse=False,
-            )
-        )
-        self.discord_settings.add_setting(
-            oesp.ConfigSetting[float](
-                name="interrobang_bonus",
-                default=self.DECIDE_TO_RESPOND_INTERROBANG_BONUS,
-                description_lines=[
-                    textwrap.dedent(
-                        """
-                        How much to increase response chance by if the message ends with ? or !
-                        """
-                    )
-                ],
-                include_in_argparse=False,
+                ]
             )
         )
         self.discord_settings.add_setting(
@@ -872,7 +899,7 @@ class Settings:
                         """
                     )
                 ],
-                include_in_argparse=False,
+                show_default_in_yaml=False
             )
         )
 
@@ -888,7 +915,7 @@ class Settings:
                         """
                     )
                 ],
-                include_in_argparse=False,
+                show_default_in_yaml=False
             )
         )
 
@@ -902,8 +929,7 @@ class Settings:
                         FEATURE PREVIEW: Whether to speak responses in voice calls with discrivener
                         """
                     )
-                ],
-                include_in_argparse=False,
+                ]
             )
         )
         self.discord_settings.add_setting(
@@ -916,8 +942,7 @@ class Settings:
                         FEATURE PREVIEW: Whether to respond in the voice-text channel of voice calls
                         """
                     )
-                ],
-                include_in_argparse=False,
+                ]
             )
         )
         ###########################################################
@@ -938,7 +963,7 @@ class Settings:
                         https://hostname[:port] for connections over TLS.
                         """
                     )
-                ],
+                ]
             )
         )
         self.oobabooga_settings.add_setting(
@@ -977,8 +1002,8 @@ class Settings:
                         token counts using their respective API token encoding endpoints.
                         This helps squeeze more context into the available context window.
                         """
-                    ),
-                ],
+                    )
+                ]
             )
         )
         self.oobabooga_settings.add_setting(
@@ -998,7 +1023,7 @@ class Settings:
                         paid service, so please check with your service before using this!
                         """
                     )
-                ],
+                ]
             )
         )
         self.oobabooga_settings.add_setting(
@@ -1012,7 +1037,7 @@ class Settings:
                         instead of the legacy Completions API.
                         """
                     )
-                ],
+                ]
             )
         )
         self.oobabooga_settings.add_setting(
@@ -1026,8 +1051,9 @@ class Settings:
                         Example for openrouter: mistralai/mistral-7b-instruct:free
                         """
                     ),
-                    "Required for Cohere API.",
+                    "Required for Cohere API."
                 ],
+                show_default_in_yaml=False
             )
         )
         self.oobabooga_settings.add_setting(
@@ -1040,22 +1066,7 @@ class Settings:
                         Print all AI input and output to STDOUT.
                         """
                     )
-                ],
-            )
-        )
-        self.oobabooga_settings.add_setting(
-            oesp.ConfigSetting[int](
-                name="retries",
-                default=0,
-                description_lines=[
-                    textwrap.dedent(
-                        """
-                        Maximum number of times we will re-query the text generation
-                        API to get a response. Useful if the API returns an empty
-                        response occasionally.
-                        """
-                    )
-                ],
+                ]
             )
         )
         # get a regex for filtering a message
@@ -1073,6 +1084,7 @@ class Settings:
                         """
                     )
                 ],
+                show_default_in_yaml=False
             )
         )
         self.oobabooga_settings.add_setting(
@@ -1092,7 +1104,7 @@ class Settings:
                 ],
                 include_in_argparse=False,
                 show_default_in_yaml=False,
-                place_default_in_yaml=True,
+                place_default_in_yaml=True
             )
         )
         self.oobabooga_settings.add_setting(
@@ -1108,7 +1120,7 @@ class Settings:
                         """
                     )
                 ],
-                include_in_argparse=False,
+                include_in_argparse=False
             )
         )
 
@@ -1117,6 +1129,49 @@ class Settings:
         self.vision_api_settings = oesp.ConfigSettingGroup("Vision API")
         self.setting_groups.append(self.vision_api_settings)
 
+        self.vision_api_settings.add_setting(
+            oesp.ConfigSetting[str](
+               name="vision_api_url",
+               default="",
+               description_lines=[
+                    textwrap.dedent(
+                        """
+                        Base URL for the OpenAI-like Vision API. Optionally takes
+                        a path component to the Chat Completions endpoint.
+                        """
+                    )
+               ],
+               show_default_in_yaml=False
+            )
+        )
+        self.vision_api_settings.add_setting(
+            oesp.ConfigSetting[str](
+               name="vision_api_key",
+               default="",
+               description_lines=[
+                    textwrap.dedent(
+                        """
+                        API key for the OpenAI-like Vision API.
+                        """
+                    )
+               ],
+               show_default_in_yaml=False
+            )
+        )
+        self.vision_api_settings.add_setting(
+            oesp.ConfigSetting[str](
+               name="vision_model",
+               default="",
+               description_lines=[
+                    textwrap.dedent(
+                        """
+                        Model to use for the Vision API.
+                        """
+                    )
+               ],
+               show_default_in_yaml=False
+            )
+        )
         self.vision_api_settings.add_setting(
             oesp.ConfigSetting[bool](
                 name="fetch_urls",
@@ -1128,47 +1183,7 @@ class Settings:
                         host IP address being leaked to any sites that are accessed!
                         """
                     )
-               ],
-            )
-        )
-        self.vision_api_settings.add_setting(
-            oesp.ConfigSetting[str](
-               name="vision_api_url",
-               default="",
-               description_lines=[
-                    textwrap.dedent(
-                        """
-                        URL for the OpenAI-like Vision API. Uses the OpenAI Chat Completions
-                        API specification, e.g. http://localhost:5000/v1/chat/completions
-                        """
-                    )
-               ],
-            )
-        )
-        self.vision_api_settings.add_setting(
-            oesp.ConfigSetting[str](
-               name="vision_api_key",
-               default="notarealkey",
-               description_lines=[
-                    textwrap.dedent(
-                        """
-                        API key for the OpenAI-like GPT Vision API.
-                        """
-                    )
-               ],
-            )
-        )
-        self.vision_api_settings.add_setting(
-            oesp.ConfigSetting[str](
-               name="vision_model",
-               default="gpt-4-vision-preview",
-               description_lines=[
-                    textwrap.dedent(
-                        """
-                        Model to use for the GPT Vision API.
-                        """
-                    )
-               ],
+               ]
             )
         )
         self.vision_api_settings.add_setting(
@@ -1182,7 +1197,7 @@ class Settings:
                         downsampled to this size if necessary.
                         """
                     )
-               ],
+               ]
             )
         )
         self.vision_api_settings.add_setting(
@@ -1199,7 +1214,7 @@ class Settings:
                 ],
                 include_in_argparse=False,
                 show_default_in_yaml=False,
-                place_default_in_yaml=True,
+                place_default_in_yaml=True
             )
         )
         ###########################################################
@@ -1219,6 +1234,7 @@ class Settings:
                         """
                     )
                 ],
+                show_default_in_yaml=False
             )
         )
         self.stable_diffusion_settings.add_setting(
@@ -1233,6 +1249,9 @@ class Settings:
                         """
                     )
                 ],
+                include_in_argparse=False,
+                show_default_in_yaml=False,
+                place_default_in_yaml=True
             )
         )
         self.stable_diffusion_settings.add_setting(
@@ -1248,6 +1267,9 @@ class Settings:
                         """
                     )
                 ],
+                include_in_argparse=False,
+                show_default_in_yaml=False,
+                place_default_in_yaml=True
             )
         )
         self.stable_diffusion_settings.add_setting(
@@ -1262,6 +1284,7 @@ class Settings:
                         """
                     )
                 ],
+                show_default_in_yaml=False
             )
         )
         self.stable_diffusion_settings.add_setting(
@@ -1275,6 +1298,7 @@ class Settings:
                         """
                     )
                 ],
+                show_default_in_yaml=False
             )
         )
         self.stable_diffusion_settings.add_setting(
@@ -1288,7 +1312,7 @@ class Settings:
                         since this can't be detected automatically.
                         """
                     )
-                ],
+                ]
             )
         )
         self.stable_diffusion_settings.add_setting(
@@ -1302,7 +1326,7 @@ class Settings:
                         interaction before being deleted. Timeout is disabled if set to 0.
                         """
                     )
-                ],
+                ]
             )
         )
         self.stable_diffusion_settings.add_setting(
@@ -1322,7 +1346,7 @@ class Settings:
                 ],
                 include_in_argparse=False,
                 show_default_in_yaml=False,
-                place_default_in_yaml=True,
+                place_default_in_yaml=True
             )
         )
         self.stable_diffusion_settings.add_setting(
@@ -1357,7 +1381,7 @@ class Settings:
                 ],
                 include_in_argparse=False,
                 show_default_in_yaml=False,
-                place_default_in_yaml=True,
+                place_default_in_yaml=True
             )
         )
 
@@ -1379,7 +1403,7 @@ class Settings:
                     name=str(template),
                     default=templates.TemplateStore.DEFAULT_TEMPLATES[template],
                     description_lines=_make_template_comment(tokens_desc_tuple),
-                    include_in_yaml=is_ai_prompt,
+                    include_in_yaml=is_ai_prompt
                 )
             )
 

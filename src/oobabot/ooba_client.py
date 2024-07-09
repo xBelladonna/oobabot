@@ -141,9 +141,6 @@ class OobaClient(http_client.SerializedHttpClient):
         template_store: templates.TemplateStore,
     ):
         self.total_response_tokens = 0
-        self.retries = settings["retries"]
-        if self.retries < 0:
-            raise ValueError("Number of retries can't be negative. Please fix your configuration.")
         self.message_regex = settings["message_regex"]
         self.request_params = settings["request_params"]
         self.log_all_the_things = settings["log_all_the_things"]
@@ -212,14 +209,14 @@ class OobaClient(http_client.SerializedHttpClient):
     async def _setup(self):
         return
 
-    def get_stopping_strings(self) -> typing.List[str]:
+    def get_stop_sequences(self) -> typing.List[str]:
         """
         Returns a list of strings that indicate the end of a response.
         Taken from the yaml `stop` within our response_params, and
         includes any system and user beginning of sequence markers.
         """
 
-        stopping_strings = self.request_params.get("stop", [])
+        stop_sequences = self.request_params.get("stop", [])
         sequence_templates = [
             templates.Templates.SYSTEM_SEQUENCE_PREFIX,
             templates.Templates.SYSTEM_SEQUENCE_SUFFIX,
@@ -227,14 +224,14 @@ class OobaClient(http_client.SerializedHttpClient):
             templates.Templates.USER_SEQUENCE_SUFFIX,
         ]
         for sequence_template in sequence_templates:
-            stopping_string = self.template_store.format(
+            stop_sequence = self.template_store.format(
                 sequence_template,
                 {},
             ).strip()
-            if stopping_string and stopping_string not in stopping_strings:
-                stopping_strings.append(stopping_string)
+            if stop_sequence and stop_sequence not in stop_sequences:
+                stop_sequences.append(stop_sequence)
 
-        return stopping_strings
+        return stop_sequences
 
     def can_abort_generation(self) -> bool:
         """
@@ -267,7 +264,7 @@ class OobaClient(http_client.SerializedHttpClient):
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
-            "accept": "application/json",
+            "accept": "application/json"
         }
 
         request = { "text": prompt }
@@ -311,14 +308,14 @@ class OobaClient(http_client.SerializedHttpClient):
         prompt: typing.Union[
             str, typing.List[typing.Dict[str, str]]
         ],
-        stopping_strings: typing.List[str],
+        stop_sequences: typing.List[str] = []
     ) -> typing.AsyncIterator[str]:
         """
         Yields individual messages from the response as it arrives.
         These can be split by a regex or by sentence.
         """
         splitter = self.fn_new_splitter()
-        async for new_token in self.request_by_token(prompt, stopping_strings):
+        async for new_token in self.request_by_token(prompt, stop_sequences):
             for sentence in splitter.next(new_token):
                 yield sentence
 
@@ -327,19 +324,12 @@ class OobaClient(http_client.SerializedHttpClient):
         prompt: typing.Union[
             str, typing.List[typing.Dict[str, str]]
         ],
-        stopping_strings: typing.List[str],
+        stop_sequences: typing.List[str] = []
     ) -> str:
         """
-        Yields the entire response as a single string, retrying the configured number of times
-        if a response isn't received.
+        Yields the entire response as a single string.
         """
-        for _tries in range(self.retries + 1): # add offset of 1 as range() is zero-indexed
-            response = [token async for token in self.request_by_token(prompt, stopping_strings)]
-            if "".join(response).strip().strip("\n"):
-                break
-            fancy_logger.get().debug(
-                "Empty response received from text generation API! Trying again..."
-            )
+        response = [token async for token in self.request_by_token(prompt, stop_sequences)]
         return "".join(response)
 
     async def request_as_grouped_tokens(
@@ -347,14 +337,13 @@ class OobaClient(http_client.SerializedHttpClient):
         prompt: typing.Union[
             str, typing.List[typing.Dict[str, str]]
         ],
-        stopping_strings: typing.List[str],
+        stop_sequences: typing.List[str],
         interval: float = 0.2,
     ) -> typing.AsyncIterator[str]:
         """
-        Yields the response as a series of tokens, grouped by time.
+        Yields the response as a series of tokens, grouped by time interval.
         """
-        response_iterator = self.request_by_token(prompt, stopping_strings)
-        _first_iteration = True
+        response_iterator = self.request_by_token(prompt, stop_sequences)
         tokens = ""
         last_response = None
         async for token in response_iterator:
@@ -374,23 +363,12 @@ class OobaClient(http_client.SerializedHttpClient):
             tokens = ""
             last_response = time.perf_counter()
 
-    async def stop(self) -> None:
-        # New Ooba OpenAI API stopping logic
-        url = self.OOBABOOGA_STOP_STREAM_URI_PATH
-        headers = {"accept": "application/json"}
-        async with self._get_session().post(url, headers=headers) as response:
-            if response.status != 200:
-                response_text = await response.text()
-                raise http_client.OobaHttpClientError(
-                    f"Request failed with status {response.status}: {response_text}"
-                )
-
     async def request_by_token(
         self,
         prompt: typing.Union[
             str, typing.List[typing.Dict[str, str]]
         ],
-        stopping_strings: typing.List[str],
+        stop_sequences: typing.List[str] = []
     ) -> typing.AsyncIterator[str]:
         """
         Yields the response from the API token by token as it arrives.
@@ -416,48 +394,36 @@ class OobaClient(http_client.SerializedHttpClient):
         request.update(self.request_params)
         # Build list of stop sequences from the oobabooga request_params
         # and our additional runtime-generated sequences, if any
-        stopping_strings = self.request_params["stop"] + stopping_strings
+        stop_sequences = self.request_params["stop"] + stop_sequences
         # then if there are any stop sequences at all, we handle API special cases
-        if stopping_strings:
+        if stop_sequences:
             if self.api_type in ("oobabooga", "openai", "tabbyapi"):
                 # The real OpenAI Completions and Chat Completions API have a limit
                 # of 4 stop sequences
                 # TODO: figure out how to properly detect the real OpenAI API
                 # to be compatible with things like reverse-proxies that use differnt
                 # URL schemata. A head request or similar may be necessary.
-                if "api.openai.com" in self.base_url and len(stopping_strings) > 4:
+                if "api.openai.com" in self.base_url and len(stop_sequences) > 4:
                     fancy_logger.get().debug(
                         "OpenAI in use, truncating to 4 stop sequences as per the API limit."
                     )
-                    stopping_strings = stopping_strings[:3] # I'm so glad :3 gets to be valid code
+                    stop_sequences = stop_sequences[:3] # I'm so glad :3 gets to be valid code
                 # We use dict().update() for performance, as there may be hundreds or
                 # thousands of them depending on if impersonation prevention is enabled
                 # and the channel has many members.
-                request.update({ "stop": stopping_strings })
+                request.update({ "stop": stop_sequences })
             elif self.api_type == "cohere":
                 # The real Cohere Chat API has a limit of 5 stop sequences
-                if len(stopping_strings) > 5:
+                if len(stop_sequences) > 5:
                     fancy_logger.get().debug(
                         "Cohere API in use, truncating to 5 stop sequences as per the API limit."
                     )
-                    stopping_strings = stopping_strings[:4] # list-slicing is fast anyway
-                request.update({ "stop_sequences": stopping_strings })
+                    stop_sequences = stop_sequences[:4] # list-slicing is fast anyway
+                request.update({ "stop_sequences": stop_sequences })
 
-            fancy_logger.get().debug(
-                "Using stop sequences: %s",
-                ", ".join(
-                    [f"'{stop_sequence}'" for stop_sequence in stopping_strings]
-                ).replace("\n", "\\n")
-            )
-
-        async with self._get_session().post(
-            self.api_endpoint, headers=headers, json=request, verify_ssl=False
-        ) as response:
-            if response.status != 200:
-                response_text = await response.text()
-                raise http_client.OobaHttpClientError(
-                    f"Request failed with status {response.status}: {response_text}"
-                )
+            stop_sequences_str = ", ".join(
+                [f"'{stop_sequence}'" for stop_sequence in stop_sequences]
+            ).replace("\n", "\\n")
             if self.log_all_the_things:
                 print(f"Sent request:\n{json.dumps(request, indent=1)}")
                 if self.api_type == "cohere":
@@ -475,41 +441,73 @@ class OobaClient(http_client.SerializedHttpClient):
                         "Prompt:\n"
                         + f"{str(request['prompt']).encode('utf-8', 'replace')}"
                     )
+                print("Stop sequences:\n%s", stop_sequences_str)
+            else:
+                # If we aren't logging all the things, only log stop sequences
+                # if we added any at runtime, e.g. from impersonation prevention.
+                if stop_sequences:
+                    fancy_logger.get().debug(
+                        "Using stop sequences: %s", stop_sequences_str
+                    )
+
+        async with self._get_session().post(
+            self.api_endpoint, headers=headers, json=request, verify_ssl=False
+        ) as response:
+            if response.status != 200:
+                response_text = await response.text()
+                raise http_client.OobaHttpClientError(
+                    f"Request failed with status {response.status}: {response_text}"
+                )
             async for line in response.content:
                 finished = False
                 decoded_line = line.decode('utf-8').strip()
                 if decoded_line.startswith("data: "):
                     decoded_line = decoded_line[6:]  # Strip "data: "
-                if decoded_line:
-                    try:
-                        event_data = json.loads(decoded_line)
-                        if "choices" in event_data:  # Handling the format with "choices"
-                            for choice in event_data.get("choices", []):
-                                text = choice.get("text", "")
-                                if text:
-                                    self.total_response_tokens += 1
-                                    if self.log_all_the_things:
-                                        print(text.encode(
-                                            'utf-8', 'replace'
-                                        ), end="", flush=True)
-                                    yield text
-                                if choice.get("finish_reason"):
-                                    finished = True
-                                    break
-                        else:  # Handling other formats
-                            text = event_data.get("text", "")
-                            finished = event_data.get("is_finished", False)
-                            if text:
-                                if self.log_all_the_things:
-                                    print(text.encode('utf-8', 'replace'), end="", flush=True)
-                                yield text
-                        if finished:
+                if not decoded_line:
+                    continue
+                try:
+                    event_data = json.loads(decoded_line)
+                except json.JSONDecodeError:
+                    fancy_logger.get().debug(
+                        "We got an invalid JSON body! Ignoring and moving on."
+                    )
+                    continue
+                if "choices" in event_data:  # Handling the format with "choices"
+                    for choice in event_data.get("choices", []):
+                        text = choice.get("text", "")
+                        if text:
+                            self.total_response_tokens += 1
+                            if self.log_all_the_things:
+                                print(text.encode('utf-8', 'replace'), end="", flush=True)
+                            yield text
+                        if choice.get("finish_reason"):
+                            finished = True
                             break
-                    except json.JSONDecodeError:
-                        fancy_logger.get().debug(
-                            "We got an invalid JSON body! Ignoring and moving on."
-                        )
-                        continue
+                else:  # Handling other formats
+                    text = event_data.get("text", "")
+                    finished = event_data.get("is_finished", False)
+                    if text:
+                        self.total_response_tokens += 1
+                        if self.log_all_the_things:
+                            print(text.encode('utf-8', 'replace'), end="", flush=True)
+                        yield text
+                if finished:
+                    break
 
-            # Make sure to signal the end of input
-            yield MessageSplitter.END_OF_INPUT
+        # Make sure to signal the end of input
+        yield MessageSplitter.END_OF_INPUT
+
+    async def stop(self) -> None:
+        """
+        Aborts any currently in-progress text generation.
+        """
+        # New Ooba OpenAI API stopping logic
+        url = self.OOBABOOGA_STOP_STREAM_URI_PATH
+        headers = {"accept": "application/json"}
+        fancy_logger.get().debug("Aborting all ongoing text generation...")
+        async with self._get_session().post(url, headers=headers) as response:
+            if response.status != 200:
+                response_text = await response.text()
+                raise http_client.OobaHttpClientError(
+                    f"Request failed with status {response.status}: {response_text}"
+                )

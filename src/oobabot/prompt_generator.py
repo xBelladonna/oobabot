@@ -188,17 +188,6 @@ class PromptGenerator:
             )
         self.max_context_units = available_chars_for_history
 
-    def get_datetime(self) -> str:
-        datetime_format = self.template_store.format(
-            templates.Templates.DATETIME_FORMAT,
-            {},
-        )
-        if os.environ.get("TZ"):
-            tz=ZoneInfo(os.environ.get("TZ")) # type: ignore
-        else:
-            tz=None
-        return datetime.now(tz=tz).strftime(datetime_format)
-
     async def _render_history(
         self,
         bot_user_id: int,
@@ -292,10 +281,6 @@ class PromptGenerator:
             if line_units >= units_left:
                 context_full = True
                 if line_units > units_left:
-                    fancy_logger.get().warning(
-                        "Ran out of context space, discarding %d lines of chat history.",
-                        self.history_lines - len(history_lines)
-                    )
                     break
 
             prompt_units += line_units
@@ -343,7 +328,7 @@ class PromptGenerator:
                             break
 
         fancy_logger.get().debug(
-            "Number of history lines: %d.",
+            "Number of history messages: %d",
             len(history_lines),
         )
         if self.ooba_client.can_get_token_count():
@@ -406,6 +391,17 @@ class PromptGenerator:
         )
         prompt += self.bot_prompt_block
         return prompt
+
+    def get_datetime(self) -> str:
+        datetime_format = self.template_store.format(
+            templates.Templates.DATETIME_FORMAT, {}
+        )
+        tz_str = os.environ.get("TZ")
+        if tz_str:
+            tz=ZoneInfo(tz_str)
+        else:
+            tz=datetime.now().astimezone().tzinfo
+        return datetime.now(tz=tz).strftime(datetime_format)
 
     async def generate(
         self,

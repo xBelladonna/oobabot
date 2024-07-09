@@ -113,10 +113,10 @@ class Runtime:
             )
 
         # converts images into text descriptions so the bot can understand the contents
-        self.vision = None
+        self.vision_client: typing.Optional[vision.VisionClient] = None
         vision_settings = settings.vision_api_settings.get_all()
         if vision_settings["vision_api_url"]:
-            self.vision = vision.VisionClient(
+            self.vision_client = vision.VisionClient(
                 settings=vision_settings,
                 persona=self.persona,
                 template_store=self.template_store
@@ -161,7 +161,7 @@ class Runtime:
             discord_settings=self.discord_settings,
             ooba_client=self.ooba_client,
             image_generator=self.image_generator,
-            vision_client=self.vision,
+            vision_client=self.vision_client,
             persona=self.persona,
             template_store=self.template_store,
             prompt_generator=self.prompt_generator,
@@ -178,7 +178,7 @@ class Runtime:
         False otherwise.
         """
 
-        for client in [self.ooba_client, self.stable_diffusion_client]:
+        for client in [self.ooba_client, self.stable_diffusion_client, self.vision_client]:
             if not client:
                 continue
 
@@ -196,7 +196,7 @@ class Runtime:
                 if str(err.__cause__):
                     fancy_logger.get().error("Reason: %s", err.__cause__)
                 return client is self.ooba_client, False
-        return client is self.ooba_client, True
+        return False, True
 
     async def run(self):
         """
@@ -210,6 +210,7 @@ class Runtime:
             for context_manager in [
                 self.ooba_client,
                 self.stable_diffusion_client,
+                self.vision_client
             ]:
                 if context_manager:
                     await stack.enter_async_context(context_manager)
