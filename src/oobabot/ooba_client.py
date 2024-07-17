@@ -9,6 +9,7 @@ import re
 import time
 import typing
 
+from aiohttp import ClientSession
 import pysbd
 import pysbd.utils
 
@@ -517,14 +518,21 @@ class OobaClient(http_client.SerializedHttpClient):
     async def stop(self) -> None:
         """
         Aborts any currently in-progress text generation.
+        Creates a new ClientSession that bypasses the
+        existing serialized HTTP session.
         """
         # New Ooba OpenAI API stopping logic
-        url = self.OOBABOOGA_STOP_STREAM_URI_PATH
-        headers = {"accept": "application/json"}
+        url = self.base_url + self.OOBABOOGA_STOP_STREAM_URI_PATH
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+            "accept": "application/json",
+        }
         fancy_logger.get().debug("Aborting all ongoing text generation...")
-        async with self._get_session().post(url, headers=headers) as response:
-            if response.status != 200:
-                response_text = await response.text()
-                raise http_client.OobaHttpClientError(
-                    f"Request failed with status {response.status}: {response_text}"
-                )
+        async with ClientSession() as session:
+            async with session.post(url, headers=headers) as response:
+                if response.status != 200:
+                    response_text = await response.text()
+                    raise http_client.OobaHttpClientError(
+                        f"Request failed with status {response.status}: {response_text}"
+                    )
