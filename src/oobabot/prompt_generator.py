@@ -54,6 +54,7 @@ class PromptGenerator:
         self.persona = persona
         self.template_store = template_store
         self.ooba_client = ooba_client
+        self.strip_prompt: bool = discord_settings["strip_prompt"]
         self.dont_split_responses = discord_settings["dont_split_responses"]
         self.reply_in_thread = discord_settings["reply_in_thread"]
         self.history_lines = discord_settings["history_lines"]
@@ -389,7 +390,10 @@ class PromptGenerator:
             templates.Templates.BOT_SEQUENCE_PREFIX,
             {},
         )
-        prompt += self.bot_prompt_block
+        prompt += (
+           self.bot_prompt_block.rstrip()
+           if self.strip_prompt else self.bot_prompt_block
+        )
         return prompt
 
     def get_datetime(self) -> str:

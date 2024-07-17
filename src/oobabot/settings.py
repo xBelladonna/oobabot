@@ -811,6 +811,23 @@ class Settings:
         )
         self.discord_settings.add_setting(
             oesp.ConfigSetting[bool](
+                name="strip_prompt",
+                default=False,
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        Strips any whitespace and/or newlines from the end of the final
+                        templated prompt. Sometimes, especially depending on the model's
+                        prompt template, it makes a difference to what the model will
+                        generate if there is a trailing space after the bot's prompt
+                        block. Stripping this space can sometimes lead to better results.
+                        """
+                    )
+                ]
+            )
+        )
+        self.discord_settings.add_setting(
+            oesp.ConfigSetting[bool](
                 name="use_immersion_breaking_filter",
                 default=True,
                 description_lines=[
