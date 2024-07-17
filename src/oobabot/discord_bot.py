@@ -7,19 +7,18 @@ be easily extracted into a cross-platform library.
 import asyncio
 from collections import deque
 import io
-import re
 import time
 import typing
 
 import emoji
 import discord
-import pysbd
 
 from oobabot import bot_commands
 from oobabot import decide_to_respond
 from oobabot import discord_utils
 from oobabot import fancy_logger
 from oobabot import image_generator
+from oobabot import immersion_breaking_filter
 from oobabot import ooba_client
 from oobabot import persona
 from oobabot import templates
@@ -407,42 +406,10 @@ class DiscordBot(discord.Client):
         # Instantiate the per-channel double-ended message queue
         self.message_queue = MessageQueue(discord_settings)
 
-        # Get a sentence segmenter ready
-        self.sentence_splitter = pysbd.Segmenter(language="en", clean=False)
-        # and set a regex pattern that we will use to split lines apart. Avoids code
-        # duplication in each method where we do this. This must not be a raw string,
-        # otherwise the str.strip() method can't use it properly.
-        self.line_split_pattern = "\r\n\t\f\v"
-
-        # Compile some regex patterns we will use in the immersion-breaking filter to
-        # detect if the AI looks like it is continuing the conversation as someone else,
-        # or breaking immersion by giving itself a line prefixed with its name.
-        name_identifier = "%%%%%%%%NAME%%%%%%%%"
-        user_name_pattern = self.template_store.format(
-            templates.Templates.USER_PROMPT_HISTORY_BLOCK,
-            {
-                templates.TemplateToken.USER_NAME: self.template_store.format(
-                    templates.Templates.USER_NAME,
-                    {
-                        templates.TemplateToken.NAME: name_identifier,
-                    },
-                ),
-                templates.TemplateToken.MESSAGE: "",
-            },
-        ).strip("\n")
-        # Discord usernames are 2-32 characters long, and can only contain special
-        # characters '_' and '.' but display names are 1-32 characters long and can
-        # contain almost anything, so we try to account for the more permissive option.
-        # Hopefully results in fewer false positives than matching anything. Using a
-        # prompt history block like "[{USER_NAME}]: {MESSAGE}" will work better.
-        user_name_pattern = re.escape(user_name_pattern).replace(
-            name_identifier, r"[\S ]{1,32}"
+        # Get our immersion-breaking filter ready
+        self.immersion_breaking_filter = immersion_breaking_filter.ImmersionBreakingFilter(
+            discord_settings, self.prompt_generator, self.template_store
         )
-        bot_name_pattern = re.escape(
-            self.prompt_generator.bot_prompt_block.strip("\n")
-        )
-        self.user_message_pattern = re.compile(r"^(" + user_name_pattern + r")(.*)$")
-        self.bot_message_pattern = re.compile(r"^(" + bot_name_pattern + r")(.*)$")
 
 
     async def on_ready(self) -> None:
@@ -1376,7 +1343,7 @@ class DiscordBot(discord.Client):
         - the number of sent Discord messages
         - a boolean indicating if we need to abort the response entirely
         """
-        response, abort_response = self._filter_immersion_breaking_lines(response)
+        response, abort_response = self.immersion_breaking_filter.filter(response)
         sent_message_count = 0
         message_to_log = None
         # Reference cannot be None, so we handle it gracefully
@@ -1388,20 +1355,14 @@ class DiscordBot(discord.Client):
         # into sentences, append them to a response buffer until the next
         # sentence would cause the response to exceed the character limit,
         # then post what we have and continue in a new message.
-        if len(response) > self.message_character_limit:
+        if len(response.strip()) > self.message_character_limit:
             new_response = ""
-            # Split lines and preserve our splitting characters using regex split
-            # with a capturing group to return the split character(s) in the list
-            lines = re.split(r"([" + self.line_split_pattern + r"]+)", response)
-            for line in lines:
-                # Sometimes the trailing space at the end of a sentence is kept,
-                # sometimes not. We avoid ambiguity by explicity stripping
-                # additional whitespace and re-adding a trailing space.
-                sentences = [
-                    x.strip(" ") + " " for x in self.sentence_splitter.segment(line)
-                ]
-                for sentence in sentences:
-                    if len(new_response + sentence) > self.message_character_limit:
+            # Split lines using the compiled regex from the immersion-breaking filter,
+            # which uses regex split with a capturing group to return the split
+            # character(s) in the list.
+            for line in self.immersion_breaking_filter.split(response):
+                for sentence in self.immersion_breaking_filter.segment(line):
+                    if len((new_response + sentence).strip()) > self.message_character_limit:
                         fancy_logger.get().debug(
                             "Response exceeded %d character limit by %d "
                             + "characters! Posting current message and continuing "
@@ -1410,7 +1371,7 @@ class DiscordBot(discord.Client):
                             len(response) - self.message_character_limit
                         )
                         sent_message = await response_channel.send(
-                            new_response,
+                            new_response.strip(),
                             allowed_mentions=self._allowed_mentions,
                             suppress_embeds=True,
                             **kwargs
@@ -1430,6 +1391,7 @@ class DiscordBot(discord.Client):
             response = new_response
 
         # We can't send an empty message
+        response = response.strip()
         if response:
             sent_message = await response_channel.send(
                 response,
@@ -1600,9 +1562,9 @@ class DiscordBot(discord.Client):
             if self.stream_responses == "token":
                 if not tokens:
                     continue
-                buffer, abort_response = self._filter_immersion_breaking_lines(buffer + tokens)
+                buffer, abort_response = self.immersion_breaking_filter.filter(buffer + tokens)
                 # If we would exceed the character limit, post what we have and start a new message
-                if len(buffer) > self.message_character_limit:
+                if len(buffer.strip()) > self.message_character_limit:
                     fancy_logger.get().debug(
                         "Response exceeded %d character limit! Posting current "
                         + "message and continuing in a new message.",
@@ -1612,15 +1574,15 @@ class DiscordBot(discord.Client):
                     response = ""
                     reference = last_message
                     last_message = None
-                response, abort_response = self._filter_immersion_breaking_lines(response + tokens)
+                response, abort_response = self.immersion_breaking_filter.filter(response + tokens)
 
             elif self.stream_responses == "sentence":
-                sentence, abort_response = self._filter_immersion_breaking_lines(tokens)
+                sentence, abort_response = self.immersion_breaking_filter.filter(tokens)
                 if not sentence:
                     continue
-                sentence = sentence.strip(" ") + " "
+                sentence = sentence.rstrip(" ") + " "
                 # If we would exceed the character limit, start a new message
-                if len(response + sentence) > self.message_character_limit:
+                if len((response + sentence).strip()) > self.message_character_limit:
                     fancy_logger.get().debug(
                         "Response exceeded %d character limit! Posting current "
                         + "message and continuing in a new message.",
@@ -1632,7 +1594,7 @@ class DiscordBot(discord.Client):
                 response += sentence
 
             # don't send an empty message
-            if not response:
+            if not response.strip():
                 continue
 
             # if we are aborting a response, we want to at least post
@@ -1643,7 +1605,7 @@ class DiscordBot(discord.Client):
                 if reference:
                     kwargs["reference"] = reference
                 last_message = await response_channel.send(
-                    response,
+                    response.strip(),
                     allowed_mentions=allowed_mentions,
                     suppress_embeds=True,
                     **kwargs
@@ -1651,7 +1613,7 @@ class DiscordBot(discord.Client):
                 sent_message_count += 1
             else:
                 last_message = await last_message.edit(
-                    content=response,
+                    content=response.strip(),
                     allowed_mentions=allowed_mentions,
                     suppress=True,
                 )
@@ -1679,104 +1641,6 @@ class DiscordBot(discord.Client):
             )
 
         return sent_message_count, abort_response
-
-    def _filter_immersion_breaking_lines(self, text: str) -> typing.Tuple[str, bool]:
-        """
-        Given a string that represents an individual response message,
-        filter any lines that would break immersion.
-
-        These include lines that include a stop marker, lines that attempt
-        to carry on the conversation as a different user, and lines that
-        include the bot name prompt.
-
-        Returns the subset of the input string that should be sent, and a
-        boolean indicating if we should abort the response entirely, ignoring
-        any further lines.
-        """
-        # Do nothing if the filter is disabled
-        if not self.use_immersion_breaking_filter:
-            return text, False
-
-        # Split by our line split pattern, preserving the split characters in the list.
-        # This makes it easy to re-join them later, without having to guess which
-        # character we split at.
-        lines = re.split(r"([" + self.line_split_pattern + r"]+)", text)
-        good_lines = []
-        abort_response = False
-
-        for line in lines:
-            if not line.strip(self.line_split_pattern):
-                # If our line is composed of only split characters, just append it to
-                # good_lines to preserve them, and move on.
-                good_lines.append(line)
-                continue
-            # Split the line by our pysbd segmenter to get individual sentences
-            sentences = self.sentence_splitter.segment(line)
-            good_sentences = []
-
-            for sentence in sentences:
-                # pysbd's whitespace preservation is unreliable. We trim any whitespace
-                # and add it back at the end. This has the effect of collapsing
-                # consecutive whitespace as well.
-                sentence = sentence.strip(" ")
-
-                # Check if the bot looks like it's giving itself an extra line
-                bot_message_match = self.bot_message_pattern.match(sentence)
-                if bot_message_match:
-                    # If the display name matches the bot's name, trim the name portion
-                    # and keep the remaining text.
-                    bot_name_sequence, remaining_text = bot_message_match.groups()
-                    bot_prompt_block = self.prompt_generator.bot_prompt_block.strip("\n")
-                    if bot_prompt_block in bot_name_sequence:
-                        fancy_logger.get().warning(
-                            "Caught '%s' in response, trimming '%s' and continuing",
-                            sentence, bot_name_sequence
-                        )
-                        sentence = remaining_text
-
-                # Otherwise, filter out any potential user impersonation
-                user_message_match = self.user_message_pattern.match(sentence)
-                if user_message_match:
-                    # If the display name is not the bot's name and matches the
-                    # user name pattern, assume it is a user name and abort the
-                    # response for breaking immersion.
-                    fancy_logger.get().warning(
-                        "Filtered out '%s' from response, aborting", sentence
-                    )
-                    abort_response = True
-                    break # break out of the sentence processing loop
-
-                # Look for stop markers within a sentence
-                for marker in self.stop_markers:
-                    if marker in sentence:
-                        keep_part, removed = sentence.split(marker, 1)
-                        fancy_logger.get().warning(
-                            "Caught '%s' in response, trimming '%s' and aborting",
-                            sentence, removed
-                        )
-                        if keep_part:
-                            good_sentences.append(keep_part)
-                        abort_response = True
-                        break
-
-                # If we're aborting the response, stop processing additional sentences.
-                if abort_response:
-                    break
-
-                # filter out sentences that are entirely made of whitespace/newlines
-                if sentence.strip():
-                    good_sentences.append(sentence)
-
-            # If we're aborting the response, stop processing additional lines
-            if abort_response:
-                break
-
-            # Re-join sentences with a space between them
-            good_line = " ".join(good_sentences)
-            if good_line:
-                good_lines.append(good_line)
-
-        return "".join(good_lines), abort_response
 
     async def _filter_history_message(
       self,
