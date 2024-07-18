@@ -620,18 +620,19 @@ class DiscordBot(discord.Client):
         # Generate the prompt prefix using the modified recent messages
         if isinstance(response_channel, (discord.abc.GuildChannel, discord.Thread)):
             guild_name = response_channel.guild.name
-            response_channel_name = response_channel.name
-        elif isinstance(response_channel, discord.GroupChannel):
-            guild_name = "Group DM"
-            response_channel_name = response_channel.name or "None"
+            channel_name = discord_utils.get_channel_name(
+                response_channel, with_type=False
+            )
         else:
-            guild_name = "Direct Message"
-            response_channel_name = "None"
+            # DMs are more like channels in a null guild
+            guild_name = ""
+            channel_name = message.channel_name
+
         prompt_prefix = await self.prompt_generator.generate(
             bot_user_id=self.bot_user_id,
             message_history=recent_messages,
             guild_name=guild_name,
-            channel_name=response_channel_name,
+            channel_name=channel_name,
             image_requested=image_requested
         )
         response_stat = self.response_stats.log_request_arrived(prompt_prefix)
