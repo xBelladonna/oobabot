@@ -56,6 +56,7 @@ class PromptGenerator:
         self.strip_prompt: bool = discord_settings["strip_prompt"]
         self.split_responses: bool = discord_settings["split_responses"]
         self.history_messages: int = discord_settings["history_messages"]
+        self.secondary_prompt_depth: int = discord_settings["secondary_prompt_depth"]
         self.automatic_lookback: bool = discord_settings["automatic_lookback"]
         self.context_length: int = oobabooga_settings["request_params"]["truncation_length"]
 
@@ -176,6 +177,14 @@ class PromptGenerator:
                 required_history_size_chars - available_chars_for_history
             )
 
+    async def _get_unit_count(self, message_str: str) -> int:
+        try:
+            message_units = await self.ooba_client.get_token_count(message_str)
+        except ValueError:
+            message_units = len(message_str)
+
+        return message_units
+
     async def _render_history(
         self,
         bot_user_id: int,
@@ -240,12 +249,36 @@ class PromptGenerator:
 
         # First we process and append the chat transcript
         context_full = False
+        message_count = 0
         async for message in message_history:
             if context_full:
                 break
             if message.is_empty():
                 continue
 
+            # Insert secondary prompt as separate message. We append it before
+            # the message because the chat history is in reverse-order.
+            # Subtract 1 from the prompt depth since it isn't zero-indexed.
+            # We don't add to the message count for this entry.
+            if (
+                self.secondary_prompt_depth
+                and message_count == self.secondary_prompt_depth - 1
+            ):
+                message_str = self._render_secondary_prompt(
+                    system_message, guild_name, channel_name
+                )
+
+                message_units = await self._get_unit_count(message_str)
+                units_left = self.max_context_units - prompt_units
+                if message_units >= units_left:
+                    context_full = True
+                    if message_units > units_left:
+                        break
+
+                prompt_units += message_units
+                history_messages.appendleft(message_str)
+
+            # Now add the message
             for attachment in message.attachments:
                 if attachment.is_empty():
                     continue
@@ -281,11 +314,7 @@ class PromptGenerator:
                 )
                 message_str += user_sequence_suffix
 
-            try:
-                message_units = await self.ooba_client.get_token_count(message_str)
-            except ValueError:
-                message_units = len(message_str)
-
+            message_units = await self._get_unit_count(message_str)
             units_left = self.max_context_units - prompt_units
             if message_units >= units_left:
                 context_full = True
@@ -294,21 +323,17 @@ class PromptGenerator:
 
             prompt_units += message_units
             history_messages.appendleft(message_str)
+            message_count += 1
             author_names.append(message.author_name)
 
         # then we append the example dialogue, if it exists, and there's room
+        # don't add example messages to the message count
         if self.example_dialogue:
             if not context_full and section_separator:
-                try:
-                    separator_units = await self.ooba_client.get_token_count(
-                        section_separator
-                    )
-                except ValueError:
-                    separator_units = len(section_separator)
+                separator_units = await self._get_unit_count(section_separator)
                 context_full = prompt_units + separator_units >= self.max_context_units
-
             if not context_full:
-                remaining_messages = self.history_messages - len(history_messages)
+                remaining_messages = self.history_messages - message_count
 
                 if remaining_messages > 0:
                     if section_separator:
@@ -333,12 +358,7 @@ class PromptGenerator:
                         # Start from the end of the list since the order is reversed
                         example_message = example_dialogue_messages.pop()
                         # See if it can fit in the context
-                        try:
-                            example_units = await self.ooba_client.get_token_count(
-                                example_message
-                            )
-                        except ValueError:
-                            example_units = len(example_message)
+                        example_units = await self._get_unit_count(example_message)
                         if prompt_units + example_units > self.max_context_units:
                             break
 
@@ -357,7 +377,7 @@ class PromptGenerator:
 
         fancy_logger.get().debug(
             "Fit %d messages in prompt.",
-            len(history_messages)
+            message_count
         )
         unit_type = "tokens" if self.ooba_client.can_get_token_count() else "characters"
         fancy_logger.get().debug(
@@ -413,6 +433,43 @@ class PromptGenerator:
            if self.strip_prompt else self.bot_prompt_block
         )
         return prompt
+
+    def _render_secondary_prompt(
+        self,
+        system_message: str,
+        guild_name: str,
+        channel_name: str
+    ) -> str:
+        system_sequence_prefix = self.template_store.get(
+            templates.Templates.SYSTEM_SEQUENCE_PREFIX
+        )
+        system_sequence_suffix = self.template_store.get(
+            templates.Templates.SYSTEM_SEQUENCE_SUFFIX
+        )
+        current_datetime = self.get_datetime()
+        message_str = self.template_store.format(
+            templates.Templates.SECONDARY_PROMPT,
+            {
+                templates.TemplateToken.AI_NAME: self.persona.ai_name,
+                templates.TemplateToken.SCENARIO: self.persona.scenario,
+                templates.TemplateToken.GUILD_NAME: guild_name,
+                templates.TemplateToken.CHANNEL_NAME: channel_name,
+                templates.TemplateToken.CURRENT_DATETIME: current_datetime,
+                templates.TemplateToken.SECTION_SEPARATOR: self.template_store.format(
+                    templates.Templates.SECTION_SEPARATOR,
+                    {
+                        templates.TemplateToken.SYSTEM_SEQUENCE_PREFIX: system_sequence_prefix,
+                        templates.TemplateToken.SYSTEM_SEQUENCE_SUFFIX: system_sequence_suffix,
+                        templates.TemplateToken.AI_NAME: self.persona.ai_name
+                    }
+                ),
+                templates.TemplateToken.SYSTEM_SEQUENCE_PREFIX: system_sequence_prefix,
+                templates.TemplateToken.SYSTEM_SEQUENCE_SUFFIX: system_sequence_suffix,
+                templates.TemplateToken.SYSTEM_MESSAGE: system_message
+            }
+        )
+
+        return message_str
 
     def get_datetime(self) -> str:
         datetime_format = self.template_store.get(

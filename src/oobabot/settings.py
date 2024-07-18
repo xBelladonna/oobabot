@@ -867,6 +867,21 @@ class Settings:
             )
         )
         self.discord_settings.add_setting(
+            oesp.ConfigSetting[int](
+                name="secondary_prompt_depth",
+                default=0,
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        The depth to insert the secondary prompt template at in the
+                        message history, i.e. if set to 4, the 4th message from the
+                        latest will be the secondary prompt. Disabled if set to 0.
+                        """
+                    )
+                ]
+            )
+        )
+        self.discord_settings.add_setting(
             oesp.ConfigSetting[bool](
                 name="strip_prompt",
                 default=False,

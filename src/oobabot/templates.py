@@ -29,6 +29,7 @@ class Templates(enum.Enum):
 
     # prompts to the AI to generate text responses
     PROMPT = "prompt"
+    SECONDARY_PROMPT = "secondary_prompt"
     EXAMPLE_DIALOGUE = "example_dialogue"
     SECTION_SEPARATOR = "section_separator"
     DATETIME_FORMAT = "datetime_format"
@@ -172,6 +173,25 @@ class TemplateStore:
             "The main prompt sent to the text generation API to generate a "
             + "response from the AI. The AI's reply to this prompt will be "
             + "sent to Discord as the bot's response."
+        ),
+        Templates.SECONDARY_PROMPT: (
+            [
+                TemplateToken.SYSTEM_SEQUENCE_PREFIX,
+                TemplateToken.SYSTEM_SEQUENCE_SUFFIX,
+                TemplateToken.USER_SEQUENCE_PREFIX,
+                TemplateToken.USER_SEQUENCE_SUFFIX,
+                TemplateToken.BOT_SEQUENCE_PREFIX,
+                TemplateToken.BOT_SEQUENCE_SUFFIX,
+                TemplateToken.AI_NAME,
+                TemplateToken.SCENARIO,
+                TemplateToken.CHANNEL_NAME,
+                TemplateToken.GUILD_NAME,
+                TemplateToken.CURRENT_DATETIME,
+                TemplateToken.SECTION_SEPARATOR,
+                TemplateToken.SYSTEM_MESSAGE
+            ],
+            "The secondary prompt that is inserted at a configured depth in the "
+            + "message history."
         ),
         Templates.SECTION_SEPARATOR: (
             [
@@ -356,6 +376,9 @@ class TemplateStore:
             {MESSAGE_HISTORY}
             {SYSTEM_MESSAGE}
             """
+        ),
+        Templates.SECONDARY_PROMPT: textwrap.dedent(
+            "{SYSTEM_SEQUENCE_PREFIX}Current date/time: {CURRENT_DATETIME}{SYSTEM_SEQUENCE_SUFFIX}"
         ),
         Templates.SECTION_SEPARATOR: "***",
         Templates.EXAMPLE_DIALOGUE: "",
