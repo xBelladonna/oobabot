@@ -91,14 +91,6 @@ class Settings:
         (180.0, 0.85)
     ]
 
-    # increased chance of responding to a message if it ends with
-    # a question mark or exclamation point
-    DECIDE_TO_RESPOND_INTERROBANG_BONUS = 0.3
-
-    # number of times in a row that the bot will repeat itself
-    # before the repetition tracker will take action
-    REPETITION_TRACKER_THRESHOLD = 1
-
     OOBABOOGA_DEFAULT_REQUEST_PARAMS: oesp.SettingDictType = {
         "max_tokens": 300,
         "truncation_length": 4096,
@@ -885,6 +877,38 @@ class Settings:
                         """
                     )
                 ]
+            )
+        )
+        self.discord_settings.add_setting(
+            oesp.ConfigSetting[int](
+                name="repetition_threshold",
+                default=1,
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        Number of times a message is repeated before the repetition tracker
+                        kicks in and hides some of the prompt history for the next request
+                        to try and reduce the repetition. Disabled if set to 0.
+                        """
+                    )
+                ],
+            )
+        )
+        self.discord_settings.add_setting(
+            oesp.ConfigSetting[float](
+                name="repetition_similarity_threshold",
+                default=0.0,
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        Fuzzy comparison is performed between the bot's current response
+                        and responses logged by the repetition tracker to get a similarity
+                        score as a fraction of 1. If the score is equal to or higher than
+                        this value, throttle channel history. Fuzzy matching is disabled
+                        if set to 0.0, meaning an exact match is required.
+                        """
+                    )
+                ],
             )
         )
         self.discord_settings.add_setting(

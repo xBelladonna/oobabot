@@ -1191,6 +1191,9 @@ class DiscordBot(discord.Client):
         repeated_id = self.repetition_tracker.get_throttle_message_id(
             response_channel.id
         )
+        history_marker_id = self.repetition_tracker.get_history_marker_id(
+            response_channel.id
+        )
 
         # determine if we're responding to a specific message that
         # summoned us. If so, find out what message ID that was, so
@@ -1206,7 +1209,7 @@ class DiscordBot(discord.Client):
         recent_messages = self._recent_messages_following_thread(
             channel=response_channel,
             num_history_lines=self.prompt_generator.history_lines,
-            stop_before_message_id=repeated_id,
+            stop_before_message_id=repeated_id or history_marker_id,
             ignore_all_until_message_id=ignore_all_until_message_id
         )
 
@@ -1461,10 +1464,11 @@ class DiscordBot(discord.Client):
 
         # Now that we know the last user message, begin generating a new response
         repeated_id = self.repetition_tracker.get_throttle_message_id(response_channel.id)
+        history_marker_id = self.repetition_tracker.get_history_marker_id(response_channel.id)
         recent_messages = self._recent_messages_following_thread(
             channel=response_channel,
             num_history_lines=self.prompt_generator.history_lines,
-            stop_before_message_id=repeated_id,
+            stop_before_message_id=repeated_id or history_marker_id,
             ignore_all_until_message_id=target_message.message_id
         )
         image_descriptions = await self._get_image_descriptions(raw_target_message)
