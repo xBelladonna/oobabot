@@ -516,8 +516,12 @@ class DiscordBot(discord.Client):
         )
 
         fancy_logger.get().debug("AI name: %s", self.persona.ai_name)
-        if self.persona.persona:
-            fancy_logger.get().debug("AI description: %s", self.persona.persona)
+        if self.persona.description:
+            fancy_logger.get().debug("AI description: %s", self.persona.description)
+        if self.persona.personality:
+            fancy_logger.get().debug("AI personality: %s", self.persona.personality)
+        if self.persona.scenario:
+            fancy_logger.get().debug("AI scenario: %s", self.persona.scenario)
 
         fancy_logger.get().debug(
             "History: %d messages ", self.prompt_generator.history_messages

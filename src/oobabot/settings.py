@@ -238,7 +238,6 @@ class Settings:
 
     # ENVIRONMENT VARIABLES ####
     DISCORD_TOKEN_ENV_VAR = "DISCORD_TOKEN"
-    OOBABOT_PERSONA_ENV_VAR = "OOBABOT_PERSONA"
 
     def __init__(self):
         self._settings = None
@@ -331,23 +330,55 @@ class Settings:
         )
         self.persona_settings.add_setting(
             oesp.ConfigSetting[str](
-                name="persona",
-                default=os.environ.get(self.OOBABOT_PERSONA_ENV_VAR, ""),
+                name="description",
+                default="",
                 description_lines=_make_template_comment(
                     [templates.TemplateToken.AI_NAME],
                     textwrap.dedent(
-                        f"""
-                        This prefix will be added in front of every user-supplied
-                        request. This is useful for setting up a 'character' for
-                        the bot to play. Alternatively, this can be set with the
-                        {self.OOBABOT_PERSONA_ENV_VAR} environment variable.
+                        """
+                        This prefix will be added in front of every request. It is
+                        intended to describe the AI more generally. Useful for
+                        defining the AI's general character profile, appearance, etc.
                         """
                     )
                 ),
                 show_default_in_yaml=False
             )
         )
-        # path to a json or txt file containing persona
+        self.persona_settings.add_setting(
+            oesp.ConfigSetting[str](
+                name="personality",
+                default="",
+                description_lines=_make_template_comment(
+                    [templates.TemplateToken.AI_NAME],
+                    textwrap.dedent(
+                        """
+                        This prefix will be added in front of every request. It is
+                        intended to describe the AI's personality traits. Useful
+                        for defining the AI's behaviour and personality style.
+                        """
+                    )
+                ),
+                show_default_in_yaml=False
+            )
+        )
+        self.persona_settings.add_setting(
+            oesp.ConfigSetting[str](
+                name="scenario",
+                default="",
+                description_lines=_make_template_comment(
+                    [templates.TemplateToken.AI_NAME],
+                    textwrap.dedent(
+                        """
+                        This prefix will be added in front of every request. It is
+                        intended to describe the scenario the AI is part of. Useful
+                        for giving the AI context to behave according to.
+                        """
+                    )
+                ),
+                show_default_in_yaml=False
+            )
+        )
         self.persona_settings.add_setting(
             oesp.ConfigSetting[str](
                 name="persona_file",
@@ -364,9 +395,8 @@ class Settings:
                         additional fields can be found, everything is assigned to the
                         description attribute.
 
-                        The ai_name and persona fields are only updated if they aren't
-                        filled in above. Also, the wakewords will be extended to include
-                        the character's own name.
+                        The AI name and persona fields are only updated if they aren't
+                        filled in above.
                         """
                     )
                 ],

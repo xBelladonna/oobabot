@@ -75,7 +75,8 @@ class Runtime:
         # Bot logic
 
         self.persona = persona.Persona(
-            persona_settings=settings.persona_settings.get_all()
+            persona_settings=settings.persona_settings.get_all(),
+            default_ai_name=settings.DEFAULT_AI_NAME
         )
 
         # decides which messages the bot will respond to

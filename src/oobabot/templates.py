@@ -61,7 +61,9 @@ class TemplateToken(str, enum.Enum):
     """
 
     AI_NAME = "AI_NAME"
-    PERSONA = "PERSONA"
+    DESCRIPTION = "DESCRIPTION"
+    PERSONALITY = "PERSONALITY"
+    SCENARIO = "SCENARIO"
     BOT_DISPLAY_NAME = "BOT_DISPLAY_NAME"
     USER_NAME = "USER_NAME"
     GUILD_NAME = "GUILD_NAME"
@@ -155,7 +157,9 @@ class TemplateStore:
                 TemplateToken.SYSTEM_SEQUENCE_PREFIX,
                 TemplateToken.SYSTEM_SEQUENCE_SUFFIX,
                 TemplateToken.AI_NAME,
-                TemplateToken.PERSONA,
+                TemplateToken.DESCRIPTION,
+                TemplateToken.PERSONALITY,
+                TemplateToken.SCENARIO,
                 TemplateToken.CHANNEL_NAME,
                 TemplateToken.GUILD_NAME,
                 TemplateToken.CURRENT_DATETIME,
@@ -325,7 +329,9 @@ class TemplateStore:
         ) + "\n\n" +
         textwrap.dedent(
             """
-            {PERSONA}
+            {DESCRIPTION}
+            {AI_NAME}'s personality: {PERSONALITY}
+            Scenario: {SCENARIO}
 
             All responses you write must be from the point of view of {AI_NAME}.
             ### Transcript:

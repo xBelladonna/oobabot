@@ -351,7 +351,9 @@ class PromptGenerator:
             templates.Templates.PROMPT,
             {
                 templates.TemplateToken.AI_NAME: self.persona.ai_name,
-                templates.TemplateToken.PERSONA: self.persona.persona,
+                templates.TemplateToken.DESCRIPTION: self.persona.description,
+                templates.TemplateToken.PERSONALITY: self.persona.personality,
+                templates.TemplateToken.SCENARIO: self.persona.scenario,
                 templates.TemplateToken.GUILD_NAME: guild_name,
                 templates.TemplateToken.CHANNEL_NAME: channel_name,
                 templates.TemplateToken.CURRENT_DATETIME: current_datetime,
