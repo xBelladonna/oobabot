@@ -166,16 +166,17 @@ class StableDiffusionImageView(discord.ui.View):
 
         super().add_item(btn_try_again).add_item(btn_lock_in).add_item(btn_delete)
 
-    def set_image_message(self, image_message: discord.Message):
+    def set_image_message(self, image_message: typing.Optional[discord.Message] = None):
         self.image_message = image_message
 
     def get_image_message(self) -> discord.Message:
-        if self.image_message is None:
-            raise ValueError("image_message is None")
+        if not self.image_message:
+            raise ValueError("Image message has been deleted or cannot be found.")
         return self.image_message
 
     async def delete_image(self):
         await self.detach_view_delete_img(self.get_detach_message())
+        self.set_image_message()
 
     async def detach_view_delete_img(self, detach_msg: str):
         await self.get_image_message().edit(
@@ -192,8 +193,11 @@ class StableDiffusionImageView(discord.ui.View):
         )
 
     async def on_timeout(self):
-        if not self.photo_accepted:
-            await self.delete_image()
+        if self.image_message and not self.photo_accepted:
+            try:
+                await self.delete_image()
+            except (ValueError, discord.NotFound):
+                return
 
     def get_image_message_text(self) -> str:
         if self.timeout:
