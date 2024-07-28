@@ -9,6 +9,8 @@ import sys
 import textwrap
 import typing
 
+from discord.errors import ConnectionClosed
+
 from oobabot import discord_utils
 
 FOREGROUND_COLORS = {
@@ -127,6 +129,24 @@ class ColorfulLoggingFormatter(logging.Formatter):
             return result
         return record.getMessage()
 
+class DiscordEventFilter(logging.Filter):
+    """
+    Filter events from the Discord logger
+    """
+    def filter(self, record: logging.LogRecord) -> bool:
+        """
+        Remove exception information from ConnectionClosed
+        records with code 1000 (reconnect after WebSocket drop)
+        """
+        if (
+            record.exc_info
+            and isinstance(record.exc_info[1], ConnectionClosed)
+            and record.exc_info[1].code == 1000
+        ):
+            record.exc_info = None
+            record.exc_text = None
+        return True
+
 
 def get(name: str = "oobabot") -> logging.Logger:
     return logging.getLogger(name)
@@ -158,8 +178,10 @@ def init_logging(
         )
         logger.addHandler(console_handler)
 
+        discord_handler = logging.StreamHandler()
+        discord_handler.addFilter(DiscordEventFilter("discord.client"))
         discord_utils.setup_logging(
-            handler=logging.StreamHandler(),
+            handler=discord_handler,
             level=logging.INFO,
             formatter=ColorfulLoggingFormatter(
                 coloring_book=make_coloring_book(
