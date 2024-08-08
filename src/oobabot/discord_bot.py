@@ -524,7 +524,10 @@ class DiscordBot(discord.Client):
         if response_tasks:
             # We use asyncio.wait instead of asyncio.gather to have more low-level control
             # over task execution and exception handling.
-            done, _pending = await asyncio.wait(response_tasks)
+            done, _pending = await asyncio.wait(
+                response_tasks,
+                return_when=asyncio.FIRST_COMPLETED
+            )
             for task in done:
                 # Check for exceptions in the tasks that have completed
                 err = task.exception()
