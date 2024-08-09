@@ -182,17 +182,9 @@ class BotCommands:
             async for message in channel.history(limit=self.history_lines):
                 if self.decide_to_respond.is_hidden_message(message.content):
                     continue
-                # respond with certainty
-                self.decide_to_respond.guarantee_response(channel.id, message.id)
-                # log a fake mention so the bot considers responses from now on
-                self.decide_to_respond.log_mention(
-                    guild_id=channel.guild.id if channel.guild else channel.id,
-                    channel_id=channel.id,
-                    send_timestamp=interaction.created_at.timestamp()
-                )
                 await interaction.delete_original_response()
-                # Trigger a new incoming message event with the message we fetched
-                client.dispatch("message", message)
+                # Trigger a poke event with the message we fetched
+                client.dispatch("poke", message)
                 break
 
         @discord.app_commands.command(

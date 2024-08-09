@@ -412,6 +412,9 @@ class DiscordBot(discord.Client):
             discord_settings, self.prompt_generator, self.template_store
         )
 
+        # Register any custom events
+        self.event(self.on_poke)
+
 
     async def on_ready(self) -> None:
         guilds = self.guilds
@@ -596,6 +599,26 @@ class DiscordBot(discord.Client):
                 fancy_logger.get().warning(no_permission_str)
             return
 
+        # Poke by reaction (:point_up_2:)
+        if payload.emoji.name == "👆":
+            fancy_logger.get().debug(
+                "Received poke from user '%s' in %s.",
+                reactor.name,
+                discord_utils.get_channel_name(channel)
+            )
+            try:
+                if not isinstance(channel, discord.abc.PrivateChannel):
+                    await raw_message.clear_reaction(payload.emoji)
+            except discord.NotFound:
+                pass
+            except discord.Forbidden:
+                fancy_logger.get().warning(no_permission_str)
+            # Abort if the message is hidden
+            if self.decide_to_respond.is_hidden_message(raw_message.content):
+                return
+            await self.on_poke(raw_message)
+            return
+
         # only process the below reactions if it was to one of our messages
         if raw_message.author.id != self.bot_user_id:
             return
@@ -635,6 +658,22 @@ class DiscordBot(discord.Client):
                     "Error while regenerating response: %s", err, stack_info=True
                 )
                 self.response_stats.log_response_failure()
+
+    async def on_poke(self, raw_message: discord.Message) -> None:
+        """
+        Cancel any ongoing channel panic and respond to the latest message.
+        """
+        channel = raw_message.channel
+        # Ensure we respond to the message and pay attention to the channel
+        self.decide_to_respond.guarantee_response(channel.id, raw_message.id)
+        self.decide_to_respond.log_mention(
+            channel.guild.id if channel.guild else channel.id,
+            channel.id,
+            raw_message.created_at.timestamp()
+        )
+        # Trigger an incoming message request
+        await self.process_messages(raw_message)
+
 
     async def process_messages(
         self,
