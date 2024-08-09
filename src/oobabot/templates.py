@@ -45,6 +45,7 @@ class Templates(enum.Enum):
     PROMPT_IMAGE_RECEIVED = "prompt_image_received"
     PROMPT_IMAGE_COMING = "prompt_image_coming"
     PROMPT_IMAGE_NOT_COMING = "prompt_image_not_coming"
+    PROMPT_IMAGE_SENT = "prompt_image_sent"
 
     def __str__(self) -> str:
         return self.value
@@ -267,17 +268,26 @@ class TemplateStore:
         Templates.PROMPT_IMAGE_NOT_COMING: (
             [
                 TemplateToken.AI_NAME,
+                TemplateToken.USER_NAME,
                 TemplateToken.SYSTEM_SEQUENCE_PREFIX,
                 TemplateToken.SYSTEM_SEQUENCE_SUFFIX,
                 TemplateToken.USER_SEQUENCE_PREFIX,
                 TemplateToken.USER_SEQUENCE_SUFFIX,
                 TemplateToken.BOT_SEQUENCE_PREFIX,
-                TemplateToken.BOT_SEQUENCE_SUFFIX,
+                TemplateToken.BOT_SEQUENCE_SUFFIX
             ],
-            "Part of the AI response-generation prompt, this is used to "
-            + "inform the AI that its image generator is offline and is "
-            + "not functioning.",
-            True,
+            "Part of the AI response-generation prompt, this is used to inform "
+            + "the AI that its image generator is offline and is not functioning.",
+            True
+        ),
+        Templates.PROMPT_IMAGE_SENT: (
+            [
+                TemplateToken.AI_NAME,
+                TemplateToken.IMAGE_PROMPT
+            ],
+            "Part of the AI response-generation prompt, this is used to inform "
+            + "the AI that it posted the generated image with the requested prompt.",
+            True
         ),
         Templates.IMAGE_DETACH: (
             [
@@ -410,6 +420,11 @@ class TemplateStore:
             """
             {SYSTEM_SEQUENCE_PREFIX}{AI_NAME}'s image generator is offline or
             has failed for some reason!{SYSTEM_SEQUENCE_SUFFIX}
+            """
+        ),
+        Templates.PROMPT_IMAGE_SENT: textwrap.dedent(
+            """
+            {AI_NAME} posts an image generated with the prompt: {IMAGE_PROMPT}
             """
         ),
         Templates.IMAGE_DETACH:
