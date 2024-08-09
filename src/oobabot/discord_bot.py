@@ -31,6 +31,263 @@ from oobabot import types
 from oobabot import vision
 
 
+class MessageQueue:
+    """
+    Holds a double-ended message queue for each channel we respond in,
+    as well as a dictionary of wait tasks and response tasks per
+    channel.
+
+    This is so we can localize our responses, decisions, and actions
+    to each specific channel and avoid actions in one channel causing
+    strange behavior in other channels.
+    """
+
+    def __init__(
+        self,
+        discord_settings: dict[str, typing.Any]
+    ) -> None:
+        self.message_accumulation_period: float = round(
+            discord_settings["message_accumulation_period"], 1
+        )
+        self.continue_on_additional_messages: int = discord_settings[
+            "continue_on_additional_messages"
+        ]
+
+        self.queues: typing.Dict[int, typing.Deque[discord.Message]] = {}
+        self.response_tasks: typing.Dict[int, asyncio.Task] = {}
+        self.wait_tasks: typing.Dict[int, asyncio.Task] = {}
+
+
+    async def _accumulate_messages(self, channel_id: int) -> None:
+        """
+        Wait for the configured message accumulation period, then return once it
+        has elapsed, or the configured number of additional messages have been
+        received.
+        """
+        if self.continue_on_additional_messages:
+            queue_length = self.get_queue_length(channel_id)
+            start_time = time.time()
+            while (
+                self.get_queue_length(channel_id) < (
+                    queue_length + self.continue_on_additional_messages + 1
+                )
+                and time.time() < start_time + self.message_accumulation_period
+            ):
+                await asyncio.sleep(0.1)
+                queue_length = self.get_queue_length(channel_id)
+        else:
+            await asyncio.sleep(self.message_accumulation_period)
+
+    # Methods to keep track of tasks and check their status easily
+    async def accumulate_messages(self, channel_id: int) -> None:
+        """
+        Create a wait task for the specified channel to wait for
+        the message accumulation period, if configured, and return
+        when done, otherwise return immediately.
+
+        If configured to continue on additional messages, return
+        after the configured number of additional messages have
+        entered the channel queue.
+        """
+        if self.message_accumulation_period:
+            self.wait_tasks[channel_id] = asyncio.create_task(
+                self._accumulate_messages(channel_id)
+            )
+            await self.wait_tasks[channel_id]
+            self.wait_tasks.pop(channel_id, None)
+
+    def is_waiting(self, channel_id: int) -> bool:
+        """
+        Checks if we are currently accumulating messages in the
+        specified channel.
+        """
+        if channel_id in self.wait_tasks:
+            return not self.wait_tasks[channel_id].done()
+        return False
+
+    def add_response_task(
+        self, channel_id: int, response_coro: typing.Coroutine
+    ) -> None:
+        """
+        Schedules the provided coroutune for execution with asyncio and
+        stores the resulting task. The task will be removed once it is done.
+        """
+        self.response_tasks[channel_id] = asyncio.create_task(response_coro)
+        self.response_tasks[channel_id].add_done_callback(
+            lambda _: self._done_callback(channel_id)
+        )
+
+    def remove_response_task(self, channel_id: int) -> None:
+        """
+        Removes the specified channel's response task, if any.
+        """
+        self.response_tasks.pop(channel_id, None)
+
+    def get_response_task(
+        self, channel_id: int
+    ) -> typing.Optional[asyncio.Task]:
+        """
+        Returns the specified channel's response task, if any.
+        """
+        return self.response_tasks.get(channel_id, None)
+
+    def cancel_response_task(self, channel_id: int) -> bool:
+        """
+        Cancels the specified channel's response task, if any.
+        """
+        if (
+            channel_id in self.response_tasks
+            and not self.response_tasks[channel_id].done()
+        ):
+            return self.response_tasks[channel_id].cancel()
+        return False
+
+    def is_responding(self, channel_id: int) -> bool:
+        """
+        Checks if the specified channel has an ongoing response task.
+        """
+        if channel_id in self.response_tasks:
+            return not self.response_tasks[channel_id].done()
+        return False
+
+    def get_queue(
+        self, channel_id: int
+    ) -> typing.Optional[typing.Deque[discord.Message]]:
+        """
+        Returns the specified channel's message queue, if any.
+        """
+        return self.queues.get(channel_id, None)
+
+    def remove_queue(self, channel_id: int) -> None:
+        """
+        Removes the specified channel's message queue, if any.
+        """
+        self.queues.pop(channel_id, None)
+
+    def contains_message(
+        self, channel_id: int, message: discord.Message
+    ) -> bool:
+        """
+        Checks if the specified channel's message queue contains
+        the provided message, if the queue exists, otherwise
+        return False.
+        """
+        if channel_id in self.queues:
+            return message in self.queues[channel_id]
+        return False
+
+    # Standard deque methods but per channel
+    def append(self, channel_id: int, message: discord.Message) -> None:
+        self._ensure_queue(channel_id).append(message)
+
+    def appendleft(self, channel_id: int, message: discord.Message) -> None:
+        self._ensure_queue(channel_id).appendleft(message)
+
+    def pop(self, channel_id: int) -> discord.Message:
+        if channel_id in self.queues:
+            message = self.queues[channel_id].pop()
+            self._remove_empty_queue(channel_id)
+            return message
+        raise ValueError(f"Channel ID {channel_id} has no queue.")
+
+    def popleft(self, channel_id: int) -> discord.Message:
+        if channel_id in self.queues:
+            message = self.queues[channel_id].popleft()
+            self._remove_empty_queue(channel_id)
+            return message
+        raise ValueError(f"Channel ID #{channel_id} has no queue.")
+
+    def clear(self, channel_id: int) -> None:
+        if channel_id in self.queues:
+            self.queues[channel_id].clear()
+            return self._remove_empty_queue(channel_id)
+        raise ValueError(f"Channel ID #{channel_id} has no queue.")
+
+    def extend(
+        self, channel_id: int, messages: typing.Iterable[discord.Message]
+    ) -> None:
+        self._ensure_queue(channel_id).extend(messages)
+
+    def extendleft(
+        self, channel_id: int, messages: typing.Iterable[discord.Message]
+    ) -> None:
+        self._ensure_queue(channel_id).extendleft(messages)
+
+    def remove(self, channel_id: int, message: discord.Message) -> None:
+        if channel_id in self.queues:
+            self.queues[channel_id].remove(message)
+            return self._remove_empty_queue(channel_id)
+        raise ValueError(f"Channel ID #{channel_id} has no queue.")
+
+    def count(self, channel_id: int, message: discord.Message) -> int:
+        if channel_id in self.queues:
+            return self.queues[channel_id].count(message)
+        return 0
+
+    def insert(
+        self, channel_id: int, index: int, message: discord.Message
+    ) -> None:
+        self._ensure_queue(channel_id).insert(index, message)
+
+    def get_queue_length(self, channel_id: int) -> int:
+        if channel_id in self.queues:
+            return len(self.queues[channel_id])
+        return 0
+
+    def __len__(self) -> int:
+        # Return the total number of messages across all channels
+        return sum(len(queue) for queue in self.queues.values())
+
+    def __getitem__(self, key: typing.Tuple[int, int]) -> discord.Message:
+        """
+        Takes a tuple of (channel_id, item_index)
+        """
+        channel_id, index = key
+        if channel_id in self.queues:
+            return self.queues[channel_id][index]
+        raise ValueError(f"Channel ID #{channel_id} has no queue.")
+
+    def __setitem__(
+        self, key: typing.Tuple[int, int], value: discord.Message
+    ) -> None:
+        """
+        Takes a tuple of (channel_id, item_index), and the value to set.
+        """
+        channel_id, index = key
+        self._ensure_queue(channel_id)[index] = value
+
+    def __delitem__(self, key: typing.Tuple[int, int]) -> None:
+        """
+        Takes a tuple of (channel_id, item_index)
+        """
+        channel_id, index = key
+        if channel_id in self.queues:
+            del self.queues[channel_id][index]
+            self._remove_empty_queue(channel_id)
+
+    def _ensure_queue(self, channel_id: int) -> typing.Deque[discord.Message]:
+        """
+        Returns the message queue for the specified channel, creating one if
+        necessary.
+        """
+        if channel_id not in self.queues:
+            self.queues[channel_id] = deque()
+        return self.queues[channel_id]
+
+    def _remove_empty_queue(self, channel_id: int) -> None:
+        """
+        Check if the queue for a channel is empty and if so, remove the queue.
+        """
+        if (
+            channel_id in self.queues
+            and not self.queues[channel_id]
+        ):
+            self.remove_queue(channel_id)
+
+    def _done_callback(self, channel_id: int) -> None:
+        self.remove_response_task(channel_id)
+        self._remove_empty_queue(channel_id)
+
 class DiscordBot(discord.Client):
     """
     Main bot class. Connects to Discord, monitors for messages,
@@ -68,10 +325,6 @@ class DiscordBot(discord.Client):
         self.dont_split_responses = discord_settings["dont_split_responses"]
         self.ignore_dms = discord_settings["ignore_dms"]
         self.ignore_prefixes = discord_settings["ignore_prefixes"]
-        self.message_accumulation_period = round(
-            discord_settings["message_accumulation_period"], 1
-        )
-        self.continue_on_additional_messages = discord_settings["continue_on_additional_messages"]
         allowed_mentions = [x.lower() for x in discord_settings["allowed_mentions"]]
         for allowed_mention_type in allowed_mentions:
             if allowed_mention_type not in ["everyone", "users", "roles"]:
@@ -109,8 +362,8 @@ class DiscordBot(discord.Client):
         # Identify our intents with the Gateway
         super().__init__(intents=discord_utils.get_intents())
 
-        # Instantiate double-ended message queue
-        self.message_queue = deque()
+        # Instantiate the per-channel double-ended message queue
+        self.message_queue = MessageQueue(discord_settings)
 
         # Get a sentence segmenter ready
         self.sentence_splitter = pysbd.Segmenter(language="en", clean=False)
@@ -249,31 +502,12 @@ class DiscordBot(discord.Client):
         """
 
         try:
-            # If the message channel type is not one we can sanely respond in, abort.
-            if not isinstance(
-                raw_message.channel,
-                (
-                    discord.TextChannel,
-                    discord.Thread,
-                    discord.VoiceChannel,
-                    discord.DMChannel,
-                    discord.GroupChannel
-                )
-            ):
-                return
-            # Don't respond to the thread creation system message
-            if raw_message.type == discord.MessageType.thread_created:
-                return
-            # Add the message to the queue
-            self.message_queue.appendleft(raw_message)
-            # Start processing the message queue for the first message received
-            if len(self.message_queue) == 1:
-                asyncio.create_task(
-                    self.process_message_queue(raw_message.channel) # type: ignore
-                )
+            # Queue the message and begin processing the queue
+            await self.process_messages(raw_message)
         except discord.DiscordException as err:
             fancy_logger.get().error(
-                "Error while queueing message for processing: %s", err, stack_info=True
+                "Error while queueing message for processing: %s: %s",
+                type(err).__name__, err, stack_info=True
             )
 
     async def on_message_delete(self, raw_message: discord.Message) -> None:
@@ -283,8 +517,8 @@ class DiscordBot(discord.Client):
         This method is called for every message in the cache that is deleted,
         checks if that message is in our message queue, and removes it if so.
         """
-        if raw_message in self.message_queue:
-            self.message_queue.remove(raw_message)
+        if self.message_queue.contains_message(raw_message.channel.id, raw_message):
+            self.message_queue.remove(raw_message.channel.id, raw_message)
 
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent) -> None:
         # Don't process our own reactions
@@ -391,43 +625,75 @@ class DiscordBot(discord.Client):
                 )
                 self.response_stats.log_response_failure()
 
-    async def process_message_queue(
+    async def process_messages(
         self,
-        channel: typing.Union[
-            discord.abc.GuildChannel,
-            discord.Thread,
-            discord.DMChannel,
-            discord.GroupChannel
-        ]
+        raw_message: discord.Message
     ) -> None:
         """
-        Loops through the message queue and responds to each message in received
-        order, also handling any additional messages that are queued while
-        processing is in progress.
+        Queues the provided message, waits for the message accumulation period,
+        if configured, and begins processing messages once it has elapsed, or the
+        configured number of additional messages have been received while waiting.
+
+        Also filters out any messages that don't match a type we can handle.
         """
-        # Wait if we're accumulating messages. We avoid this in DMs or Group DMs
-        # rather arbitrarily, as the feature was initially designed for bots like
-        # PluralKit and Tupperbox that rapidly delete and re-post user messages
-        # under different names, and they can't be present in these channel types.
-        if (
-            self.message_accumulation_period
-            and not self.decide_to_respond.guaranteed_response
-            and not isinstance(channel, (discord.DMChannel, discord.GroupChannel))
+        # Allowed message types we can process
+        if raw_message.type not in (
+            discord.MessageType.default,
+            discord.MessageType.reply,
+            discord.MessageType.thread_starter_message
         ):
-            if self.continue_on_additional_messages:
-                start_time = time.time()
-                while (
-                    len(self.message_queue) < self.continue_on_additional_messages + 1
-                    and time.time() < start_time + self.message_accumulation_period
-                ):
-                    await asyncio.sleep(0.1)
-            else:
-                await asyncio.sleep(self.message_accumulation_period)
+            return
+        # Channel types we can respond in
+        channel = raw_message.channel
+        if not isinstance(
+            channel,
+            (
+                discord.TextChannel,
+                discord.Thread,
+                discord.VoiceChannel,
+                discord.abc.PrivateChannel
+            )
+        ):
+            return
 
+        # Queue the provided message
+        self.message_queue.appendleft(channel.id, raw_message)
+        # If currently accumulating messages, abort and allow the original task to proceed
+        if self.message_queue.is_waiting(channel.id):
+            return
+        # Wait if we're accumulating messages. We avoid this in DMs as we assume the 1:1
+        # interaction means a response is wanted per-message. Also if the message is a
+        # system message.
+        if (
+            not self.decide_to_respond.guaranteed_response
+            and not isinstance(channel, discord.DMChannel)
+            and raw_message.type in (
+                discord.MessageType.default,
+                discord.MessageType.reply
+            )
+        ):
+            await self.message_queue.accumulate_messages(channel.id)
+
+        # Abort if the queue is currently being processed or if there is nothing to process
+        if (
+            self.message_queue.is_responding(channel.id)
+            or not self.message_queue.get_queue_length(channel.id)
+        ):
+            return
+        # otherwise, begin processing message queue
+        self.message_queue.add_response_task(
+            channel.id, self._process_message_queue(channel.id)
+        )
+
+    async def _process_message_queue(self, channel_id: int) -> None:
+        """
+        Loops through the message queue and responds to each message in received order,
+        or if configured, the latest message only.
+        """
         # If the queue isn't empty, process the message queue in order of messages received
-        while self.message_queue:
-            raw_message = self.message_queue.pop()
-
+        message_queue = self.message_queue.get_queue(channel_id)
+        while message_queue:
+            raw_message = message_queue.pop()
             message = discord_utils.discord_message_to_generic_message(raw_message)
             should_respond, is_summon = self.decide_to_respond.should_respond_to_message(
                 self.bot_user_id, message

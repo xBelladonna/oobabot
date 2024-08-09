@@ -240,11 +240,42 @@ class DecideToRespond:
 
         return False, response_chance
 
+    def should_ignore_message(
+        self, bot_user_id: int, message: types.GenericMessage
+    ) -> bool:
+        """
+        Checks if the provided message should be ignored according
+        to the following conditions:
+        - If the message is from a bot and we're ignoring bot messages
+        - If the message was from us
+        - If the message is explicitly hidden
+
+        Returns a boolean indicating if we should ignore the message.
+        """
+        # Ignore messages from other bots, out of fear of infinite loops,
+        # as well as world domination.
+        if message.author_is_bot and self.ignore_bots:
+            return True
+
+        # We do not want the bot to reply to itself. This is redundant
+        # with the previous check, except it won't be if someone decides
+        # to run this under their own user token, rather than a proper
+        # bot token, or if they allow responding to other bots.
+        if message.author_id == bot_user_id:
+            return True
+
+        # Ignore any hidden messages
+        if self.is_hidden_message(message.body_text):
+            return True
+
+        # Respond to anything else
+        return False
+
     def should_respond_to_message(
-        self, our_user_id: int, message: types.GenericMessage
+        self, bot_user_id: int, message: types.GenericMessage
     ) -> typing.Tuple[bool, bool]:
         """
-        Returns a tuple of (should_reply, is_direct_mention).
+        Returns a tuple of (should_respond, is_direct_mention).
 
         Direct mentions are always replied to, but also, the
         caller should log the mention later by calling log_mention().
@@ -254,34 +285,22 @@ class DecideToRespond:
         channel ID we want to track will be that of the thread
         we create, not the channel the message was posted in.
         """
+        is_direct_mention = self.is_directly_mentioned(bot_user_id, message)
 
-        # A response has been explicitly guaranteed
         if self.guaranteed_response:
-            # REMEMBER TO SET THIS TO FALSE WHEREVER IT HAS BEEN SET!
-            return True, False
+            return True, is_direct_mention
 
-        # Ignore messages from other bots, out of fear of infinite loops,
-        # as well as world domination.
-        if message.author_is_bot and self.ignore_bots:
+        if self.should_ignore_message(bot_user_id, message):
             return False, False
 
-        # We do not want the bot to reply to itself. This is redundant
-        # with the previous check, except it won't be if someone decides
-        # to run this under their own user token, rather than a proper
-        # bot token, or if they allow responding to other bots.
-        if message.author_id == our_user_id:
-            return False, False
-
-        # Ignore any hidden messages
-        if self.is_hidden_message(message.body_text):
-            return False, False
-
-        if self.is_directly_mentioned(our_user_id, message):
+        if is_direct_mention:
             return True, True
 
-        if isinstance(message, types.ChannelMessage):
-            if self.provide_unsolicited_response_in_channel(our_user_id, message):
-                return True, False
+        if (
+            isinstance(message, types.ChannelMessage)
+            and self.provide_unsolicited_response_in_channel(bot_user_id, message)
+        ):
+            return True, False
 
         # Ignore anything else
         return False, False
