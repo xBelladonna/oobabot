@@ -1,12 +1,12 @@
 
 # Welcome to Oobabot!
 #
-# This is the configuration file for Oobabot.  It is a YAML file, and
-# comments are allowed.  Oobabot attempts to load a file named
+# This is the configuration file for Oobabot. It is a YAML file, and
+# comments are allowed. Oobabot attempts to load a file named
 # "config.yml" from the current directory when it is run.
 #
 
-version: 0.3.1
+version: 0.3.3
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 # persona
@@ -24,11 +24,10 @@ persona:
   persona: "{AI_NAME} is a friendly AI made in the likeness of the lunarian moon rabbit youkai Reisen Udongein Inaba, from Touhou Project. {AI_NAME} lives in the bamboo forest of Eintei, located in Gensokyo. She is shy and somewhat timid until provoked, in which case she will not hesitate to let insults and profanity fly. {AI_NAME} always ends her messages with :3"
 
   # Path to a file containing a persona. This can be just a single string, a JSON file in
-  # the common "tavern" formats, or a YAML file in the Oobabooga format.  With a single
-  # string, the persona will be set to that string.  Otherwise, the ai_name and persona will
-  # be overwritten with the values in the file.  Also, the wakewords will be extended to
+  # the common "tavern" formats, or a YAML file in the Oobabooga format. With a single
+  # string, the persona will be set to that string. Otherwise, the ai_name and persona will
+  # be overwritten with the values in the file. Also, the wakewords will be extended to
   # include the character's own name.
-  #   default:
   persona_file:
 
   # One or more words that the bot will listen for. The bot will listen in all discord
@@ -50,10 +49,29 @@ discord:
   # set this via the DISCORD_TOKEN environment variable instead, if possible.
   discord_token: your_token_here
 
-  # The maximum number of lines of chat history the AI will see when generating a response.
+  # Set the log level. Valid values are: CRITICAL, ERROR, WARNING, INFO, DEBUG
+  #   default: DEBUG
+  log_level:
+
+  # The maximum number of chat history messages the AI will see when generating a response.
   # The actual number may be smaller than this, due to the model's context length limit.
   #   default: 7
   history_lines: 80
+
+  # This is a list of allowed @-mention types. Used to limit what the bot can mention, e.g.
+  # to prevent users from tricking the bot into @-mentioning large groups of people and
+  # annoying them.
+  # There are 3 possible types:
+  # - `everyone`: the @everyone role
+  # - `users`: enables @-mentioning users directly
+  # - `roles`: enables @-mentioning roles
+  # By default, none of these options are enabled and only the original author may be
+  # @-mentioned.
+  allowed_mentions:
+
+  # If set, the bot will generate a thread to respond in if it is not already in one.
+  #   default: False
+  reply_in_thread:
 
   # Time in seconds (rounded to the nearest single decimal, i.e. in increments of 0.1) that
   # the bot will wait for additional messages before deciding to respond. Useful if people
@@ -68,10 +86,48 @@ discord:
   #   default: 0
   continue_on_additional_messages:
 
-  # Whether or not to include the bot's /lobotomize response in the history following the
-  # command.
-  #   default: True
-  include_lobotomize_response:
+  # Whether to squash all messages received during the message accumulation period together
+  # and respond only once at the end. If set, the bot will respond to the latest message
+  # received, otherwise it will respond to each message individually in the order they were
+  # received.
+  #   default: False
+  respond_to_latest_only: true
+
+  # If the bot receives a new message while in the middle of processing responses, cancel
+  # the current message queue and start a new response to the latest message instead. This
+  # takes effect regardless of whether the message accumulation period or
+  # respond_to_latest_only is set. Image generation requests will not be cancelled.
+  #   default: False
+  skip_in_progress_responses: true
+
+  # When the /unpoke command it used, this controls the amount of time the bot will refuse
+  # to respond to any incoming messages or requests, unless poked.
+  #   default: 15.0
+  panic_duration:
+
+  # Stream responses into a single message as they are generated. If not set, the feature is
+  # disabled. Note: may be janky.
+  # There are 2 options:
+  # token: Stream responses by groups of tokens, whose size is defined by the stremaing
+  # speed limit.
+  # sentence: Stream responses sentence by sentence. Useful if streaming by token is too
+  # janky but not splitting responses is too slow. Note: this will cause newlines to be
+  # lost, as the responses are returned from the client without newlines.
+  stream_responses:
+
+  # When streaming responses, cap the rate at which we send updates to Discord to be no more
+  # than once per this many seconds. This does not guarantee that updates will be sent this
+  # fast, only that they will not be sent any faster than this rate. This is useful because
+  # Discord has a rate limit on how often you can send messages, and if you exceed it, the
+  # updates will suddenly become slow. Example: 0.2 means we will send updates no faster
+  # than 5 times per second.
+  #   default: 0.7
+  stream_responses_speed_limit:
+
+  # Post the entire response as a single message, rather than splitting it into separate
+  # messages by sentence.
+  #   default: False
+  dont_split_responses:
 
   # If set, the bot will not respond to direct messages.
   #   default: False
@@ -84,28 +140,64 @@ discord:
 
   # This is a list of strings that the bot will ignore if messages begin with any of them.
   # These messages will be hidden from the chat history.
-  #   default:
   ignore_prefixes:
-    - "!"
+    - '!'
 
-  # This is a list of allowed @-mention types. Used to limit what the bot can mention, e.g.
-  # to prevent users from tricking the bot into @-mentioning large groups of people and
-  # annoying them.
-  # There are 3 possible types:
-  # - `everyone`: the @everyone role
-  # - `users`: enables @-mentioning users directly
-  # - `roles`: enables @-mentioning roles
-  # If none of these options are selected, only the original author may be @-mentioned.
-  #   default: []
-  allowed_mentions:
+  # List of reaction emojis or custom emoji names. If any of these reactions appear on
+  # messages from the AI, or a user who reacted to the message is the author, those messages
+  # will be excluded from the AI's chat history.
+  ignore_reactions:
+    - 🚫
 
-  # Set the log level. Valid values are: CRITICAL, ERROR, WARNING, INFO, DEBUG
-  #   default: DEBUG
-  log_level:
+  # Adds a limit to the number of channels per guild the bot will post unsolicited responses
+  # in at the same time. This is to prevent the bot from being too noisy in large servers.
+  # When set, only the most recent N channels the bot has been summoned in will have a
+  # chance of receiving an unsolicited response. The bot will still respond to @-mentions
+  # and wake words in any channel it can access. Set to 0 to disable this feature.
+  #   default: 3
+  unsolicited_channel_cap:
 
-  # If set, the bot will generate a thread to respond in if it is not already in one.
+  # Time vs. response chance - calibration table. Chance is interpolated according to the
+  # time and used to decide the unsolicited response chance.
+  # List of tuples with time in seconds and response chance as float between 0-1.
+  time_vs_response_chance:
+    - (10.0,    1.00)
+    - (300.0,   0.95)
+    - (900.0,   0.90)
+    - (1800.0,  0.80)
+    - (3600.0,  0.50)
+    - (14400.0, 0.20) # 4 hours cache timeout, then repsonses must be solicited directly
+
+  # Same calibration table as above but for voice calls. The difference is that we use the
+  # last entry's response chance as a fallback instead of refusing to respond after the
+  # specified duration, since it's assumed all voice responses are solicited.
+  voice_time_vs_response_chance:
+    - (30.0,  1.00)
+    - (60.0,  0.95)
+    - (180.0, 0.90)
+    - (300.0, 0.85) # the last response chance will remain constant past its duration
+
+  # How much to increase response chance by if the message ends with ? or !
+  #   default: 0.3
+  interrobang_bonus:
+
+  # If set, the bot will not respond to any messages that do not @-mention it or include a
+  # wakeword. If unsolicited responses are disabled, the unsolicited_channel_cap setting
+  # will have no effect.
   #   default: False
-  reply_in_thread:
+  disable_unsolicited_replies:
+
+  # Whether or not to include the bot's /lobotomize response in the history following the
+  # command.
+  #   default: True
+  include_lobotomize_response:
+
+  # Strips any whitespace and/or newlines from the end of the final templated prompt.
+  # Sometimes, especially depending on the model's prompt template, it makes a difference to
+  # what the model will generate if there is a trailing space after the bot's prompt block.
+  # Stripping this space can sometimes lead to better results.
+  #   default: False
+  strip_prompt:
 
   # Enable the immersion-breaking filter, which uses several heuristics in order to filter
   # out things like username/display name snippets, and prevent the AI from inventing
@@ -119,9 +211,8 @@ discord:
   # should be removed as well.
   # Note: this does not stop response generation at the model level! For that, use the
   # "stop" parameter under the oobabooga request_params setting.
-  #   default: ['<|im_end|>', '<|endoftext|>', '### Instruction:']
   stop_markers:
-    - <|model|>
+    - <|im_start|>assistant
 
   # Prevent impersonation by automatically adding the display names of the members in the
   # recent message cache (up to the history limit, or 4 sequences if using OpenAI) to the
@@ -134,87 +225,40 @@ discord:
   # comprehensive: Combines both standard and aggressive modes. Keep in mind the sequence
   # limit if you are using OpenAI, as they will be truncated at 4 sequences even if there
   # otherwise would be more.
-  #   default:
   prevent_impersonation: standard
 
-  # FEATURE PREVIEW: Stream responses into a single message as they are generated. If not
-  # set, the feature is disabled. Note: may be janky
-  # There are 2 options:
-  # token: Stream responses by groups of tokens, whose size is defined by the stremaing
-  # speed limit.
-  # sentence: Stream responses sentence by sentence. Useful if streaming by token is too
-  # janky but not splitting responses is too slow.
-  #   default:
-  stream_responses:
+  # Maximum number of times we will re-query the text generation API to get a response.
+  # Useful if the API returns an empty response occasionally or the response was aborted by
+  # the immersion-breaking filter.
+  #   default: 0
+  retries: 2
 
-  # FEATURE PREVIEW: When streaming responses, cap the rate at which we send updates to
-  # Discord to be no more than once per this many seconds.  This does not guarantee that
-  # updates will be sent this fast.  Only that they will not be sent any faster than this
-  # rate.  This is useful because Discord has a rate limit on how often you can send
-  # messages, and if you exceed it, the updates will suddenly become slow.  Example: 0.2
-  # means we will send updates no faster than 5 times per second.
-  #   default: 0.7
-  stream_responses_speed_limit:
+  # Number of times a message is repeated before the repetition tracker kicks in and hides
+  # some of the prompt history for the next request to try and reduce the repetition.
+  # Disabled if set to 0.
+  #   default: 1
+  repetition_threshold:
 
-  # Post the entire response as a single message, rather than splitting it into separate
-  # messages by sentence.
-  #   default: False
-  dont_split_responses:
-
-  # Adds a limit to the number of channels the bot will post unsolicited messages in at the
-  # same time.  This is to prevent the bot from being too noisy in large servers.  When set,
-  # only the most recent N channels the bot has been summoned in will have a chance of
-  # receiving an unsolicited message.  The bot will still respond to @-mentions and wake
-  # words in any channel it can access.  Set to 0 to disable this feature.
-  #   default: 3
-  unsolicited_channel_cap:
-
-  # If set, the bot will not reply to any messages that do not @-mention it or include a
-  # wakeword.  If unsolicited replies are disabled, the unsolicited_channel_cap setting will
-  # have no effect.
-  #   default: False
-  disable_unsolicited_replies:
-
-  # Time vs. response chance - calibration table. List of tuples with time in seconds and
-  # response chance as float between 0-1.
-  #   default: ['(180.0, 0.99)', '(300.0, 0.7)', '(600.0, 0.5)']
-  time_vs_response_chance:
-    - (300.0,  1.00)
-    - (600.0,  0.95)
-    - (900.0,  0.85)
-    - (1800.0,  0.7)
-    - (3600.0,  0.5)
-    - (14400.0, 0.2) # after 4 hours, repsonses must be solicited directly
-
-  # Same calibration table as above but for voice calls. The difference is that we use the
-  # last entry's response chance as a fallback instead of refusing to respond after the
-  # specified duration, since it's assumed all voice replies are solicited.
-  #   default: ['(30.0, 0.95)', '(60.0, 0.9)', '(180.0, 0.85)']
-  voice_time_vs_response_chance:
-    - (30.0,  1.00)
-    - (60.0,  0.95)
-    - (180.0, 0.90)
-    - (300.0, 0.85) # the last response chance will remain constant past its duration
-
-  # How much to increase response chance by if the message ends with ? or !
-  #   default: 0.3
-  interrobang_bonus:
+  # Fuzzy comparison is performed between the bot's current response and responses logged by
+  # the repetition tracker to get a similarity score as a fraction of 1. If the score is
+  # equal to or higher than this value, throttle channel history. Fuzzy matching is disabled
+  # if set to 0.0, meaning an exact match is required.
+  #   default: 0.0
+  repetition_similarity_threshold: 0.9
 
   # FEATURE PREVIEW: Path to the Discrivener executable. Will enable prototype voice
   # integration.
-  #   default:
   discrivener_location:
 
   # FEATURE PREVIEW: Path to the Discrivener model to load. Required if discrivener_location
   # is set.
-  #   default:
   discrivener_model_location:
 
-  # FEATURE PREVIEW: Whether to speak replies in voice calls with discrivener
+  # FEATURE PREVIEW: Whether to speak responses in voice calls with discrivener
   #   default: True
   speak_voice_replies:
 
-  # FEATURE PREVIEW: Whether to reply in the voice-text channel of voice calls
+  # FEATURE PREVIEW: Whether to respond in the voice-text channel of voice calls
   #   default: False
   post_voice_replies:
 
@@ -223,26 +267,41 @@ discord:
 # .
 oobabooga:
 
-  # Base URL for the text generation API. This should be http://hostname[:port]/v1 for plain
-  # connections, or https://hostname[:port]/v1 for connections over TLS.
-  #   default: http://localhost:5000/v1
+  # Base URL for the text generation API. This should be http://hostname[:port] for plain
+  # connections, or https://hostname[:port] for connections over TLS.
+  #   default: http://localhost:5000
   base_url:
+
+  # API key for whatever text generation API you are using.
+  api_key:
 
   # API type for handling different API endpoints.
   # Currently supported:
   # - oobabooga: Text Generation WebUI
-  # - openai: Any generic OpenAI-compatible API - LocalAI, vLLM, aphrodite-engine, etc
+  # - openai: Any generic OpenAI-compatible API - LocalAI, vLLM, etc
   # - tabbyapi: tabbyAPI - OpenAI-compatible exllamav2 API
+  # - aphrodite: aphrodite-engine - High-performance backend based on vLLM
   # - cohere: Official Cohere API (Command R+)
-  # `oobabooga` and `tabbyapi` support accurate token counts using their respective API
-  # token encoding endpoints. This helps squeeze more context into the available context
-  # window.
+  # `oobabooga`, `tabbyapi`, `aphrodite` and `cohere` support accurate token counts using
+  # their respective API token encoding endpoints. This helps squeeze more context into the
+  # available context window.
   #   default: oobabooga
   api_type:
 
-  # API key for whatever API you are using.
-  #   default: awesome_api_key
-  api_key:
+  # Some APIs (e.g. mentioned above) support tokenization, which enables accurate token
+  # counting. However, this may incur a performance cost depending on your system's
+  # performance, or your network latency. If the prompt generation takes too long, you can
+  # try disabling this. Note: this checks the token count per-message, so it may push you
+  # to an API rate limit very fast or incur large costs if you are using a paid service, so
+  # please check with your service before using this!
+  #   default: False
+  fetch_token_counts: true
+
+  # Add any configured system and/or user instruct templates to the list of stop sequences
+  # that are sent to the text generation backend. If the AI generates any of these
+  # sequences, the backend will stop generating and return the response immediately.
+  #   default: True
+  extend_stop_sequences:
 
   # Use the OpenAI Chat Completions API endpoint instead of the legacy Completions API.
   #   default: False
@@ -251,72 +310,77 @@ oobabooga:
   # Model to use (supported by some endpoints), otherwise leave blank. Example for
   # openrouter: mistralai/mistral-7b-instruct:free
   # Required for Cohere API.
-  #   default:
   model:
 
   # Print all AI input and output to STDOUT.
   #   default: False
   log_all_the_things:
 
-  # Maximum number of times we will re-query the text generation API to get a response.
-  # Useful if the API returns an empty response occasionally.
-  #   default: 0
-  retries: 2
-
   # A regex that will be used to extract message lines from the AI's output. The first
   # capture group will be used as the message. If this is not set, the entire output will be
   # used as the message.
-  #   default:
   message_regex:
 
-  # A dictionary which will be passed straight through to Oobabooga on every request. Feel
-  # free to add additional simple parameters here as Oobabooga's API evolves. See
-  # Oobabooga's documentation for what these parameters mean.
+  # A dictionary which will be passed straight through to the text generation API on every
+  # request. Feel free to add additional simple parameters here. See the Oobabooga Text
+  # Generation WebUI documentation for what these parameters mean.
   request_params:
-    max_tokens: 400
-    truncation_length: 4096
+    max_tokens: 448 # max number of tokens to generate. this counts toward the max context length, so higher values mean less available context before the model runs out of space.
+    truncation_length: 4096 # maximum context length in tokens.
+    auto_max_new_tokens: true # if there is headroom in the context window, generate until we use it up.
+    min_length: 0 # minimum number of new tokens to generate.
     add_bos_token: false # disabling this can make the model more creative. the model perceives the prompt as if it's not the beginning.
-    ban_eos_token: false
+    ban_eos_token: false # if true, the model will never stop generating unless killed. don't do this unless you can somehow gracefully stop the generation manually.
     skip_special_tokens: true
-    stop: []
-    do_sample: true
-    temperature_last: true # only Transformers/llamacpp_HF
+    custom_token_bans: "" # ban specific tokens from being predicted at all (comma-separated list as a string)
+    logit_bias: # dict of token IDs and their probability biases as floats (-100 - 100)
+    stop: [] # list of sequences that, when the model attempts to generate, will stop generating and return whatever it has without these included.
+    do_sample: true # use sampling techniques as opposed to simply generating with no modifications to the probability distributions. probably what you want.
+    temperature_last: true # only Transformers/llamacpp_HF - scales the logits distribution after removing unwanted tokens using the samplers. this is probably what you want.
     seed: -1
 
     temperature: 0.98 # linear scaling factor on token probabilities, increasing or decreasing the probability distribution density if greater or less than 1
     top_p: 1 # select tokens until their cumulative probabilities would exceed this fraction, then discard the rest. disabled if set to 1.
-    min_p: 0.06 # tokens with probability smaller than (min_p) * (probability of the most likely token) are discarded. disabled if set to 0.
     top_k: 0 # only this many tokens are selected, the rest are discarded. Disabled if set to 0.
+    min_p: 0.06 # tokens with probability smaller than (min_p) * (probability of the most likely token) are discarded. disabled if set to 0.
+    top_a: 0 # tokens with probability smaller than (top_a) * (probability of the most likely token)^2 are discarded. disabled if set to 0.
     typical_p: 1 # select only tokens that are at least this much more likely to appear than random tokens, given the conditional entropy of the model with the current context
-    tfs: 1 # tail-free sampling
+    tfs: 1 # tail-free sampling - orders logits after the softmax in descending order and tries to find the "tail" after which to discard tokens based on the first and second derivatives of the curve produced
 
-    repetition_penalty: 1 # scaling factor for tokens that appear at least once before in the context. values less or greater than 1 lead to more or less repetition, respectively
-    #repetition_penalty_range: 0 # only Transformers/llamacpp_HF - number of recent tokens to consider for the repetition penalty window. 0 means entire context
-    frequency_penalty: 0.21 # scaling factor that itself scales with the number of times a token is repeated. produces more diverse topics and less repetitive language
+    repetition_penalty: 1.18 # scaling factor for tokens that appear at least once before in the context. values less or greater than 1 lead to more or less repetition, respectively
+    repetition_penalty_range: 0 # only Transformers/llamacpp_HF - number of recent tokens to consider for the repetition penalty window. 0 means entire context
+    frequency_penalty: 0 # scaling factor that itself scales with the number of times a token is repeated. produces more diverse topics and less repetitive language
     presence_penalty: 0 # like repetition penalty except as an additive (or subtractive) offset instead of multiplicative scaling. produces mode diverse topics and subject matters in general without reducing repetition
 
-    guidance_scale: 1 # classifier-free guidance using cross-attention - not in llama-cpp-python yet but available with llamacpp_HF
+    # Grammar - Backus-Naur Form string that constrains model output according to the defined schema. See https://github.com/ggerganov/llama.cpp/blob/master/grammars/README.md
+    grammar_string: |-
+
+    # The following are only available in Transformers or llamacpp_HF
+    guidance_scale: 1 # classifier-free guidance using cross-attention - not in llama-cpp-python yet but available with llamacpp_HF. a good value is 1.5. see the paper: https://arxiv.org/pdf/2306.17806.pdf
     negative_prompt: ""
 
-    # Only available in Transformers or llamacpp_HF
-    dynamic_temperature: false
+    dry_multiplier: 0 # set to > 0 to enable DRY sampling. controls the magnitude of the penalty for the shortest penalized sequences.
+    dry_base: 1.75 # how fast the penalty grows with increasing sequence length.
+    dry_allowed_length: 2 # longest sequence that can be repeated without being penalized.
+    dry_sequence_breakers: |- # tokens across which sequence matching is reset and starts again. specified as a string of comma-separated quoted strings (for some god forsaken reason), escaped as necessary.
+      "\n", ":", "\"", "'", "*"
+
+    dynamic_temperature: false # modifies temperature to range between dynatemp_low (minimum) and dynatemp_high (maximum), with entropy-based scaling.
     dynatemp_low: 0.83
     dynatemp_high: 1
-    dynatemp_exponent: 1
+    dynatemp_exponent: 1 # scales the steepness of the entropy-derived scaling curve.
 
-    top_a: 0
-    epsilon_cutoff: 0
-    eta_cutoff: 0
+    epsilon_cutoff: 0 # in units of 1e-4; a reasonable value is 3. probability floor below which tokens are excluded from being sampled.
+    eta_cutoff: 0 # in units of 1e-4; a reasonable value is 3. main parameter of the Eta Sampling technique. see this paper: https://arxiv.org/pdf/2210.15191.pdf
 
-    mirostat_mode: 0
-    mirostat_tau: 5
-    mirostat_eta: 0.1
+    mirostat_mode: 0 # sets the Mirostat algorithm version - use 2. attempts to drectly control perplexity by controlling the cross-entropy rate with a dynamically calculated top-k value per forward-pass.
+    mirostat_tau: 5 # target cross-entropy rate. lower values lead to more focus/coherence, higher values allow more diversity but potentially less coherence. somewhere between 3-6 is usually good.
+    mirostat_eta: 0.1 # Mirostat learning rate - how quickly the algorithm responds to feedback from generated text, i.e. how many tokens are produced per analysis window before the next dynamic top-k. use between 0.05-0.2
 
-    smoothing_factor: 0 # activates quadratic sampling
+    smoothing_factor: 0 # values > 0 activate quadratic sampling - when < 1, the logits distribution becomes flatter, reducing the peaks. when > 1, it becomes more peaked than normal.
 
-    encoder_repetition_penalty: 1
-    no_repeat_ngram_size: 0
-    min_length: 0
+    encoder_repetition_penalty: 1 # "hallucination filter". penalizes tokens that are not in the prior context. higher values are more likely to stay on-topic, lower values more likely to diverge. < 1 encourages divergence.
+    no_repeat_ngram_size: 0 # if > 0, n-grams of this size can only occur once and can't be repeated. bad for actual conversation, use DRY sampling instead.
 
   # When running inside the Oobabooga plugin, automatically connect to Discord when
   # Oobabooga starts. This has no effect when running from the command line.
@@ -328,65 +392,99 @@ oobabooga:
 # .
 vision_api:
 
+  # Base URL for the OpenAI-like Vision API. Optionally takes a path component to the Chat
+  # Completions endpoint.
+  vision_api_url: http://localhost:5010/v1/chat/completions
+
+  # API key for the OpenAI-like Vision API.
+  vision_api_key:
+
+  # Model to use for the Vision API.
+  vision_model: llava-1.6
+
   # Fetch images from URLs. Warning: this may lead to your host IP address being leaked to
   # any sites that are accessed!
   #   default: False
   fetch_urls: true
 
-  # URL for the OpenAI-like Vision API. Uses the OpenAI Chat Completions API specification,
-  # e.g. http://localhost:5000/v1/chat/completions
-  #   default:
-  vision_api_url: http://localhost:5010/v1/chat/completions
-
-  # API key for the OpenAI-like GPT Vision API.
-  #   default: notarealkey
-  vision_api_key:
-
-  # Model to use for the GPT Vision API.
-  #   default: gpt-4-vision-preview
-  vision_model: llava-1.6
-
-  # Maximum number of tokens for the Vision model to predict.
-  #   default: 300
-  max_tokens:
-
   # Maximum size for the longest side of the image. It will be downsampled to this size if
-  # necessary.
+  # necessary, preserving the aspect ratio of the image.
   #   default: 1344
   max_image_size:
+
+  # A dictionary which will be passed straight through to the Vision API on every request.
+  request_params:
+    max_tokens: 300
+    truncation_length: 4096
+    auto_max_new_tokens: true
+    min_length: 0
+    add_bos_token: true
+    ban_eos_token: false
+    skip_special_tokens: true
+    stop: []
+    do_sample: true
+    temperature_last: true
+    seed: -1
+    temperature: 0.2
+    top_p: 0.95
+    min_p: 0.05
+    top_k: 100
+    typical_p: 1
+    tfs: 1
+    repetition_penalty: 1
+    repetition_penalty_range: 0
+    frequency_penalty: 0
+    presence_penalty: 0
+    guidance_scale: 1
+    negative_prompt: ''
+    dynamic_temperature: false
+    dynatemp_low: 0.1
+    dynatemp_high: 0.3
+    dynatemp_exponent: 1
+    top_a: 0
+    epsilon_cutoff: 0
+    eta_cutoff: 0
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 # stable_diffusion
 # .
 stable_diffusion:
 
+  # URL for an AUTOMATIC1111 Stable Diffusion server.
+  stable_diffusion_url: ws://localhost:7861
+
   # When one of these words/phrases is used in a message, the bot will generate an image.
-  #   default: ['draw', 'sketch', 'paint', 'make', 'generate', 'post', 'upload']
   image_words:
     - draw a pic
     - draw a picture
+    - draw me a pic
+    - draw me a picture
+    - draw another pic
+    - draw another picture
+    - draw me another pic
+    - draw me another picture
+    - sketch a
     - generate an image
+    - generate another image
+    - make an image
+    - make another image
 
-  # When one of these words is used in a message, the bot will generate a self-portrait,
-  # substituting the avatar word for the configured avatar prompt.
-  #   default: ['self-portrait', 'self portrait', 'your avatar', 'your pfp', 'your profile
-  # pic', 'yourself', 'you']
+  # When one of these words/phrases is used in a message, the bot will generate a self-
+  # portrait, substituting the avatar word for the configured avatar prompt.
   avatar_words:
 
-  # URL for an AUTOMATIC1111 Stable Diffusion server.
-  #   default:
-  stable_diffusion_url: ws://localhost:7861
-
   # This will be appended to every image generation prompt sent to Stable Diffusion.
-  #   default:
   extra_prompt_text: best quality, absurdres, masterpiece
 
   # Prompt to send to Stable Diffusion to generate self-portrait if asked.
-  #   default:
   avatar_prompt: reisen_udongein_inaba, rabbit ears, light purple hair, red eyes, long hair, blazer, pink pleated skirt, crescent badge, school uniform, <lora:Reisen:1> model=HoloAOM_3A1B
 
+  # Whether to mark DMs and group DMs as NSFW, since this can't be detected automatically.
+  #   default: False
+  nsfw_dms:
+
   # Time in seconds that the generated image will be displayed without interaction before
-  # being deleted.
+  # being deleted. Timeout is disabled if set to 0.
   #   default: 180.0
   timeout: 300
 
@@ -409,16 +507,17 @@ stable_diffusion:
     override_settings:
       CLIP_stop_at_last_layers: 2
       sd_vae: Automatic
+      enable_pnginfo: false
     override_settings_restore_afterwards: true
 
   # These parameters can be overridden by the Discord user by including them in their image
-  # generation request.  The format for this is: param_name=value  This is a whitelist of
+  # generation request. The format for this is: param_name=value  This is a whitelist of
   # parameters that can be overridden. They must be simple parameters (strings, numbers,
-  # booleans), and they must be in the request_params dictionary.  The value the user inputs
+  # booleans), and they must be in the request_params dictionary. The value the user inputs
   # will be checked against the type from the request_params dictionary, and if it doesn't
-  # match, the default value will be used instead.  Otherwise, this value will be passed
+  # match, the default value will be used instead. Otherwise, this value will be passed
   # through to Stable Diffusion without any changes, so be mindful of what you allow here.
-  # It could potentially be used to inject malicious values into your SD server.  For
+  # It could potentially be used to inject malicious values into your SD server. For
   # example, steps=1000000 could be bad for your server, unless you have a dozen NVIDIA
   # H100s.
   user_override_params:
@@ -436,7 +535,15 @@ stable_diffusion:
 # .
 template:
 
-  # Displayed in Discord after a successful /lobotomize command.  Both the discord users and
+  # Displayed in Discord for commands that warrant an acknowledgement. Only the user issuing
+  # the command will see this, and it is ephemeral.
+  # .
+  # Allowed tokens: {AI_NAME}, {NAME}
+  # .
+  #   default: Okay.
+  command_acknowledgement:
+
+  # Displayed in Discord after a successful /lobotomize command. Both the discord users and
   # the bot AI will see this message.
   # .
   # Allowed tokens: {AI_NAME}, {NAME}
@@ -444,8 +551,8 @@ template:
   #   default:  Ummmm... what were we talking about?
   command_lobotomize_response: what was i saying again?
 
-  # The main prompt sent to Oobabooga to generate a response from the bot AI.  The AI's
-  # reply to this prompt will be sent to discord as the bot's response.
+  # The main prompt sent to the text generation API to generate a response from the AI. The
+  # AI's reply to this prompt will be sent to Discord as the bot's response.
   # .
   # Allowed tokens: {SYSTEM_SEQUENCE_PREFIX}, {SYSTEM_SEQUENCE_SUFFIX}, {AI_NAME},
   # {IMAGE_COMING}, {MESSAGE_HISTORY}, {SECTION_SEPARATOR}, {PERSONA}, {CHANNELNAME},
@@ -486,58 +593,58 @@ template:
   # Allowed tokens: {SYSTEM_SEQUENCE_PREFIX}, {SYSTEM_SEQUENCE_SUFFIX}, {AI_NAME}
   # .
   #   default: ***
-  section_separator: "[New chat]"
+  section_separator: '[New chat]'
 
   # strftime-formatted string to render current timestamp.
   # .
   # Allowed tokens:
   # .
   #   default: %B %d, %Y - %I:%M:%S %p
-  datetime_format: "%-I:%M %p, %A %-d %B %Y"
+  datetime_format: '%-I:%M %p, %A %-d %B %Y'
 
   # The template that will be applied to user display names, and becomes {USER_NAME}.
   # .
   # Allowed tokens: {NAME}
   # .
   #   default:  {NAME}
-  user_name: "{NAME}"
+  user_name:
 
-  # The BOS token that should be inserted before the system block.
+  # The sequence that should be inserted before the system block.
   # .
   # Allowed tokens:
   # .
   #   default:
   system_sequence_prefix: "<|im_start|>system\n"
 
-  # The EOS token that should be inserted after the system block.
+  # The sequence that should be inserted after the system block.
   # .
   # Allowed tokens:
   # .
   #   default:
   system_sequence_suffix: <|im_end|>
 
-  # The BOS token that should be inserted before the user message block.
+  # The sequence that should be inserted before the user message block.
   # .
   # Allowed tokens:
   # .
   #   default:
   user_sequence_prefix: "<|im_start|>user\n"
 
-  # The EOS token that should be inserted after the user message block.
+  # The sequence that should be inserted after the user message block.
   # .
   # Allowed tokens:
   # .
   #   default:
   user_sequence_suffix: <|im_end|>
 
-  # The BOS token that should be inserted before the bot message block.
+  # The sequence that should be inserted before the bot message block.
   # .
   # Allowed tokens:
   # .
   #   default:
   bot_sequence_prefix: "<|im_start|>assistant\n"
 
-  # The EOS token that should be inserted after the bot message block.
+  # The sequence that should be inserted after the bot message block.
   # .
   # Allowed tokens:
   # .
@@ -549,10 +656,10 @@ template:
   # Allowed tokens: {NAME}
   # .
   #   default:  {NAME}
-  bot_name: "{NAME}"
+  bot_name:
 
   # Part of the AI response-generation prompt, this is used to render a single line of chat
-  # history for users.  A list of these, one for each past user message, will become part of
+  # history for users. A list of these, one for each past user message, will become part of
   # {MESSAGE_HISTORY} and inserted into the main prompt
   # .
   # Allowed tokens: {MESSAGE}, {USER_NAME}
@@ -561,15 +668,17 @@ template:
   user_prompt_history_block: "{USER_NAME}: {MESSAGE}\n"
 
   # Part of the AI response-generation prompt, this is used to render a single line of chat
-  # history for the bot.  A list of these, one for each past bot message, will become part
-  # of {MESSAGE_HISTORY} and inserted into the main prompt
+  # history for the bot. A list of these, one for each past bot message, will become part of
+  # {MESSAGE_HISTORY} and inserted into the main prompt
   # .
   # Allowed tokens: {MESSAGE}, {BOT_NAME}
   # .
   #   default:  {BOT_NAME}: {MESSAGE}
   bot_prompt_history_block: "{BOT_NAME}: {MESSAGE}\n"
 
-  # This is the system prompt sent to the GPT Vision model.
+  # This is the system prompt sent to the Vision model. If this is set to an empty string
+  # (i.e. ""), the system prompt is ignored. Useful for some Vision APIs that do not support
+  # system prompts.
   # .
   # Allowed tokens: {AI_NAME}
   # .
@@ -577,10 +686,7 @@ template:
   # assistant gives helpful, detailed, and polite answers to the human's questions.
   gpt_vision_system_prompt:
 
-  # The user instruction prompt sent to the GPT Vision model.
-  # .
-  # Allowed tokens:
-  # .
+  # The user instruction prompt sent to the Vision model.
   #   default:  Describe the following image in as much detail as possible, including any
   # relevant details while being concise.
   gpt_vision_prompt:
@@ -592,7 +698,7 @@ template:
   # .
   #   default:  {USER_NAME} posted an image and your image recognition system describes it
   # to you:
-  prompt_image_received: "*{USER_NAME} posted an image and {AI_NAME}'s image recognition system describes it to her:* "
+  prompt_image_received: "{USER_NAME} posts an image and {AI_NAME}'s image recognition system describes it to her: "
 
   # Part of the AI response-generation prompt, this is used to inform the AI that it is in
   # the process of generating an image.
@@ -601,9 +707,21 @@ template:
   # {USER_SEQUENCE_PREFIX}, {USER_SEQUENCE_SUFFIX}, {BOT_SEQUENCE_PREFIX},
   # {BOT_SEQUENCE_SUFFIX}
   # .
-  #   default:  {AI_NAME}: is currently generating an image, as requested.
+  #   default:  {SYSTEM_SEQUENCE_PREFIX}{AI_NAME} is currently generating an image, as
+  # requested.{SYSTEM_SEQUENCE_SUFFIX}
   prompt_image_coming: |-
     {SYSTEM_SEQUENCE_PREFIX}{AI_NAME}'s image generator is currently creating an image, as requested. This will take 30-60 seconds. Tell the user that you are working on the image. Do NOT describe the image.{SYSTEM_SEQUENCE_SUFFIX}
+
+  # Part of the AI response-generation prompt, this is used to inform the AI that its image
+  # generator is offline and is not functioning.
+  # .
+  # Allowed tokens: {AI_NAME}, {SYSTEM_SEQUENCE_PREFIX}, {SYSTEM_SEQUENCE_SUFFIX},
+  # {USER_SEQUENCE_PREFIX}, {USER_SEQUENCE_SUFFIX}, {BOT_SEQUENCE_PREFIX},
+  # {BOT_SEQUENCE_SUFFIX}
+  # .
+  #   default:  {SYSTEM_SEQUENCE_PREFIX}{AI_NAME}'s image generator is offline or has failed
+  # for some reason!{SYSTEM_SEQUENCE_SUFFIX}
+  prompt_image_not_coming:
 
   # Shown in Discord when the user selects to discard an image that Stable Diffusion had
   # generated.
@@ -614,10 +732,10 @@ template:
   # find a suitable one.
   image_detach: "*{NAME} asked for an image... but couldn't find a suitable one.*"
 
-  # Shown in Discord when an image is first generated from Stable Diffusion.  This should
+  # Shown in Discord when an image is first generated from Stable Diffusion. This should
   # prompt the user to either save or discard the image.
   # .
-  # Allowed tokens: {IMAGE_PROMPT}, {IMAGE_TIMEOUT}, {NAME}
+  # Allowed tokens: {NAME}, {IMAGE_PROMPT}, {IMAGE_TIMEOUT}
   # .
   #   default: {NAME}, is this what you wanted? If no choice is made, this message will 💣
   # self-destruct 💣 in 3 minutes.
@@ -627,7 +745,7 @@ template:
 
   # Shown in Discord when the we could not contact Stable Diffusion to generate an image.
   # .
-  # Allowed tokens: {IMAGE_PROMPT}, {NAME}
+  # Allowed tokens: {NAME}, {IMAGE_PROMPT}
   # .
   #   default:  Something went wrong generating your image. Sorry about that!
   image_generation_error:
@@ -637,5 +755,5 @@ template:
   # .
   # Allowed tokens: {NAME}
   # .
-  #   default:  Sorry, only {NAME} can press the buttons.
+  #   default: Sorry, only {NAME} can press the buttons.
   image_unauthorized:
