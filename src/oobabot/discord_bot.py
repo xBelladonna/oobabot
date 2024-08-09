@@ -1355,9 +1355,9 @@ class DiscordBot(discord.Client):
                 or self.repetition_tracker.get_throttle_message_id(
                     response_channel.id
                 )
-            )
-            history_marker_id = self.repetition_tracker.get_history_marker_id(
-                response_channel.id
+                or self.repetition_tracker.get_history_marker_id(
+                    response_channel.id
+                )
             )
 
             # If this message is one that summoned us, get a reference to it so we
@@ -1367,12 +1367,21 @@ class DiscordBot(discord.Client):
                 # We can't use the message reference if we're starting a new thread
                 if message.channel_id == response_channel.id:
                     reference = raw_message.to_reference()
-            ignore_all_until_message_id = message.message_id
+            # If this message is a reply to another message, use the message
+            # referenced by the reply as the start of the AI's chat history,
+            # to not confuse the AI about which message to respond to. This
+            # overrides repetition throttling, as it's somewhat likely the
+            # history around the reply will be different enough, and if not,
+            # replies will likely be infrequent enough while throttling is
+            # required that the repetition tracker will engage soon enough.
+            ignore_all_until_message_id = (
+                message.reference_message_id or message.message_id
+            )
 
             recent_messages = self._filtered_history_iterator(
                 message=message,
                 channel=response_channel,
-                stop_before_message_id=repeated_id or history_marker_id,
+                repeated_id=repeated_id,
                 ignore_all_until_message_id=ignore_all_until_message_id,
                 limit=self.prompt_generator.history_messages
             )
@@ -1419,7 +1428,11 @@ class DiscordBot(discord.Client):
                             if _retry < self.retries:
                                 warn_text += " Regenerating response..."
                             fancy_logger.get().warning(warn_text)
-                            retry_throttle_id = message.message_id
+                            if not retry_throttle_id:
+                                retry_throttle_id = await anext(
+                                    response_channel.history(before=raw_message, limit=1)
+                                )
+                                retry_throttle_id = retry_throttle_id.id
                             continue
 
                 # Now send the response after all retries have completed
@@ -1909,8 +1922,9 @@ class DiscordBot(discord.Client):
 
     async def _filter_history_message(
       self,
-      message: discord.Message,
-      stop_before_message_id: typing.Optional[int] = None,
+      raw_message: discord.Message,
+      message: typing.Optional[types.GenericMessage] = None,
+      repeated_id: typing.Optional[int] = None,
    ) -> typing.Tuple[typing.Optional[types.GenericMessage], bool]:
         """
         Filter out any messages that we don't want to include in the
@@ -1922,45 +1936,46 @@ class DiscordBot(discord.Client):
         - messages that have been explicitly hidden by the user
         - system messages that are not default messages or replies
 
-        Also, modify the message in the following ways:
-        - if the message is from the AI, set the author name to
-        the AI's persona name, not its Discord account name
-        - remove <@_0000000_> user ID-based message mention text,
-        replacing them with @username mentions
-        - remove <#_0000000_> channel ID-based message mention text,
-        replacing them with #channel mentions
-        - remove <:emoji_name:_0000000_> emoji IDs, replacing them
-        with the :emoji_name: between colons.
+        Optionally takes an existing GenericMessage which will be
+        used instead of converting the discord Message automatically.
+
+        Returns a tuple containing:
+        - The sanitized GenericMessage (or None if it was filtered)
+        - A boolean indicating if we should fetch more history or stop
         """
-        # If we've hit the throttle message, stop and don't add any more history
-        if stop_before_message_id and message.id == stop_before_message_id:
-            generic_message = discord_utils.discord_message_to_generic_message(message)
-            return generic_message, False
+        # If we've hit the throttle message, return the message and don't
+        # add any more history.
+        if repeated_id and raw_message.id == repeated_id:
+            return None, False
 
         # Don't include system messages
-        if message.type not in (
+        if raw_message.type not in (
             discord.MessageType.default,
-            discord.MessageType.reply
+            discord.MessageType.reply,
+            discord.MessageType.chat_input_command
         ):
             return None, True
 
         # Don't include hidden messages
         if (
-            self.decide_to_respond.is_hidden_message(message.content)
-            or await self._is_hidden_by_reaction(message)
+            self.decide_to_respond.is_hidden_message(
+                message.body_text if message else raw_message.content
+            )
+            or await self._is_hidden_by_reaction(raw_message)
         ):
             return None, True
 
-        generic_message = discord_utils.discord_message_to_generic_message(message)
+        if not message:
+            message = discord_utils.discord_message_to_generic_message(raw_message)
 
-        if generic_message.author_id == self.bot_user_id:
+        if message.author_id == self.bot_user_id:
             # hack: use the suppress_embeds=True flag to indicate that this message
             # is one we generated as part of a text response, as opposed to an
             # image or application message
-            if not message.flags.suppress_embeds:
+            if not raw_message.flags.suppress_embeds:
                 # Substitute any images we generated for the alt text description
                 alt_text = []
-                for attachment in message.attachments:
+                for attachment in raw_message.attachments:
                     if (
                         attachment.content_type
                         and "image/" in attachment.content_type
@@ -1981,42 +1996,64 @@ class DiscordBot(discord.Client):
                         alt_text.append(image_prompt)
                 if not alt_text:
                     return None, True
-                generic_message.body_text = "\n".join(alt_text)
+                message.body_text = "\n".join(alt_text)
 
             # Make sure the AI always sees its persona name in the transcript, even
             # if the chat program has it under a different account name.
-            generic_message.author_name = self.persona.ai_name
+            message.author_name = self.persona.ai_name
 
+        return await self._sanitize_message(message, raw_message.channel), True
+
+    async def _sanitize_message(
+        self,
+        message: types.GenericMessage,
+        response_channel: discord.abc.Messageable,
+    ) -> types.GenericMessage:
+        """
+        Takes a GenericMessage and the response channel to use in conditional
+        checks and comparisons.
+
+        Modify the message in the following ways:
+        - if the message is from the AI, set the author name to the AI's persona
+        name, not its Discord account name
+        - remove <@_0000000_> user ID-based message mention text, replacing them
+        with @username mentions
+        - remove <#_0000000_> channel ID-based message mention text, replacing
+        them with #channel mentions
+        - remove <:emoji_name:_0000000_> emoji IDs, replacing them with the
+        :emoji_name: between colons
+        """
         # Replace Discord-specific codes with the human (or AI) readable content
-        if isinstance(message.channel, (discord.abc.GuildChannel, discord.Thread)):
+        if isinstance(response_channel, (discord.abc.GuildChannel, discord.Thread)):
             fn_user_id_to_name = discord_utils.guild_user_id_to_name(
-                message.channel.guild
+                response_channel.guild
             )
             await discord_utils.replace_channel_mention_ids_with_names(
                 self,
-                generic_message
+                message
             )
-        elif isinstance(message.channel, discord.GroupChannel):
+        elif isinstance(response_channel, discord.GroupChannel):
             fn_user_id_to_name = discord_utils.group_user_id_to_name(
-                message.channel,
+                response_channel,
             )
         else:
             # This is a DM or other channel type
             fn_user_id_to_name = discord_utils.dm_user_id_to_name(
                 self.bot_user_id,
                 self.persona.ai_name,
-                message.author.display_name,
+                message.author_name,
             )
 
         discord_utils.replace_user_mention_ids_with_names(
-            generic_message,
+            message,
             fn_user_id_to_name=fn_user_id_to_name,
         )
         discord_utils.replace_emoji_ids_with_names(
             self,
-            generic_message
+            message
         )
-        return generic_message, True
+
+        return message
 
     async def _is_hidden_by_reaction(self, raw_message: discord.Message) -> bool:
         """
@@ -2050,7 +2087,6 @@ class DiscordBot(discord.Client):
 
     async def _filtered_history_iterator(
         self,
-        message: types.GenericMessage,
         channel: typing.Union[
             discord.TextChannel,
             discord.Thread,
@@ -2058,9 +2094,10 @@ class DiscordBot(discord.Client):
             discord.DMChannel,
             discord.GroupChannel
         ],
-        stop_before_message_id: typing.Optional[int],
-        ignore_all_until_message_id: typing.Optional[int],
-        limit: int
+        limit: int,
+        message: typing.Optional[types.GenericMessage] = None,
+        repeated_id: typing.Optional[int] = None,
+        ignore_all_until_message_id: typing.Optional[int] = None
     ) -> typing.AsyncIterator[types.GenericMessage]:
         """
         Gathers channel history up to the limit and returns an asynchronous
@@ -2068,6 +2105,9 @@ class DiscordBot(discord.Client):
         filtered out, this recursively fetches history (ignoring the limit)
         until all filtered messages are accounted for, we reach our message
         limit, or we reach the beginning of the channel.
+
+        Optionally takes an existing GenericMessage, which will be yielded
+        in place of the matching message fetched from the channel history.
 
         When returning the history of a thread that was started as a reply
         to an existing message, Discord does not include the message that
@@ -2079,9 +2119,42 @@ class DiscordBot(discord.Client):
         filtered_messages = 0
         messages_fetched = 0
         last_returned = None
-        ignoring_all = bool(ignore_all_until_message_id)
+        # If a message was provided, we fetch the history from the start
+        # of the channel and filter unwanted messages so we can include
+        ignoring_all = bool(False if message else ignore_all_until_message_id)
+        before = (
+            discord.Object(ignore_all_until_message_id)
+            if ignore_all_until_message_id and not ignoring_all else None
+        )
 
-        channel_history = channel.history(limit=limit)
+        # If the first message was provided, yield it immediately
+        if message:
+            yield message
+            messages += 1
+
+            if (
+                message.reference_message_id
+                and ignore_all_until_message_id
+                and message.reference_message_id == ignore_all_until_message_id
+            ):
+                try:
+                    last_returned = await channel.fetch_message(ignore_all_until_message_id)
+                    reference_message, allow_more = await self._filter_history_message(
+                        last_returned,
+                        repeated_id=repeated_id
+                    )
+                    if reference_message:
+                        yield reference_message
+                        messages += 1
+                    else:
+                        filtered_messages += 1
+                    if not allow_more:
+                        # We've hit a message which requires us to stop fetching history
+                        return
+                except discord.NotFound:
+                    pass
+
+        channel_history = channel.history(limit=limit, before=before)
         async for raw_message in channel_history:
             # Stop if we've collected as many messages as we're looking for
             if messages >= limit:
@@ -2100,16 +2173,11 @@ class DiscordBot(discord.Client):
                     continue
 
             # We ignore the message matching the ID of the provided GenericMessage
-            # and yield the provided message directly, as we may have added
-            # attachments to the message previously.
-            if raw_message.id == message.message_id:
-                yield message
-                continue
-
-            last_returned = raw_message
+            # and yield the provided message directly, as we may have modified or
+            # added attachments to the message previously.
             sanitized_message, allow_more = await self._filter_history_message(
                 raw_message,
-                stop_before_message_id=stop_before_message_id
+                repeated_id=repeated_id
             )
             if sanitized_message:
                 yield sanitized_message
@@ -2119,6 +2187,8 @@ class DiscordBot(discord.Client):
             if not allow_more:
                 # We've hit a message which requires us to stop fetching history
                 return
+
+            last_returned = raw_message
 
         # If we filtered any messages, fetch additional messages, recursively
         # fetching new channel history as required, until all filtered messages
@@ -2157,7 +2227,8 @@ class DiscordBot(discord.Client):
                 # otherwise, continue to filter or yield the message
                 last_returned = raw_message
                 sanitized_message, _ = await self._filter_history_message(
-                    raw_message
+                    raw_message,
+                    repeated_id=repeated_id
                 )
                 if sanitized_message:
                     yield sanitized_message
@@ -2195,7 +2266,8 @@ class DiscordBot(discord.Client):
             # if the message was deleted.
             if isinstance(reference, discord.Message):
                 sanitized_message, _ = await self._filter_history_message(
-                    reference
+                    reference,
+                    repeated_id=repeated_id
                 )
                 if sanitized_message:
                     yield sanitized_message
