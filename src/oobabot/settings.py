@@ -667,6 +667,23 @@ class Settings:
             )
         )
         self.discord_settings.add_setting(
+            oesp.ConfigSetting[typing.List[str]](
+                name="ignore_reactions",
+                default=[],
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        List of reaction emojis or custom emoji names. If any of
+                        these reactions appear on messages from the AI, or a user
+                        who reacted to the message is the author, those messages
+                        will be excluded from the AI's chat history.
+                        """
+                    )
+                ],
+                show_default_in_yaml=False
+            )
+        )
+        self.discord_settings.add_setting(
             oesp.ConfigSetting[int](
                 name="unsolicited_channel_cap",
                 default=3,

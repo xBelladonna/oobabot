@@ -363,6 +363,7 @@ class DiscordBot(discord.Client):
         self.dont_split_responses = discord_settings["dont_split_responses"]
         self.ignore_dms = discord_settings["ignore_dms"]
         self.ignore_prefixes = discord_settings["ignore_prefixes"]
+        self.ignore_reactions = discord_settings["ignore_reactions"]
         allowed_mentions = [x.lower() for x in discord_settings["allowed_mentions"]]
         for allowed_mention_type in allowed_mentions:
             if allowed_mention_type not in ["everyone", "users", "roles"]:
@@ -1434,8 +1435,19 @@ class DiscordBot(discord.Client):
         # We need to find the message our response was directed at
         raw_target_message = None
         # If our response is a reply, get the referenced message
-        if raw_message.reference and isinstance(
-            raw_message.reference.resolved, discord.Message
+        if (
+            raw_message.reference
+            and isinstance(raw_message.reference.resolved, discord.Message)
+            and not self.decide_to_respond.is_hidden_message(
+                raw_message.reference.resolved.content
+            )
+            and not await self._is_hidden_by_reaction(
+                raw_message.reference.resolved
+                if raw_message.reference.resolved.reactions
+                else await response_channel.fetch_message(
+                    raw_message.reference.resolved.id
+                )
+            )
         ):
             raw_target_message = raw_message.reference.resolved
             target_message = discord_utils.discord_message_to_generic_message(
@@ -1448,8 +1460,9 @@ class DiscordBot(discord.Client):
                 limit=self.prompt_generator.history_lines,
                 before=raw_message
             ):
-                if self.decide_to_respond.is_hidden_message(
-                    raw_msg.content
+                if (
+                    self.decide_to_respond.is_hidden_message(raw_msg.content)
+                    or await self._is_hidden_by_reaction(raw_msg)
                 ):
                     continue
                 raw_target_message = raw_msg
@@ -1679,7 +1692,10 @@ class DiscordBot(discord.Client):
             return None, True
 
         # Don't include hidden messages
-        if self.decide_to_respond.is_hidden_message(message.content):
+        if (
+            self.decide_to_respond.is_hidden_message(message.content)
+            or await self._is_hidden_by_reaction(message)
+        ):
             return None, True
 
         generic_message = discord_utils.discord_message_to_generic_message(message)
@@ -1726,6 +1742,36 @@ class DiscordBot(discord.Client):
             generic_message
         )
         return generic_message, True
+
+    async def _is_hidden_by_reaction(self, raw_message: discord.Message) -> bool:
+        """
+        Takes a Discord Message and checks if it has any of the configured
+        ignore reactions on it. If any ignore reactions are present and are
+        either on messages from the AI, or the user's own messages, the
+        method returns True, otherwise False.
+        """
+        if not self.ignore_reactions:
+            return False
+
+        for reaction in raw_message.reactions:
+            if reaction.is_custom_emoji():
+                emoji: str = reaction.emoji.name # type: ignore
+            else:
+                emoji: str = reaction.emoji # type: ignore
+            if emoji in self.ignore_reactions:
+                if (
+                    # The reaction was on a message from the AI
+                    reaction.message.author.id == self.bot_user_id
+                    # or a message from any bot (for PluralKit users, etc)
+                    or raw_message.author.bot
+                ):
+                    return True
+                async for reactor in reaction.users():
+                    # If a user who reacted to this message is the author,
+                    # filter it.
+                    if reactor.id == reaction.message.author.id:
+                        return True
+        return False
 
     async def _filtered_history_iterator(
         self,
