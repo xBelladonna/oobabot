@@ -83,6 +83,7 @@ class StableDiffusionClient(http_client.SerializedHttpClient):
 
         # lower-case all keys in request_params
         self.request_params = {k.lower(): v for k, v in self.request_params.items()}
+        self.flip_orientation_param = settings["flip_orientation_param"]
         self.sd_models = []
         self.sd_samplers = []
 
@@ -99,6 +100,8 @@ class StableDiffusionClient(http_client.SerializedHttpClient):
                 continue
             # store the type of the param, so we can validate user input later
             self.user_override_params[param] = type(self.request_params[param])
+        if self.flip_orientation_param:
+            self.user_override_params[self.flip_orientation_param] = bool
 
         self.magic_model_key = magic_model_key.lower()
 
@@ -324,10 +327,19 @@ class StableDiffusionClient(http_client.SerializedHttpClient):
                 continue
             key, val = key_val_pair
 
-            fancy_logger.get().debug(
-                "Stable Diffusion: per user request, setting '%s' to '%s'", key, val
-            )
-            params[key] = val
+            if key == self.flip_orientation_param and val:
+                fancy_logger.get().debug(
+                    "Stable Diffusion: per user request, flipping orientation"
+                )
+                new_height = params["width"]
+                params["width"] = params["height"]
+                params["height"] = new_height
+            else:
+                fancy_logger.get().debug(
+                    "Stable Diffusion: per user request, setting '%s' to '%s'",
+                    key, val
+                )
+                params[key] = val
 
         self.update_model_and_sampler(params)
 

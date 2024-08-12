@@ -1467,6 +1467,20 @@ class Settings:
             )
         )
         self.stable_diffusion_settings.add_setting(
+            oesp.ConfigSetting[str](
+                name="flip_orientation_param",
+                default="flip",
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        Parameter alias to automatically flip the default orientation,
+                        using the same resolution with the aspect ratio swapped.
+                        """
+                    )
+                ]
+            )
+        )
+        self.stable_diffusion_settings.add_setting(
             oesp.ConfigSetting[bool](
                 name="nsfw_dms",
                 default=False,
