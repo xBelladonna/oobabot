@@ -69,7 +69,7 @@ class LastMentionTimes(dict):
         self.cooldowns.discard(channel_id)
 
     def time_since_last_mention(
-        self, message: types.ChannelMessage
+        self, message: typing.Union[types.ChannelMessage, types.GroupMessage]
     ) -> typing.Optional[float]:
         """
         Get the time in seconds since the last mention, starting from
@@ -146,8 +146,12 @@ class DecideToRespond:
                 return False
             return True
 
+        # if DMs are disabled, ignore group DMs too
+        if self.ignore_dms and isinstance(message, types.GroupMessage):
+            return False
+
         # reply to all messages in which we're @-mentioned
-        if isinstance(message, types.ChannelMessage):
+        if isinstance(message, (types.ChannelMessage, types.GroupMessage)):
             if message.is_mentioned(our_user_id):
                 return True
 
@@ -193,7 +197,9 @@ class DecideToRespond:
         return response_chance
 
     def provide_unsolicited_response_in_channel(
-        self, our_user_id: int, message: types.ChannelMessage
+        self,
+        our_user_id: int,
+        message: typing.Union[types.ChannelMessage, types.GroupMessage]
     ) -> bool:
         """
         Returns True if we should respond to the message, even
@@ -210,8 +216,23 @@ class DecideToRespond:
 
         # get response chance based on when we were last mentioned in this channel
         time_since_last_mention = self.time_since_last_mention(message)
+        # if this is a group DM, it's likely a response is desired
+        # if there is no mention logged, log one and respond
+        # this can be overridden by a channel cooldown
+        if (
+            time_since_last_mention is None
+            and isinstance(message, types.GroupMessage)
+        ):
+            self.log_mention(
+                message.channel_id, message.channel_id, message.send_timestamp
+            )
+            time_since_last_mention = self.time_since_last_mention(message)
+
         if time_since_last_mention is None or self.is_cooling(
-            message.guild_id, message.channel_id
+            message.guild_id
+            if isinstance(message, types.ChannelMessage)
+            else message.channel_id,
+            message.channel_id
         ):
             return False
 
@@ -339,8 +360,10 @@ class DecideToRespond:
             return True, True
 
         if (
-            isinstance(message, types.ChannelMessage)
-            and self.provide_unsolicited_response_in_channel(bot_user_id, message)
+            isinstance(message, (types.ChannelMessage, types.GroupMessage))
+            and self.provide_unsolicited_response_in_channel(
+                bot_user_id, message
+            )
         ):
             return True, False
 
@@ -360,7 +383,9 @@ class DecideToRespond:
                 self.unsolicited_channel_cap
             )
         # Log the mention
-        self.last_mention_times[guild_id].log_mention(channel_id, send_timestamp)
+        self.last_mention_times[guild_id].log_mention(
+            channel_id, send_timestamp
+        )
 
     def log_cooldown(self, guild_id: int, channel_id: int) -> None:
         last_mention_times = self.last_mention_times.get(guild_id, None)
@@ -375,33 +400,41 @@ class DecideToRespond:
         return False
 
     def time_since_last_mention(
-        self, message: types.ChannelMessage
+        self,
+        message: typing.Union[types.ChannelMessage, types.GroupMessage]
     ) -> typing.Optional[float]:
         """
-        Gets the time since last mentioned, in seconds, in the channel of the
-        provided message, starting from its timestamp.
+        Gets the time since last mentioned, in seconds, in the channel
+        of the provided message, starting from its timestamp.
         """
-        # Purge all channels and guilds without mentions within the cache timeout
+        # Purge all channels and guilds without mentions within the
+        # cache timeout
         purged = {
             guild: last_mention_times
-            for guild, last_mention_times in self.last_mention_times.items()
+            for guild, last_mention_times
+            in self.last_mention_times.items()
             if last_mention_times.purge_outdated(message.send_timestamp)
         }
         self.last_mention_times.clear()
         self.last_mention_times.update(purged)
 
         # Get guild last mention times
-        last_mention_times = self.last_mention_times.get(message.guild_id, None)
+        last_mention_times = self.last_mention_times.get(
+            message.guild_id
+            if isinstance(message, types.ChannelMessage)
+            else message.channel_id,
+            None
+        )
         if not last_mention_times:
-            # If we have not been mentioned in the guild within the cache timeout,
-            # return None
+            # If we have not been mentioned in the guild within the
+            # cache timeout, return None
             return None
         return last_mention_times.time_since_last_mention(message)
 
     def guarantee_response(self, channel_id: int, message_id: int) -> None:
         """
-        Logs a flag that will guarantee a response to the provided message
-        when it is processed, unless the queue is cancelled.
+        Logs a flag that will guarantee a response to the provided
+        message when it is processed, unless the queue is cancelled.
         """
         if channel_id not in self.guaranteed_responses:
             self.guaranteed_responses[channel_id] = set()

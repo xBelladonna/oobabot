@@ -907,7 +907,7 @@ class DiscordBot(discord.Client):
             if not should_respond:
                 continue
             is_summon_in_public_channel = is_summon and isinstance(
-                message, types.ChannelMessage
+                message, (types.ChannelMessage, types.GroupMessage)
             )
 
             try:
@@ -1225,10 +1225,12 @@ class DiscordBot(discord.Client):
 
         # If we were mentioned, log the mention in the original channel
         # to monitor for and respond to further conversation.
-        if isinstance(message, types.ChannelMessage):
+        if isinstance(message, (types.ChannelMessage, types.GroupMessage)):
             if is_summon_in_public_channel:
                 self.decide_to_respond.log_mention(
-                    message.guild_id,
+                    message.guild_id
+                    if isinstance(message, types.ChannelMessage)
+                    else message.channel_id,
                     message.channel_id,
                     message.send_timestamp
                 )

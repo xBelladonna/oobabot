@@ -73,15 +73,21 @@ def sanitize_string(raw_string: str) -> str:
 
 def discord_message_to_generic_message(
     raw_message: discord.Message,
-) -> typing.Union[types.GenericMessage, types.ChannelMessage, types.DirectMessage]:
+) -> typing.Union[
+    types.GenericMessage,
+    types.DirectMessage,
+    types.GroupMessage,
+    types.ChannelMessage
+]:
     """
     Convert a discord message to a GenericMessage or subclass thereof
     """
+    channel = raw_message.channel
     generic_args = {
         "author_id": raw_message.author.id,
         "author_name": sanitize_string(raw_message.author.display_name),
         "channel_id": raw_message.channel.id,
-        "channel_name": get_channel_name(raw_message.channel),
+        "channel_name": get_channel_name(channel),
         "message_id": raw_message.id,
         "body_text": sanitize_string(raw_message.content),
         "author_is_bot": raw_message.author.bot,
@@ -90,26 +96,24 @@ def discord_message_to_generic_message(
         if raw_message.reference and raw_message.reference.message_id
         else 0
     }
-    if isinstance(raw_message.channel, discord.DMChannel):
+    if isinstance(channel, discord.DMChannel):
         return types.DirectMessage(**generic_args)
+    if isinstance(channel, discord.GroupChannel):
+        return types.GroupMessage(
+            mentions=[mention.id for mention in raw_message.mentions],
+            **generic_args
+        )
     if isinstance(
-        raw_message.channel,
+        channel,
         (
             discord.TextChannel,
-            discord.GroupChannel,
             discord.Thread,
             discord.VoiceChannel
         )
     ):
         return types.ChannelMessage(
-            guild_id=(
-                raw_message.guild.id
-                if raw_message.guild else raw_message.channel.id
-            ),
-            guild_name=(
-                raw_message.guild.name
-                if raw_message.guild else ""
-            ),
+            guild_id=channel.guild.id,
+            guild_name=channel.guild.name,
             mentions=[mention.id for mention in raw_message.mentions],
             **generic_args
         )
