@@ -183,7 +183,7 @@ class BotCommands:
                 if self.decide_to_respond.is_hidden_message(message.content):
                     continue
                 # respond with certainty
-                self.decide_to_respond.guaranteed_response = True
+                self.decide_to_respond.guarantee_response(channel.id, message.id)
                 # log a fake mention so the bot considers responses from now on
                 self.decide_to_respond.log_mention(
                     channel_id=channel.id,

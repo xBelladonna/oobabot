@@ -68,7 +68,6 @@ class DecideToRespond:
         self.ignore_dms = discord_settings["ignore_dms"]
         self.ignore_bots = discord_settings["ignore_bots"]
         self.ignore_prefixes = discord_settings["ignore_prefixes"]
-        self.guaranteed_response = False
         self.interrobang_bonus = discord_settings["interrobang_bonus"]
         self.persona = persona
 
@@ -99,6 +98,12 @@ class DecideToRespond:
             self.last_mention_cache_timeout,
             unsolicited_channel_cap
         )
+
+        # Keep a set of message IDs per channel, to track whether they are
+        # guaranteed a response. Technically we only need to track message
+        # ID but each set is nested under a channel ID to ensure we can
+        # clear entries per-channel and prevent any potential memory leaks.
+        self.guaranteed_responses: typing.Dict[int, typing.Set[int]] = {}
 
     def is_directly_mentioned(
         self, our_user_id: int, message: types.GenericMessage
@@ -287,7 +292,12 @@ class DecideToRespond:
         """
         is_direct_mention = self.is_directly_mentioned(bot_user_id, message)
 
-        if self.guaranteed_response:
+        guaranteed = self.guaranteed_responses.get(message.channel_id, None)
+        if guaranteed and message.message_id in guaranteed:
+            guaranteed.discard(message.message_id)
+            # If the set is empty, remove the whole channel from the dict
+            if not guaranteed:
+                self.guaranteed_responses.pop(message.channel_id, None)
             return True, is_direct_mention
 
         if self.should_ignore_message(bot_user_id, message):
@@ -310,3 +320,26 @@ class DecideToRespond:
 
     def get_unsolicited_channel_cap(self) -> int:
         return self.last_reply_times.unsolicited_channel_cap
+
+    def guarantee_response(self, channel_id: int, message_id: int) -> None:
+        """
+        Logs a flag that will guarantee a response to the provided message
+        when it is processed, unless the queue is cancelled.
+        """
+        if channel_id not in self.guaranteed_responses:
+            self.guaranteed_responses[channel_id] = set()
+        self.guaranteed_responses[channel_id].add(message_id)
+
+    def get_guarantees(self, channel_id: int) -> typing.Optional[
+        typing.Set[int]
+    ]:
+        """
+        Returns the specified channel's response guarantees, if any.
+        """
+        return self.guaranteed_responses.get(channel_id, None)
+
+    def purge_guarantees(self, channel_id: int) -> None:
+        """
+        Purge all response guarantees in the provided channel.
+        """
+        self.guaranteed_responses.pop(channel_id, None)

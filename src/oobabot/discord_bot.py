@@ -670,8 +670,10 @@ class DiscordBot(discord.Client):
         # Wait if we're accumulating messages. We avoid this in DMs as we assume the 1:1
         # interaction means a response is wanted per-message. Also if the message is a
         # system message.
+        guaranteed = self.decide_to_respond.get_guarantees(channel.id)
+        is_guaranteed = guaranteed and raw_message.id in guaranteed
         if (
-            not self.decide_to_respond.guaranteed_response
+            not is_guaranteed
             and not isinstance(channel, discord.DMChannel)
             and raw_message.type in (
                 discord.MessageType.default,
@@ -693,7 +695,7 @@ class DiscordBot(discord.Client):
         ):
             message = discord_utils.discord_message_to_generic_message(raw_message)
             if (
-                not self.decide_to_respond.guaranteed_response
+                not is_guaranteed
                 and self.decide_to_respond.should_ignore_message(
                     self.bot_user_id, message
                 )
@@ -729,8 +731,17 @@ class DiscordBot(discord.Client):
                 ):
                     self.message_queue.clear(channel.id)
                     self.message_queue.appendleft(channel.id, raw_message)
+                    # Clean up guaranteed response flags, if any. We must do this here
+                    # since it is normally done in the method that just got cancelled
+                    # and that may not have happened yet.
+                    if guaranteed and len(guaranteed) > 1:
+                        guaranteed.clear()
+                        if is_guaranteed:
+                            guaranteed.add(message.message_id)
                 else:
                     self.message_queue.append(channel.id, raw_message)
+                    if guaranteed:
+                        guaranteed.discard(raw_message.id)
 
         # Abort if the queue is currently being processed or if there is nothing to process
         if (
@@ -770,12 +781,6 @@ class DiscordBot(discord.Client):
             should_respond, is_summon = self.decide_to_respond.should_respond_to_message(
                 self.bot_user_id, message
             )
-            # Did we guarantee a response? If so, take note of the state and immediately
-            # reset the flag. This is crucial to remember to do otherwise we will get into
-            # an infinite recursive loop of responding to ourselves.
-            guaranteed_response = self.decide_to_respond.guaranteed_response
-            if guaranteed_response:
-                self.decide_to_respond.guaranteed_response = False
             if not should_respond:
                 continue
             is_summon_in_public_channel = is_summon and isinstance(
@@ -793,6 +798,10 @@ class DiscordBot(discord.Client):
                     "Error while processing message: %s: %s",
                     type(err).__name__, err, stack_info=True
                 )
+        # Purge the response guarantee tracker for this channel once
+        # finished processing the queue, just in case a message we
+        # didn't process was logged, to prevent memory leaks.
+        self.decide_to_respond.purge_guarantees(channel_id)
 
     async def _handle_response(
         self,
