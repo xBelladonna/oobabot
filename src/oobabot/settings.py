@@ -525,6 +525,19 @@ class Settings:
         )
         self.discord_settings.add_setting(
             oesp.ConfigSetting[bool](
+                name="mention_replied_user",
+                default=True,
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        Whether to mention the user in replies, which shows up as a ping.
+                        """
+                    )
+                ]
+            )
+        )
+        self.discord_settings.add_setting(
+            oesp.ConfigSetting[bool](
                 name="respond_in_thread",
                 default=False,
                 description_lines=[
