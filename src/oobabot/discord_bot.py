@@ -52,6 +52,12 @@ class MessageQueue:
         self.continue_on_additional_messages: int = discord_settings[
             "continue_on_additional_messages"
         ]
+        self.respond_to_latest_only: bool = discord_settings[
+            "respond_to_latest_only"
+        ]
+        self.skip_in_progress_responses: bool = discord_settings[
+            "skip_in_progress_responses"
+        ]
 
         self.queues: typing.Dict[int, typing.Deque[discord.Message]] = {}
         self.response_tasks: typing.Dict[int, asyncio.Task] = {}
@@ -674,6 +680,58 @@ class DiscordBot(discord.Client):
         ):
             await self.message_queue.accumulate_messages(channel.id)
 
+        # If there is an ongoing processing task, cancel it, unless we shouldn't
+        # respond to the message, otherwise abort, allowing the ongoing task to
+        # continue processing the queue.
+        if (
+            self.message_queue.skip_in_progress_responses
+            and raw_message.type in (
+                discord.MessageType.default,
+                discord.MessageType.reply
+            )
+            and self.message_queue.is_responding(channel.id)
+        ):
+            message = discord_utils.discord_message_to_generic_message(raw_message)
+            if (
+                not self.decide_to_respond.guaranteed_response
+                and self.decide_to_respond.should_ignore_message(
+                    self.bot_user_id, message
+                )
+            ):
+                # We simply abort if this is the case. We don't need to remove the
+                # message because the queue processor will ignore it anyway, and
+                # we would mutate the queue while it's being iterated, which would
+                # result in a RuntimeError.
+                return
+            # We also give up If the message has been deleted since it was posted
+            # (i.e. during the message accumulation period)
+            if not self.message_queue.contains_message(channel.id, raw_message):
+                return
+            # otherwise, cancel the ongoing task, re-organize the queue and
+            # start another processing task.
+            if self.message_queue.cancel_response_task(channel.id):
+                fancy_logger.get().debug(
+                    "Cancelling queued/in-progress responses in %s.",
+                    discord_utils.get_channel_name(channel)
+                )
+                # Wait for the cancelled task to clean up
+                cancelled_task = self.message_queue.get_response_task(channel.id)
+                if cancelled_task:
+                    await cancelled_task
+                # Check if the message is in the queue again, after waiting for the
+                # cancelled task, which can take a little while.
+                if not self.message_queue.contains_message(channel.id, raw_message):
+                    return
+                # Clear all but the latest message from the queue for this channel
+                if (
+                    self.message_queue.respond_to_latest_only
+                    and self.message_queue.get_queue_length(channel.id) > 1
+                ):
+                    self.message_queue.clear(channel.id)
+                    self.message_queue.appendleft(channel.id, raw_message)
+                else:
+                    self.message_queue.append(channel.id, raw_message)
+
         # Abort if the queue is currently being processed or if there is nothing to process
         if (
             self.message_queue.is_responding(channel.id)
@@ -693,7 +751,21 @@ class DiscordBot(discord.Client):
         # If the queue isn't empty, process the message queue in order of messages received
         message_queue = self.message_queue.get_queue(channel_id)
         while message_queue:
-            raw_message = message_queue.pop()
+            if self.message_queue.respond_to_latest_only:
+                # If we're only responding to the latest message after waiting,
+                # pop the newest message from the end of the queue, then clear
+                # all messages from this channel, unless the latest message is
+                # a system message, then process it without clearing the queue.
+                raw_message = message_queue.popleft()
+                if raw_message.type in (
+                    discord.MessageType.default,
+                    discord.MessageType.reply
+                ):
+                    message_queue.clear()
+            else:
+                # otherwise, get the next in line
+                raw_message = message_queue.pop()
+
             message = discord_utils.discord_message_to_generic_message(raw_message)
             should_respond, is_summon = self.decide_to_respond.should_respond_to_message(
                 self.bot_user_id, message
@@ -788,20 +860,32 @@ class DiscordBot(discord.Client):
         response_tasks = [task for task in [message_task, image_task] if task]
 
         if response_tasks:
-            # We use asyncio.wait instead of asyncio.gather to have more low-level control
-            # over task execution and exception handling.
-            done, _pending = await asyncio.wait(
-                response_tasks,
-                return_when=asyncio.FIRST_COMPLETED
-            )
-            for task in done:
-                # Check for exceptions in the tasks that have completed
-                err = task.exception()
-                if err:
-                    task_name = task.get_coro().__name__
-                    fancy_logger.get().error(
-                        "Exception while running %s: %s", task_name, err, stack_info=True
-                    )
+            try:
+                # We use asyncio.wait instead of asyncio.gather to have more low-level control
+                # over task execution and exception handling.
+                done, _pending = await asyncio.wait(
+                    response_tasks,
+                    return_when=asyncio.FIRST_COMPLETED
+                )
+                for task in done:
+                    # Check for exceptions in the tasks that have completed
+                    err = task.exception()
+                    if err:
+                        task_name = task.get_coro().__name__
+                        fancy_logger.get().error(
+                            "Exception while running %s: %s: %s",
+                            task_name, type(err).__name__, err
+                        )
+            except asyncio.CancelledError:
+                if not image_task:
+                    for task in response_tasks:
+                        task.cancel()
+                        try:
+                            await task
+                        except asyncio.CancelledError:
+                            pass
+                        task_name = task.get_coro().__name__
+                        fancy_logger.get().debug("Task '%s' cancelled.", task_name)
 
     async def _get_image_descriptions(
         self,
@@ -951,22 +1035,28 @@ class DiscordBot(discord.Client):
                     stopping_strings.append("\n" + _get_canonical_name(user_name))
 
         fancy_logger.get().debug("Generating text response...")
-        if as_string:
-            response = await self.ooba_client.request_as_string(prompt_prefix, stopping_strings)
-            return response, response_stat
-        if self.stream_responses == "token":
-            generator = self.ooba_client.request_as_grouped_tokens(
-                prompt_prefix,
-                stopping_strings,
-                interval=self.stream_responses_speed_limit,
-            )
-        elif self.stream_responses == "sentence":
-            generator = self.ooba_client.request_by_message(
-                prompt_prefix,
-                stopping_strings,
-            )
+        try:
+            if as_string:
+                response = await self.ooba_client.request_as_string(prompt_prefix, stopping_strings)
+                return response, response_stat
+            if self.stream_responses == "token":
+                generator = self.ooba_client.request_as_grouped_tokens(
+                    prompt_prefix,
+                    stopping_strings,
+                    interval=self.stream_responses_speed_limit,
+                )
+            elif self.stream_responses == "sentence":
+                generator = self.ooba_client.request_by_message(
+                    prompt_prefix,
+                    stopping_strings,
+                )
+            return generator, response_stat
 
-        return generator, response_stat
+        except asyncio.CancelledError as err:
+            if self.ooba_client.can_abort_generation():
+                await self.ooba_client.stop()
+            self.response_stats.log_response_failure()
+            raise err
 
     async def _send_text_response(
         self,
