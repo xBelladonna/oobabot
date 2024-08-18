@@ -56,11 +56,13 @@ class MessageQueue:
         self.skip_in_progress_responses: bool = discord_settings[
             "skip_in_progress_responses"
         ]
+        self.panic_duration: float = discord_settings["panic_duration"]
 
         self.queues: typing.Dict[int, typing.Deque[discord.Message]] = {}
         self.buffers: typing.Dict[int, typing.Deque[discord.Message]] = {}
         self.response_tasks: typing.Dict[int, asyncio.Task] = {}
         self.wait_tasks: typing.Dict[int, asyncio.Task] = {}
+        self.panic_tasks: typing.Dict[int, asyncio.Task] = {}
 
 
     async def _accumulate_messages(self, channel_id: int) -> None:
@@ -108,10 +110,11 @@ class MessageQueue:
             task_created = True
             await self.wait_tasks[channel_id]
             self.wait_tasks.pop(channel_id, None)
-            if self.respond_to_latest_only:
-                self.appendleft(channel_id, self.buffers.pop(channel_id).popleft())
-            else:
-                self.extendleft(channel_id, self.buffers.pop(channel_id))
+            if self.buffers.get(channel_id, None):
+                if self.respond_to_latest_only:
+                    self.appendleft(channel_id, self.buffers.pop(channel_id).popleft())
+                else:
+                    self.extendleft(channel_id, self.buffers.pop(channel_id))
         return task_created
 
     def unbuffer(self, channel_id: int, message: discord.Message) -> None:
@@ -141,6 +144,57 @@ class MessageQueue:
         """
         if channel_id in self.wait_tasks:
             return not self.wait_tasks[channel_id].done()
+        return False
+
+    async def _panic(self, channel_id: int) -> None:
+        """
+        Creates a panic task for the specified channel,
+        for the configured duration.
+        """
+        fancy_logger.get().info(
+            "Panicking for %.1f seconds...",
+            self.panic_duration
+        )
+        try:
+            if self.is_buffering(channel_id):
+                self.buffers.pop(channel_id).clear()
+            if self.get_queue_length(channel_id):
+                self.clear(channel_id)
+            if self.is_responding(channel_id):
+                self.cancel_response_task(channel_id)
+            await asyncio.sleep(self.panic_duration)
+            fancy_logger.get().info("Calming down again.")
+        except asyncio.CancelledError:
+            fancy_logger.get().info("Cancelling panic.")
+
+    def panic(self, channel_id: int) -> None:
+        """
+        Creates a panic task for the specified channel,
+        for the configured duration.
+        """
+        if self.is_panicking(channel_id):
+            return
+        self.panic_tasks[channel_id] = asyncio.create_task(
+            self._panic(channel_id)
+        )
+        self.panic_tasks[channel_id].add_done_callback(
+            lambda _: self.panic_tasks.pop(channel_id, None)
+        )
+
+    async def calm_down(self, channel_id: int) -> None:
+        """
+        Cancel any ongoing panic in the specified channel.
+        """
+        if self.is_panicking(channel_id):
+            self.panic_tasks[channel_id].cancel()
+            await self.panic_tasks[channel_id]
+
+    def is_panicking(self, channel_id: int) -> bool:
+        """
+        Checks if we're panicking in the specified channel.
+        """
+        if channel_id in self.panic_tasks:
+            return not self.panic_tasks[channel_id].done()
         return False
 
     def add_response_task(
@@ -414,6 +468,7 @@ class DiscordBot(discord.Client):
 
         # Register any custom events
         self.event(self.on_poke)
+        self.event(self.on_unpoke)
 
 
     async def on_ready(self) -> None:
@@ -664,6 +719,8 @@ class DiscordBot(discord.Client):
         Cancel any ongoing channel panic and respond to the latest message.
         """
         channel = raw_message.channel
+        # Calm down if we're currently panicking
+        await self.message_queue.calm_down(channel.id)
         # Ensure we respond to the message and pay attention to the channel
         self.decide_to_respond.guarantee_response(channel.id, raw_message.id)
         self.decide_to_respond.log_mention(
@@ -673,6 +730,26 @@ class DiscordBot(discord.Client):
         )
         # Trigger an incoming message request
         await self.process_messages(raw_message)
+
+    async def on_unpoke(
+        self,
+        channel: typing.Union[
+            discord.TextChannel,
+            discord.Thread,
+            discord.VoiceChannel,
+            discord.DMChannel,
+            discord.GroupChannel
+        ]
+    ) -> None:
+        """
+        Panic and stop paying attention in the specified channel.
+        """
+        self.message_queue.panic(channel.id)
+        self.decide_to_respond.log_cooldown(
+            channel.guild.id
+            if channel.guild else channel.id,
+            channel.id
+        )
 
 
     async def process_messages(
@@ -710,6 +787,9 @@ class DiscordBot(discord.Client):
         message = discord_utils.discord_message_to_generic_message(raw_message)
         guaranteed = self.decide_to_respond.get_guarantees(channel.id)
         is_guaranteed = guaranteed and raw_message.id in guaranteed
+        # Abort if we're panicking in this channel
+        if not is_guaranteed and self.message_queue.is_panicking(channel.id):
+            return
         # Wait if we're accumulating messages. We avoid this in DMs as we assume the 1:1
         # interaction means a response is wanted per-message. Also if the message is a
         # system message.

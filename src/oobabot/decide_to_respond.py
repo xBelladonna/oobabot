@@ -20,11 +20,16 @@ class LastMentionTimes(dict):
     RTC. The advantage of this is that if messages are delayed,
     we'll only respond to ones that were actually sent within the
     appropriate time window. It also makes it easier to test.
+
+    It also keeps track of "channel cooldowns", where the bot will
+    not respond even if a recent mention is logged. This is used
+    e.g. if a user issues /unpoke.
     """
 
     def __init__(self, cache_timeout: float, unsolicited_channel_cap: int):
         self.cache_timeout = cache_timeout
         self.unsolicited_channel_cap = unsolicited_channel_cap
+        self.cooldowns: typing.Set[int] = set()
 
     def purge_outdated(self, latest_timestamp: float) -> bool:
         """
@@ -52,6 +57,7 @@ class LastMentionTimes(dict):
         }
         self.clear()
         self.update(purged)
+        self.cooldowns.intersection_update(self)
 
         return bool(self)
 
@@ -60,6 +66,7 @@ class LastMentionTimes(dict):
         Logs the provided timestamp to the provided channel as a mention.
         """
         self[channel_id] = send_timestamp
+        self.cooldowns.discard(channel_id)
 
     def time_since_last_mention(
         self, message: types.ChannelMessage
@@ -203,7 +210,9 @@ class DecideToRespond:
 
         # get response chance based on when we were last mentioned in this channel
         time_since_last_mention = self.time_since_last_mention(message)
-        if time_since_last_mention is None:
+        if time_since_last_mention is None or self.is_cooling(
+            message.guild_id, message.channel_id
+        ):
             return False
 
         response_chance = self.calc_interpolated_response_chance(
@@ -352,6 +361,18 @@ class DecideToRespond:
             )
         # Log the mention
         self.last_mention_times[guild_id].log_mention(channel_id, send_timestamp)
+
+    def log_cooldown(self, guild_id: int, channel_id: int) -> None:
+        last_mention_times = self.last_mention_times.get(guild_id, None)
+        # Only log cooldown if we're paying attention to the channel
+        if last_mention_times and channel_id in last_mention_times:
+            last_mention_times.cooldowns.add(channel_id)
+
+    def is_cooling(self, guild_id: int, channel_id: int) -> bool:
+        last_mention_times = self.last_mention_times.get(guild_id, None)
+        if last_mention_times:
+            return channel_id in last_mention_times.cooldowns
+        return False
 
     def time_since_last_mention(
         self, message: types.ChannelMessage

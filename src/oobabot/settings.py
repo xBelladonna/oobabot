@@ -552,6 +552,21 @@ class Settings:
             )
         )
         self.discord_settings.add_setting(
+            oesp.ConfigSetting[float](
+                name="panic_duration",
+                default=15.0,
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        When the /unpoke command it used, this controls the amount
+                        of time the bot will refuse to respond to any incoming
+                        messages or requests, unless poked.
+                        """
+                    )
+                ]
+            )
+        )
+        self.discord_settings.add_setting(
             oesp.ConfigSetting[str](
                 name="stream_responses",
                 default="",

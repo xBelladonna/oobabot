@@ -194,6 +194,39 @@ class BotCommands:
                 break
 
         @discord.app_commands.command(
+            name="unpoke",
+            description=f"Have {self.persona.ai_name} stop responding in the current "
+            + "channel until summoned again."
+        )
+        async def unpoke(interaction: discord.Interaction):
+            channel = await get_messageable(interaction)
+            if not channel:
+                return await discord_utils.fail_interaction(interaction)
+            if isinstance(channel, discord.DMChannel):
+                return await discord_utils.fail_interaction(
+                    interaction,
+                    f"Can't use /{interaction.command.name} in a DM." # type: ignore
+                )
+
+            channel_name = discord_utils.get_channel_name(channel)
+            fancy_logger.get().debug(
+                "/%s called by user '%s' in %s",
+                interaction.command.name, # type: ignore
+                interaction.user.name,
+                channel_name
+            )
+
+            client.dispatch("unpoke", channel)
+            response = self.template_store.format(
+                templates.Templates.COMMAND_ACKNOWLEDGEMENT,
+                {
+                    templates.TemplateToken.AI_NAME: self.persona.ai_name,
+                    templates.TemplateToken.USER_NAME: interaction.user.display_name
+                }
+            )
+            await interaction.response.send_message(response, ephemeral=True, silent=True)
+
+        @discord.app_commands.command(
             name="say",
             description=f"Force {self.persona.ai_name} to say the provided message."
         )
@@ -339,6 +372,8 @@ class BotCommands:
 
         tree = discord.app_commands.CommandTree(client)
         tree.add_command(lobotomize)
+        tree.add_command(poke)
+        tree.add_command(unpoke)
         tree.add_command(say)
         tree.add_command(edit)
         tree.add_command(stop)
