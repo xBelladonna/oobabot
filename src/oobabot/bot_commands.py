@@ -2,6 +2,7 @@
 """
 Implementation of the bot's slash commands.
 """
+import re
 import typing
 
 import discord
@@ -125,6 +126,27 @@ class BotCommands:
                         type(err).__name__, err
                     )
 
+        async def coerce_message(
+            interaction: discord.Interaction, message: str
+        ) -> typing.Optional[discord.Message]:
+            try:
+                channel = await get_messageable(interaction)
+                if not channel:
+                    await discord_utils.fail_interaction(interaction)
+                    return
+                id_matcher = r"(?:https?://discord(?:app)?\.com/channels/(\d+)/(\d+)/)?(\d+)"
+                message_id = re.match(id_matcher, message)
+                if message_id:
+                    message_id = int(message_id.group(3))
+                    raw_message = await channel.fetch_message(message_id)
+                else:
+                    raise ValueError()
+            except ValueError:
+                return await discord_utils.fail_interaction(
+                    interaction,
+                    "Could not fetch provided message."
+                )
+            return raw_message
 
         @discord.app_commands.command(
             name="lobotomize",
@@ -180,7 +202,14 @@ class BotCommands:
             description=f"Prompt {self.persona.ai_name} to write a "
             + "response to the last message."
         )
-        async def poke(interaction: discord.Interaction):
+        @discord.app_commands.describe(
+            message=f"Message link or ID to prompt {self.persona.ai_name} "
+            + "to respond to."
+        )
+        async def poke(
+            interaction: discord.Interaction,
+            message: typing.Optional[str]
+        ):
             channel = await get_messageable(interaction)
             if not channel:
                 await discord_utils.fail_interaction(interaction)
@@ -195,13 +224,26 @@ class BotCommands:
             )
 
             await interaction.response.defer(ephemeral=True)
-            async for message in channel.history(limit=self.history_messages):
-                if self.decide_to_respond.is_hidden_message(message.content):
-                    continue
-                await interaction.delete_original_response()
-                # Trigger a poke event with the message we fetched
-                client.dispatch("poke", message)
-                break
+            raw_message = None
+            if message:
+                raw_message = await coerce_message(interaction, message)
+
+            if not raw_message:
+                async for raw_message in channel.history(limit=self.history_messages):
+                    if self.decide_to_respond.is_hidden_message(raw_message.content):
+                        continue
+                    break
+            if not raw_message:
+                await discord_utils.fail_interaction(
+                    interaction,
+                    "Can't find a valid message in the last "
+                    + f"{self.history_messages} messages."
+                )
+                return
+
+            await interaction.delete_original_response()
+            # Trigger a poke event with the message we fetched
+            client.dispatch("poke", raw_message)
 
         @discord.app_commands.command(
             name="unpoke",
@@ -290,9 +332,13 @@ class BotCommands:
             text=f"Text to replace {self.persona.ai_name}'s last "
             + "message with."
         )
+        @discord.app_commands.describe(
+            message=f"Message link or ID from {self.persona.ai_name} to edit."
+        )
         async def edit(
             interaction: discord.Interaction,
-            text: str
+            text: str,
+            message: typing.Optional[str]
         ):
             channel = await get_messageable(interaction)
             if not channel:
@@ -307,13 +353,19 @@ class BotCommands:
                 channel_name
             )
 
-            async for message in channel.history(limit=self.history_messages):
-                if self.decide_to_respond.is_hidden_message(message.content):
-                    continue
+            await interaction.response.defer(ephemeral=True)
+            raw_message = None
+            if message:
+                raw_message = await coerce_message(interaction, message)
 
-                if message.author.id == client.user.id: # type: ignore
-                    break
-            if not message:
+            if not raw_message:
+                async for raw_message in channel.history(limit=self.history_messages):
+                    if self.decide_to_respond.is_hidden_message(raw_message.content):
+                        continue
+
+                    if raw_message.author.id == client.user.id: # type: ignore
+                        break
+            if not raw_message:
                 await discord_utils.fail_interaction(
                     interaction,
                     "Can't find my last message in the last "
@@ -321,13 +373,12 @@ class BotCommands:
                 )
                 return
 
-            await interaction.response.defer(ephemeral=True)
             self.decide_to_respond.log_mention(
                 guild_id=channel.guild.id if channel.guild else channel.id,
                 channel_id=interaction.channel_id, # type: ignore
                 send_timestamp=interaction.created_at.timestamp()
             )
-            await message.edit(content=text, suppress=True)
+            await raw_message.edit(content=text, suppress=True)
             await interaction.delete_original_response()
 
         @discord.app_commands.command(
