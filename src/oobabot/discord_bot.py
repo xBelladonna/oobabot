@@ -60,6 +60,7 @@ class MessageQueue:
         ]
 
         self.queues: typing.Dict[int, typing.Deque[discord.Message]] = {}
+        self.buffers: typing.Dict[int, typing.Deque[discord.Message]] = {}
         self.response_tasks: typing.Dict[int, asyncio.Task] = {}
         self.wait_tasks: typing.Dict[int, asyncio.Task] = {}
 
@@ -84,25 +85,58 @@ class MessageQueue:
         else:
             await asyncio.sleep(self.message_accumulation_period)
 
-    # Methods to keep track of tasks and check their status easily
-    async def accumulate_messages(self, channel_id: int) -> None:
-        """
-        Create a wait task for the specified channel to wait for
-        the message accumulation period, if configured, and return
-        when done, otherwise return immediately.
 
-        If configured to continue on additional messages, return
-        after the configured number of additional messages have
-        entered the channel queue.
+    # Methods to keep track of tasks and check their status easily
+    async def buffer(
+        self, channel_id: int, message: discord.Message
+    ) -> bool:
         """
-        if self.message_accumulation_period:
+        Buffer messages for the message accumulation period,
+        then flush the buffer to the queue once elapsed.
+
+        The first call to this method will block until the
+        message accumulation period has elapsed and then
+        return True, while subsequent calls during this period
+        will queue messages into the buffer and return False.
+        """
+        task_created = False
+        if channel_id not in self.buffers:
+            self.buffers[channel_id] = deque()
+        self.buffers[channel_id].appendleft(message)
+        if not self.is_buffering(channel_id):
             self.wait_tasks[channel_id] = asyncio.create_task(
                 self._accumulate_messages(channel_id)
             )
+            task_created = True
             await self.wait_tasks[channel_id]
             self.wait_tasks.pop(channel_id, None)
+            if self.respond_to_latest_only:
+                self.appendleft(channel_id, self.buffers.pop(channel_id).popleft())
+            else:
+                self.extendleft(channel_id, self.buffers.pop(channel_id))
+        return task_created
 
-    def is_waiting(self, channel_id: int) -> bool:
+    def unbuffer(self, channel_id: int, message: discord.Message) -> None:
+        """
+        Removes the provided message from the specified
+        channel's message buffer, if it exists.
+        """
+        if (
+            channel_id in self.buffers
+            and message in self.buffers[channel_id]
+        ):
+            self.buffers[channel_id].remove(message)
+
+    def is_buffered(self, channel_id: int, message: discord.Message) -> bool:
+        """
+        Check if the provided message is currently buffered
+        for the provided channel.
+        """
+        if channel_id in self.buffers:
+            return message in self.buffers
+        return False
+
+    def is_buffering(self, channel_id: int) -> bool:
         """
         Checks if we are currently accumulating messages in the
         specified channel.
@@ -518,13 +552,15 @@ class DiscordBot(discord.Client):
 
     async def on_message_delete(self, raw_message: discord.Message) -> None:
         """
-        Called when a message is deleted from Discord.
+        Called when a message in the message cache is deleted from Discord.
 
-        This method is called for every message in the cache that is deleted,
-        checks if that message is in our message queue, and removes it if so.
+        Checks if the deleted message is in our message buffer or queue,
+        and removes it if so.
         """
-        if self.message_queue.contains_message(raw_message.channel.id, raw_message):
-            self.message_queue.remove(raw_message.channel.id, raw_message)
+        channel = raw_message.channel
+        self.message_queue.unbuffer(channel.id, raw_message)
+        if self.message_queue.contains_message(channel.id, raw_message):
+            self.message_queue.remove(channel.id, raw_message)
 
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent) -> None:
         # Don't process our own reactions
@@ -662,25 +698,34 @@ class DiscordBot(discord.Client):
         ):
             return
 
-        # Queue the provided message
-        self.message_queue.appendleft(channel.id, raw_message)
-        # If currently accumulating messages, abort and allow the original task to proceed
-        if self.message_queue.is_waiting(channel.id):
-            return
+        # Convert raw message to GenericMessage to perform some operations
+        message = discord_utils.discord_message_to_generic_message(raw_message)
+        guaranteed = self.decide_to_respond.get_guarantees(channel.id)
+        is_guaranteed = guaranteed and raw_message.id in guaranteed
         # Wait if we're accumulating messages. We avoid this in DMs as we assume the 1:1
         # interaction means a response is wanted per-message. Also if the message is a
         # system message.
-        guaranteed = self.decide_to_respond.get_guarantees(channel.id)
-        is_guaranteed = guaranteed and raw_message.id in guaranteed
         if (
-            not is_guaranteed
+            self.message_queue.message_accumulation_period
+            and not is_guaranteed
             and not isinstance(channel, discord.DMChannel)
             and raw_message.type in (
                 discord.MessageType.default,
                 discord.MessageType.reply
             )
+            and not self.decide_to_respond.should_ignore_message(
+                self.bot_user_id, message
+            )
         ):
-            await self.message_queue.accumulate_messages(channel.id)
+            # Queue the provided message (unless we should ignore it) and wait
+            # if we're beginning accumulation, then proceed with further
+            # processing. If we're already accumulating messages, abort and
+            # allow the first ongoing task to proceed.
+            if not await self.message_queue.buffer(channel.id, raw_message):
+                return
+        # If we're not accumulating messages, simply queue the message directly.
+        else:
+            self.message_queue.appendleft(channel.id, raw_message)
 
         # If there is an ongoing processing task, cancel it, unless we shouldn't
         # respond to the message, otherwise abort, allowing the ongoing task to
@@ -693,7 +738,6 @@ class DiscordBot(discord.Client):
             )
             and self.message_queue.is_responding(channel.id)
         ):
-            message = discord_utils.discord_message_to_generic_message(raw_message)
             if (
                 not is_guaranteed
                 and self.decide_to_respond.should_ignore_message(
@@ -707,7 +751,10 @@ class DiscordBot(discord.Client):
                 return
             # We also give up If the message has been deleted since it was posted
             # (i.e. during the message accumulation period)
-            if not self.message_queue.contains_message(channel.id, raw_message):
+            if (
+                not self.message_queue.is_buffered(channel.id, raw_message)
+                and not self.message_queue.contains_message(channel.id, raw_message)
+            ):
                 return
             # otherwise, cancel the ongoing task, re-organize the queue and
             # start another processing task.
@@ -762,20 +809,7 @@ class DiscordBot(discord.Client):
         # If the queue isn't empty, process the message queue in order of messages received
         message_queue = self.message_queue.get_queue(channel_id)
         while message_queue:
-            if self.message_queue.respond_to_latest_only:
-                # If we're only responding to the latest message after waiting,
-                # pop the newest message from the end of the queue, then clear
-                # all messages from this channel, unless the latest message is
-                # a system message, then process it without clearing the queue.
-                raw_message = message_queue.popleft()
-                if raw_message.type in (
-                    discord.MessageType.default,
-                    discord.MessageType.reply
-                ):
-                    message_queue.clear()
-            else:
-                # otherwise, get the next in line
-                raw_message = message_queue.pop()
+            raw_message = message_queue.pop()
 
             message = discord_utils.discord_message_to_generic_message(raw_message)
             should_respond, is_summon = self.decide_to_respond.should_respond_to_message(
