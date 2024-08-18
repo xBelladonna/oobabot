@@ -382,6 +382,61 @@ class BotCommands:
             await interaction.delete_original_response()
 
         @discord.app_commands.command(
+            name="rewrite",
+            description=f"Rewrite {self.persona.ai_name}'s most recent "
+            + "response in the channel according to the provided instruction.",
+        )
+        @discord.app_commands.describe(
+            instruction=f"Instruction for {self.persona.ai_name} to follow.",
+            message=f"A link to a message from {self.persona.ai_name} to rewrite."
+        )
+        async def rewrite(
+            interaction: discord.Interaction,
+            instruction: str,
+            message: typing.Optional[str]
+        ):
+            channel = await get_messageable(interaction)
+            if not channel:
+                await discord_utils.fail_interaction(interaction)
+                return
+
+            channel_name = discord_utils.get_channel_name(channel)
+            fancy_logger.get().debug(
+                "/%s called by user '%s' in %s",
+                interaction.command.name, # type: ignore
+                interaction.user.name,
+                channel_name
+            )
+
+            await interaction.response.defer(ephemeral=True)
+            raw_message = None
+            if message:
+                raw_message = await coerce_message(interaction, message)
+
+            if not message:
+                async for raw_message in channel.history(limit=self.history_messages):
+                    if self.decide_to_respond.is_hidden_message(raw_message.content):
+                        continue
+
+                    if raw_message.author.id == client.user.id: # type: ignore
+                        break
+            if not raw_message:
+                await discord_utils.fail_interaction(
+                    interaction,
+                    "Can't find my last message in the last "
+                    + f"{self.history_messages} messages."
+                )
+                return
+
+            self.decide_to_respond.log_mention(
+                guild_id=interaction.guild_id or interaction.channel_id, # type: ignore
+                channel_id=interaction.channel_id, # type: ignore
+                send_timestamp=interaction.created_at.timestamp()
+            )
+            client.dispatch("rewrite_request", raw_message, instruction)
+            await interaction.delete_original_response()
+
+        @discord.app_commands.command(
             name="stop",
             description=f"Force {self.persona.ai_name} to stop typing "
             + "the current message."
@@ -437,6 +492,7 @@ class BotCommands:
         tree.add_command(unpoke)
         tree.add_command(say)
         tree.add_command(edit)
+        tree.add_command(rewrite)
         tree.add_command(stop)
 
         if self.audio_commands:

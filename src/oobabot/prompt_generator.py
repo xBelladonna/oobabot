@@ -131,6 +131,14 @@ class PromptGenerator:
                     **self.example_dialogue_template_tokens,
                     templates.TemplateToken.USER_NAME: max_length_display_name
                 }
+            ),
+            self.template_store.format(
+                templates.Templates.PROMPT_REWRITE_REQUEST,
+                {
+                    **self.example_dialogue_template_tokens,
+                    templates.TemplateToken.USER_NAME: max_length_display_name,
+                    templates.TemplateToken.INSTRUCTION: "",
+                }
             )
         ]
         prompt_without_history = self._render_prompt(
@@ -410,7 +418,8 @@ class PromptGenerator:
         user_name: str,
         guild_name: str,
         channel_name: str,
-        image_requested: typing.Optional[bool] = None
+        image_requested: typing.Optional[bool] = None,
+        rewrite_request: typing.Optional[str] = None
     ) -> typing.Tuple[str, typing.List[str]]:
         """
         Generate a prompt for the AI to respond to.
@@ -441,6 +450,15 @@ class PromptGenerator:
                 {
                     **self.example_dialogue_template_tokens,
                     templates.TemplateToken.USER_NAME: user_name
+                }
+            )
+        elif rewrite_request:
+            special_request = self.template_store.format(
+                templates.Templates.PROMPT_REWRITE_REQUEST,
+                {
+                    **self.example_dialogue_template_tokens,
+                    templates.TemplateToken.USER_NAME: user_name,
+                    templates.TemplateToken.INSTRUCTION: rewrite_request
                 }
             )
         else:

@@ -46,6 +46,7 @@ class Templates(enum.Enum):
     PROMPT_IMAGE_COMING = "prompt_image_coming"
     PROMPT_IMAGE_NOT_COMING = "prompt_image_not_coming"
     PROMPT_IMAGE_SENT = "prompt_image_sent"
+    PROMPT_REWRITE_REQUEST = "prompt_rewrite_request"
 
     def __str__(self) -> str:
         return self.value
@@ -75,6 +76,7 @@ class TemplateToken(str, enum.Enum):
     EXAMPLE_DIALOGUE = "EXAMPLE_DIALOGUE"
     MESSAGE_HISTORY = "MESSAGE_HISTORY"
     SYSTEM_MESSAGE = "SYSTEM_MESSAGE"
+    INSTRUCTION = "INSTRUCTION"
     NAME = "NAME"
     SYSTEM_SEQUENCE_PREFIX = "SYSTEM_SEQUENCE_PREFIX"
     SYSTEM_SEQUENCE_SUFFIX = "SYSTEM_SEQUENCE_SUFFIX"
@@ -257,6 +259,22 @@ class TemplateStore:
             "Part of the AI response-generation prompt, this is used to inform "
             + "the AI that it posted the generated image with the requested prompt."
         ),
+        Templates.PROMPT_REWRITE_REQUEST: (
+            [
+                TemplateToken.AI_NAME,
+                TemplateToken.USER_NAME,
+                TemplateToken.INSTRUCTION,
+                TemplateToken.SYSTEM_SEQUENCE_PREFIX,
+                TemplateToken.SYSTEM_SEQUENCE_SUFFIX,
+                TemplateToken.USER_SEQUENCE_PREFIX,
+                TemplateToken.USER_SEQUENCE_SUFFIX,
+                TemplateToken.BOT_SEQUENCE_PREFIX,
+                TemplateToken.BOT_SEQUENCE_SUFFIX,
+            ],
+            "Part of the AI response-generation prompt, this is used to inform "
+            + "the AI a user has requested a rewrite of its last message, along "
+            + "with the instructions to follow."
+        ),
         Templates.COMMAND_ACKNOWLEDGEMENT: (
             [
                 TemplateToken.AI_NAME,
@@ -374,6 +392,13 @@ class TemplateStore:
         Templates.PROMPT_IMAGE_SENT: textwrap.dedent(
             """
             {AI_NAME} posts an image generated with the prompt: {IMAGE_PROMPT}
+            """
+        ),
+        Templates.PROMPT_REWRITE_REQUEST: textwrap.dedent(
+            """
+            {SYSTEM_SEQUENCE_PREFIX}{USER_NAME} has requested that you rewrite your previous
+            message according to the following instructions: {INSTRUCTION}
+            {SYSTEM_SEQUENCE_SUFFIX}
             """
         ),
         Templates.COMMAND_ACKNOWLEDGEMENT: "Okay.",

@@ -470,6 +470,7 @@ class DiscordBot(discord.Client):
         # Register any custom events
         self.event(self.on_poke)
         self.event(self.on_unpoke)
+        self.event(self.on_rewrite_request)
 
 
     async def on_ready(self) -> None:
@@ -773,6 +774,36 @@ class DiscordBot(discord.Client):
             if channel.guild else channel.id,
             channel.id
         )
+
+    async def on_rewrite_request(
+        self,
+        raw_message: discord.Message,
+        instruction: str
+    ) -> None:
+        """
+        Listens for custom `rewrite_request` events and passes the request through to
+        _regenerate_response_message() with the instruction. The AI will be prompted
+        with chat history up to the provided message and asked to rewrite its last
+        response according to the provided instruction. The contents of the message
+        will be replaced with its response.
+        """
+        fancy_logger.get().debug(
+            "Received message rewrite request from user '%s' in %s. "
+            + "Rewriting last response...",
+            raw_message.author.name,
+            discord_utils.get_channel_name(raw_message.channel)
+        )
+        try:
+            await self._regenerate_response_message(
+                raw_message,
+                raw_message.channel, # type: ignore
+                instruction
+            )
+        except discord.DiscordException as err:
+            fancy_logger.get().error(
+                "Error while rewriting response: %s", err
+            )
+            self.response_stats.log_response_failure()
 
 
     async def process_messages(
@@ -1094,7 +1125,8 @@ class DiscordBot(discord.Client):
             discord.DMChannel,
             discord.GroupChannel
         ],
-        image_requested: typing.Optional[bool] = None
+        image_requested: typing.Optional[bool] = None,
+        rewrite_request: typing.Optional[str] = None
     ) -> typing.Tuple[
         typing.Union[typing.AsyncIterator[str], str], response_stats.ResponseStats
     ]:
@@ -1150,7 +1182,8 @@ class DiscordBot(discord.Client):
             user_name=message.author_name,
             guild_name=guild_name,
             channel_name=channel_name,
-            image_requested=image_requested
+            image_requested=image_requested,
+            rewrite_request=rewrite_request
         )
 
         stop_sequences: typing.List[str] = []
@@ -1315,14 +1348,15 @@ class DiscordBot(discord.Client):
             discord.GroupChannel
         ],
         image_requested: typing.Optional[bool] = None,
-        existing_message: typing.Optional[discord.Message] = None
+        existing_message: typing.Optional[discord.Message] = None,
+        rewrite_request: typing.Optional[str] = None
     ) -> None:
         """
         Getting closer now! This method requests a text response from the API and then
         sends the message appropriately according to the configured response mode, i.e.
         if we're streaming the response, or sending it all at once. If an existing
-        message is passed, that message will be edited first instead of sending a new
-        message immediately.
+        message (and optionally rewrite request) is passed, that message will be edited
+        first instead of sending a new message immediately.
         """
 
         tries = range(self.retries + 1) # add offset of 1 as range() is zero-indexed
@@ -1367,7 +1401,8 @@ class DiscordBot(discord.Client):
                     image_descriptions=image_descriptions,
                     recent_messages=recent_messages,
                     response_channel=response_channel,
-                    image_requested=image_requested
+                    image_requested=image_requested,
+                    rewrite_request=rewrite_request
                 )
                 # If we have the whole response at once, we can check for
                 # similarity to the last response and retry if too similar.
@@ -1479,11 +1514,13 @@ class DiscordBot(discord.Client):
             discord.DMChannel,
             discord.GroupChannel
         ],
+        rewrite_request: typing.Optional[str] = None
     ) -> None:
         """
         Regenerates a given response message by editing it with updated
         contents using the chat history up to the provided message as the
-        prompt.
+        prompt. If `rewrite_request` is provided, the AI will be asked
+        to rewrite the provided message according to the instruction.
         """
         # We need to find the message our response was directed at
         raw_target_message = None
@@ -1537,7 +1574,8 @@ class DiscordBot(discord.Client):
             image_descriptions=image_descriptions,
             is_summon_in_public_channel=False,
             response_channel=response_channel,
-            existing_message=raw_message
+            existing_message=raw_message,
+            rewrite_request=rewrite_request
         )
 
     async def _render_response(
