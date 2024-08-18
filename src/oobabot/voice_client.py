@@ -47,8 +47,8 @@ class VoiceClient(discord.VoiceProtocol):
     discrivener_model_location: str
     inviter: str
     decide_to_respond: decide_to_respond.DecideToRespond
-    speak_voice_replies: bool
-    post_voice_replies: bool
+    speak_voice_responses: bool
+    post_voice_responses: bool
     current_instance: typing.Optional["VoiceClient"] = None
     ooba_client: ooba_client.OobaClient
     prompt_generator: prompt_generator.PromptGenerator
@@ -106,8 +106,8 @@ class VoiceClient(discord.VoiceProtocol):
             self.ooba_client,
             self.prompt_generator,
             self._transcript,
-            self.speak_voice_replies,
-            self.post_voice_replies,
+            self.speak_voice_responses,
+            self.post_voice_responses,
         )
 
     @property

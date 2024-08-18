@@ -284,8 +284,8 @@ class ImageGenerator:
         template_store: templates.TemplateStore
     ):
         self.ai_name: str = persona_settings["ai_name"]
-        self.image_words: typing.List[str] = sd_settings["image_words"]
-        self.avatar_words: typing.List[str] = sd_settings["avatar_words"]
+        self.image_phrases: typing.List[str] = sd_settings["image_phrases"]
+        self.avatar_phrases: typing.List[str] = sd_settings["avatar_phrases"]
         self.avatar_prompt: str = sd_settings["avatar_prompt"]
         self.nsfw_dms: bool = sd_settings["nsfw_dms"]
         self.timeout: typing.Optional[float] = sd_settings["timeout"] or None
@@ -302,14 +302,14 @@ class ImageGenerator:
                 + r".*$",
                 re.IGNORECASE + re.MULTILINE,
             )
-            for image_word in self.image_words
+            for image_word in self.image_phrases
         ]
         self.avatar_patterns = [
             re.compile(
                 r"\b" + avatar_word + r"[^\w]*\b",
                 re.IGNORECASE + re.MULTILINE,
             )
-            for avatar_word in self.avatar_words
+            for avatar_word in self.avatar_phrases
         ]
 
     def on_ready(self):
@@ -318,7 +318,7 @@ class ImageGenerator:
         """
         fancy_logger.get().debug(
             "Stable Diffusion: image keywords: %s",
-            ", ".join(self.image_words),
+            ", ".join(self.image_phrases),
         )
 
     def try_session(self):

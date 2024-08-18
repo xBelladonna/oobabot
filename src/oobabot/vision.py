@@ -110,13 +110,13 @@ class VisionClient(http_client.SerializedHttpClient):
             raise ValueError("Image is a URL but we're not allowed to fetch URLs.")
 
         system_prompt = self.template_store.format(
-            templates.Templates.GPT_VISION_SYSTEM_PROMPT,
+            templates.Templates.VISION_SYSTEM_PROMPT,
             {
                 templates.TemplateToken.AI_NAME: self.persona.ai_name,
             },
         )
         instruction = self.template_store.format(
-            templates.Templates.GPT_VISION_PROMPT, {}
+            templates.Templates.VISION_PROMPT, {}
         )
         if system_prompt:
             system_prompt = {

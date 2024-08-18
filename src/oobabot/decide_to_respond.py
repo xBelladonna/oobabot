@@ -92,8 +92,8 @@ class DecideToRespond:
         discord_settings: typing.Dict,
         persona: persona.Persona,
     ):
-        self.disable_unsolicited_replies = discord_settings[
-            "disable_unsolicited_replies"
+        self.disable_unsolicited_responses = discord_settings[
+            "disable_unsolicited_responses"
         ]
         self.ignore_dms = discord_settings["ignore_dms"]
         self.ignore_bots = discord_settings["ignore_bots"]
@@ -211,7 +211,7 @@ class DecideToRespond:
             return False
 
         # if the admin has disabled unsolicited replies, don't respond
-        if self.disable_unsolicited_replies:
+        if self.disable_unsolicited_responses:
             return False
 
         # get response chance based on when we were last mentioned in this channel

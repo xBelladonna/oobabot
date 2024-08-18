@@ -94,20 +94,12 @@ class RepetitionTracker:
         """
         Logs a message sent by the bot, to be used for repetition tracking.
         """
-        # make string into canonical form
+        # Make string into canonical form
         message_text = self.make_canonical(response_message.body_text)
-        last_message_text, throttle_message_id, repetition_count = self.repetition_count.get(
-            channel_id, ("", 0, 0)
+        _, throttle_message_id, repetition_count = self.repetition_count.get(
+            channel_id, (None, 0, 0)
         )
-
-        repetition_found = False
-        if last_message_text == message_text:
-            repetition_found = True
-        elif self.similarity_threshold:
-            similarity_score = fuzz.token_set_ratio(last_message_text, message_text) / 100
-            if similarity_score >= self.similarity_threshold:
-                repetition_found = similarity_score
-
+        repetition_found = self.is_repetition(channel_id, message_text)
         if repetition_found:
             repetition_count += 1
         else:
@@ -136,6 +128,35 @@ class RepetitionTracker:
             throttle_message_id,
             repetition_count
         )
+
+    def is_repetition(
+        self, channel_id: int, message_text: str
+    ) -> typing.Union[bool, float]:
+        """
+        Logs a message sent by the bot, to be used for repetition tracking.
+
+        Returns True if the message was an exact repetition of the last
+        message logged, a float representing the message similarity as
+        a fraction of 1, if the similarity is over the threshold, or
+        False, if the message isn't considered a repetition.
+        """
+        # Make string into canonical form
+        message_text = self.make_canonical(message_text)
+        last_message_text, _, _ = self.repetition_count.get(
+            channel_id, ("", 0, 0)
+        )
+        last_message_text = self.make_canonical(last_message_text)
+
+        repetition_found = False
+        if message_text == last_message_text:
+            repetition_found = True
+        elif self.similarity_threshold:
+            similarity_score = fuzz.token_set_ratio(message_text, last_message_text) / 100
+
+            if similarity_score >= self.similarity_threshold:
+                repetition_found = similarity_score
+
+        return repetition_found
 
     def should_throttle(self, repetition_count: int) -> bool:
         """

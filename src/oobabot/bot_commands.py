@@ -37,8 +37,8 @@ class BotCommands:
         self.repetition_tracker = repetition_tracker
         self.persona = persona
         self.include_lobotomize_response = discord_settings["include_lobotomize_response"]
-        self.reply_in_thread = discord_settings["reply_in_thread"]
-        self.history_lines = discord_settings["history_lines"]
+        self.respond_in_thread = discord_settings["respond_in_thread"]
+        self.history_messages = discord_settings["history_messages"]
         self.template_store = template_store
         self.ooba_client = ooba_client
 
@@ -49,8 +49,8 @@ class BotCommands:
             discord_settings["discrivener_location"],
             discord_settings["discrivener_model_location"],
         )
-        self.speak_voice_replies = discord_settings["speak_voice_replies"]
-        self.post_voice_replies = discord_settings["post_voice_replies"]
+        self.speak_voice_responses = discord_settings["speak_voice_responses"]
+        self.post_voice_responses = discord_settings["post_voice_responses"]
 
         if (
             discord_settings["discrivener_location"]
@@ -82,8 +82,8 @@ class BotCommands:
                 self.discrivener_location,
                 self.discrivener_model_location,
                 self.decide_to_respond,
-                self.speak_voice_replies,
-                self.post_voice_replies
+                self.speak_voice_responses,
+                self.post_voice_responses
             )
 
     async def on_ready(self, client: discord.Client):
@@ -104,7 +104,9 @@ class BotCommands:
         ]:
             if interaction.channel_id:
                 try:
-                    channel = await interaction.client.fetch_channel(interaction.channel_id)
+                    channel = await interaction.client.fetch_channel(
+                        interaction.channel_id
+                    )
                     if channel:
                         if isinstance(
                             channel,
@@ -125,10 +127,11 @@ class BotCommands:
 
 
         @discord.app_commands.command(
-            name="stop",
-            description=f"Force {self.persona.ai_name} to stop typing the current message."
+            name="lobotomize",
+            description=f"Erase {self.persona.ai_name}'s memory of any message "
+            + "before now in this channel."
         )
-        async def stop(interaction: discord.Interaction):
+        async def lobotomize(interaction: discord.Interaction):
             channel = await get_messageable(interaction)
             if not channel:
                 await discord_utils.fail_interaction(interaction)
@@ -142,33 +145,40 @@ class BotCommands:
                 channel_name
             )
 
-            if not self.ooba_client.can_abort_generation:
-                await discord_utils.fail_interaction(
-                    interaction,
-                    "Current API does not support stopping generation.",
-                )
-                return
-            try:
-                await self.ooba_client.stop()
-            except OobaHttpClientError as err:
-                await discord_utils.fail_interaction(
-                    interaction,
-                    f"Something went wrong! {err}"
-                )
-                return
-
             response = self.template_store.format(
-                templates.Templates.COMMAND_ACKNOWLEDGEMENT,
-                {
+                template_name=templates.Templates.COMMAND_LOBOTOMIZE_RESPONSE,
+                format_args={
                     templates.TemplateToken.AI_NAME: self.persona.ai_name,
-                    templates.TemplateToken.USER_NAME: interaction.user.display_name
+                    templates.TemplateToken.NAME: interaction.user.name,
                 }
             )
-            await interaction.response.send_message(response, ephemeral=True, silent=True)
+            await interaction.response.send_message(
+                response,
+                silent=True,
+                suppress_embeds=True
+            )
+            # find the current message in this channel or the
+            # message before that if we're including our response.
+            # tell the Repetition Tracker to hide messages
+            # before this message
+            hide_message = await interaction.original_response()
+            if not self.include_lobotomize_response:
+                fancy_logger.get().debug("Excluding bot response from chat history.")
+                async for message in channel.history(
+                    limit=self.history_messages, before=hide_message
+                ):
+                    hide_message = message
+                    break
+
+            self.repetition_tracker.hide_messages_before(
+                channel_id=channel.id,
+                message_id=hide_message.id
+            )
 
         @discord.app_commands.command(
             name="poke",
-            description=f"Prompt {self.persona.ai_name} to write a response to the last message."
+            description=f"Prompt {self.persona.ai_name} to write a "
+            + "response to the last message."
         )
         async def poke(interaction: discord.Interaction):
             channel = await get_messageable(interaction)
@@ -185,7 +195,7 @@ class BotCommands:
             )
 
             await interaction.response.defer(ephemeral=True)
-            async for message in channel.history(limit=self.history_lines):
+            async for message in channel.history(limit=self.history_messages):
                 if self.decide_to_respond.is_hidden_message(message.content):
                     continue
                 await interaction.delete_original_response()
@@ -195,8 +205,8 @@ class BotCommands:
 
         @discord.app_commands.command(
             name="unpoke",
-            description=f"Have {self.persona.ai_name} stop responding in the current "
-            + "channel until summoned again."
+            description=f"Have {self.persona.ai_name} stop responding "
+            + "in the current channel until summoned again."
         )
         async def unpoke(interaction: discord.Interaction):
             channel = await get_messageable(interaction)
@@ -224,7 +234,9 @@ class BotCommands:
                     templates.TemplateToken.USER_NAME: interaction.user.display_name
                 }
             )
-            await interaction.response.send_message(response, ephemeral=True, silent=True)
+            await interaction.response.send_message(
+                response, ephemeral=True, silent=True
+            )
 
         @discord.app_commands.command(
             name="say",
@@ -248,9 +260,9 @@ class BotCommands:
                 channel_name
             )
 
-            # if reply_in_thread is True, we don't want our bot to
+            # if respond_in_thread is True, we don't want our bot to
             # speak in guild channels, only threads and private messages
-            if self.reply_in_thread:
+            if self.respond_in_thread:
                 if not channel or not isinstance(
                     channel, (discord.abc.PrivateChannel, discord.Thread)
                 ):
@@ -271,14 +283,17 @@ class BotCommands:
 
         @discord.app_commands.command(
             name="edit",
-            description=f"Replace {self.persona.ai_name}'s most recent message in the channel "
-            + "with the provided message."
+            description=f"Replace {self.persona.ai_name}'s most recent "
+            + "message in the channel with the provided message."
         )
-        @discord.app_commands.rename(text_to_send="message")
         @discord.app_commands.describe(
-            text_to_send=f"Message to replace {self.persona.ai_name}'s last message with."
+            text=f"Text to replace {self.persona.ai_name}'s last "
+            + "message with."
         )
-        async def edit(interaction: discord.Interaction, text_to_send: str):
+        async def edit(
+            interaction: discord.Interaction,
+            text: str
+        ):
             channel = await get_messageable(interaction)
             if not channel:
                 await discord_utils.fail_interaction(interaction)
@@ -291,37 +306,36 @@ class BotCommands:
                 interaction.user.name,
                 channel_name
             )
+
+            async for message in channel.history(limit=self.history_messages):
+                if self.decide_to_respond.is_hidden_message(message.content):
+                    continue
+
+                if message.author.id == client.user.id: # type: ignore
+                    break
+            if not message:
+                await discord_utils.fail_interaction(
+                    interaction,
+                    "Can't find my last message in the last "
+                    + f"{self.history_messages} messages."
+                )
+                return
+
+            await interaction.response.defer(ephemeral=True)
             self.decide_to_respond.log_mention(
                 guild_id=channel.guild.id if channel.guild else channel.id,
                 channel_id=interaction.channel_id, # type: ignore
                 send_timestamp=interaction.created_at.timestamp()
             )
-
-            bot_last_message = None
-            async for message in channel.history(limit=self.history_lines):
-                if self.decide_to_respond.is_hidden_message(message.content):
-                    continue
-
-                if message.author.id == client.user.id: # type: ignore
-                    bot_last_message = message
-                    break
-
-            if not bot_last_message:
-                await discord_utils.fail_interaction(
-                    interaction,
-                    f"Can't find my last message in the last {self.history_lines} messages."
-                )
-                return
-            await interaction.response.defer(ephemeral=True)
-            await bot_last_message.edit(content=text_to_send)
+            await message.edit(content=text, suppress=True)
             await interaction.delete_original_response()
 
         @discord.app_commands.command(
-            name="lobotomize",
-            description=f"Erase {self.persona.ai_name}'s memory of any message "
-            + "before now in this channel."
+            name="stop",
+            description=f"Force {self.persona.ai_name} to stop typing "
+            + "the current message."
         )
-        async def lobotomize(interaction: discord.Interaction):
+        async def stop(interaction: discord.Interaction):
             channel = await get_messageable(interaction)
             if not channel:
                 await discord_utils.fail_interaction(interaction)
@@ -335,36 +349,32 @@ class BotCommands:
                 channel_name
             )
 
+            if not self.ooba_client.can_abort_generation:
+                await discord_utils.fail_interaction(
+                    interaction,
+                    "Current API does not support stopping generation."
+                )
+                return
+            try:
+                await self.ooba_client.stop()
+            except OobaHttpClientError as err:
+                await discord_utils.fail_interaction(
+                    interaction,
+                    f"Something went wrong! {err}"
+                )
+                return
+
             response = self.template_store.format(
-                template_name=templates.Templates.COMMAND_LOBOTOMIZE_RESPONSE,
-                format_args={
+                templates.Templates.COMMAND_ACKNOWLEDGEMENT,
+                {
                     templates.TemplateToken.AI_NAME: self.persona.ai_name,
-                    templates.TemplateToken.NAME: interaction.user.name
+                    templates.TemplateToken.USER_NAME: interaction.user.display_name
                 }
             )
             await interaction.response.send_message(
-                response,
-                silent=True,
-                suppress_embeds=True
+                response, ephemeral=True, silent=True
             )
-            # find the current message in this channel or the
-            # message before that if we're including our response.
-            # tell the Repetition Tracker to hide messages
-            # before this message
-            hide_message = await interaction.original_response()
-            if not self.include_lobotomize_response:
-                fancy_logger.get().debug("Excluding bot response from chat history.")
-                finished = False
-                async for message in channel.history(limit=self.history_lines):
-                    if finished:
-                        hide_message = message
-                        break
-                    if message.id == hide_message.id:
-                        finished = True
-            self.repetition_tracker.hide_messages_before(
-                channel_id=channel.id,
-                message_id=hide_message.id
-            )
+
 
         fancy_logger.get().debug(
             "Registering commands, sometimes this takes a while..."
@@ -377,7 +387,6 @@ class BotCommands:
         tree.add_command(say)
         tree.add_command(edit)
         tree.add_command(stop)
-        tree.add_command(poke)
 
         if self.audio_commands:
             self.audio_commands.add_commands(tree)
@@ -385,5 +394,6 @@ class BotCommands:
         commands = await tree.sync()
         for command in commands:
             fancy_logger.get().info(
-                "Registered command: %s: %s", command.name, command.description
+                "Registered command: %s: %s",
+                command.name, command.description
             )

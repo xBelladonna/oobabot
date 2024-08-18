@@ -412,36 +412,34 @@ class OobaClient(http_client.SerializedHttpClient):
         request.update(self.request_params)
         # Build list of stop sequences from the oobabooga request_params
         # and our additional runtime-generated sequences, if any
-        stop_sequences = self.get_stop_sequences() + stop_sequences
+        all_stop_sequences = self.get_stop_sequences() + stop_sequences
         # then if there are any stop sequences at all, we handle API special cases
-        if stop_sequences:
+        if all_stop_sequences:
             if self.api_type in ("oobabooga", "openai", "tabbyapi"):
                 # The real OpenAI Completions and Chat Completions API have a limit
                 # of 4 stop sequences
                 # TODO: figure out how to properly detect the real OpenAI API
                 # to be compatible with things like reverse-proxies that use differnt
                 # URL schemata. A head request or similar may be necessary.
-                if "api.openai.com" in self.base_url and len(stop_sequences) > 4:
+                if "api.openai.com" in self.base_url and len(all_stop_sequences) > 4:
                     fancy_logger.get().debug(
                         "OpenAI in use, truncating to 4 stop sequences as per the API limit."
                     )
-                    stop_sequences = stop_sequences[:3] # I'm so glad :3 gets to be valid code
-                # We use dict().update() for performance, as there may be hundreds or
-                # thousands of them depending on if impersonation prevention is enabled
-                # and the channel has many members.
-                request.update({ "stop": stop_sequences })
+                    all_stop_sequences = all_stop_sequences[:3] # Perfect
+                # We use dict().update() for performance, as there may be hundreds
+                # or thousands of them depending on if impersonation prevention is
+                # enabled, the channel has many members and the model has a large
+                # enough context.
+                request.update({ "stop": all_stop_sequences })
             elif self.api_type == "cohere":
                 # The real Cohere Chat API has a limit of 5 stop sequences
-                if len(stop_sequences) > 5:
+                if len(all_stop_sequences) > 5:
                     fancy_logger.get().debug(
                         "Cohere API in use, truncating to 5 stop sequences as per the API limit."
                     )
-                    stop_sequences = stop_sequences[:4] # list-slicing is fast anyway
-                request.update({ "stop_sequences": stop_sequences })
+                    all_stop_sequences = all_stop_sequences[:4]
+                request.update({ "stop_sequences": all_stop_sequences })
 
-            stop_sequences_str = ", ".join(
-                [f"'{stop_sequence}'" for stop_sequence in stop_sequences]
-            ).replace("\n", "\\n")
             if self.log_all_the_things:
                 print(f"Sent request:\n{json.dumps(request, indent=1)}")
                 if self.api_type == "cohere":
@@ -459,13 +457,19 @@ class OobaClient(http_client.SerializedHttpClient):
                         "Prompt:\n"
                         + f"{str(request['prompt']).encode('utf-8', 'replace')}"
                     )
+                stop_sequences_str = ", ".join(
+                    [f"'{stop_sequence}'" for stop_sequence in all_stop_sequences]
+                ).replace("\n", "\\n")
                 print("Stop sequences:\n%s", stop_sequences_str)
             else:
                 # If we aren't logging all the things, only log stop sequences
                 # if we added any at runtime, e.g. from impersonation prevention.
                 if stop_sequences:
+                    stop_sequences_str = ", ".join(
+                        [f"'{stop_sequence}'" for stop_sequence in stop_sequences]
+                    ).replace("\n", "\\n")
                     fancy_logger.get().debug(
-                        "Using stop sequences: %s", stop_sequences_str
+                        "Using additional stop sequences: %s", stop_sequences_str
                     )
 
         async with self._get_session().post(

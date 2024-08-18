@@ -28,8 +28,8 @@ class AudioCommands:
         discrivener_location: str,
         discrivener_model_location: str,
         decide_to_respond: decide_to_respond.DecideToRespond,
-        speak_voice_replies: bool,
-        post_voice_replies: bool,
+        speak_voice_responses: bool,
+        post_voice_responses: bool,
     ):
         voice_client.VoiceClient.wakewords = persona.wakewords
 
@@ -40,8 +40,8 @@ class AudioCommands:
         voice_client.VoiceClient.discrivener_location = discrivener_location
         voice_client.VoiceClient.discrivener_model_location = discrivener_model_location
         voice_client.VoiceClient.decide_to_respond = decide_to_respond
-        voice_client.VoiceClient.speak_voice_replies = speak_voice_replies
-        voice_client.VoiceClient.post_voice_replies = post_voice_replies
+        voice_client.VoiceClient.speak_voice_responses = speak_voice_responses
+        voice_client.VoiceClient.post_voice_responses = post_voice_responses
         voice_client.VoiceClient.persona = persona
         voice_client.VoiceClient.ooba_client = ooba_client
         voice_client.VoiceClient.prompt_generator = prompt_generator

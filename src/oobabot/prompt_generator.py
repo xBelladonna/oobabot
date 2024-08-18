@@ -3,10 +3,11 @@
 Generate a prompt for the AI to respond to, given the
 message history and persona.
 """
-import os
 from datetime import datetime
-from zoneinfo import ZoneInfo
+import os
 import typing
+from zoneinfo import ZoneInfo
+
 from oobabot import fancy_logger
 from oobabot import ooba_client
 from oobabot import persona
@@ -20,25 +21,22 @@ class PromptGenerator:
     the message history and persona.
     """
 
-    # this is set by the AI, and is the maximum length
-    # it will understand before it starts to ignore
-    # the rest of the prompt_prefix
-    # note: we don't currently measure tokens, we just
-    # count characters. This is a rough estimate.
+    # The average number of characters in a token. This is used to
+    # estimate the available context space. In practice, this is
+    # highly dynamic and can't be estimated well, but we try anyway.
     EST_CHARACTERS_PER_TOKEN = 3
 
-    # the estimated number of characters in a line of message history
-    # this is used to roughly calculate whether we'll have enough space
-    # to supply the requested number of lines of history.
+    # The estimated number of characters in a history message.
+    # This is used to roughly calculate whether we'll have enough
+    # space to supply the requested number of history messages at
+    # startup, and warn the user if the configured history limit
+    # might not fit. During operation, we look at the actual number
+    # of characters to see what we can fit.
     #
-    # in practice, we will look at the actual number of characters to
-    # see what we can fit.
-    #
-    # note that we're doing calculations in characters, not in tokens,
+    # Note that we're doing calculations in characters, not in tokens,
     # so even counting characters exactly is still an estimate.
     EST_CHARACTERS_PER_HISTORY_LINE = 30
-
-    # when we're not splitting responses, each history line is
+    # When we're not splitting responses, each history message is
     # much larger, and it's easier to run out of token space,
     # so we use a different estimate
     EST_CHARACTERS_PER_HISTORY_LINE_NOT_SPLITTING_RESPONSES = 180
@@ -55,82 +53,50 @@ class PromptGenerator:
         self.template_store = template_store
         self.ooba_client = ooba_client
         self.strip_prompt: bool = discord_settings["strip_prompt"]
-        self.dont_split_responses = discord_settings["dont_split_responses"]
-        self.reply_in_thread = discord_settings["reply_in_thread"]
-        self.history_lines = discord_settings["history_lines"]
-        self.token_space = oobabooga_settings["request_params"]["truncation_length"]
-
-        self.example_dialogue = self.template_store.format(
-            templates.Templates.EXAMPLE_DIALOGUE,
-            {
-                templates.TemplateToken.USER_SEQUENCE_PREFIX: self.template_store.format(
-                    templates.Templates.USER_SEQUENCE_PREFIX,
-                    {},
-                ),
-                templates.TemplateToken.USER_SEQUENCE_SUFFIX: self.template_store.format(
-                    templates.Templates.USER_SEQUENCE_SUFFIX,
-                    {},
-                ),
-                templates.TemplateToken.BOT_SEQUENCE_PREFIX: self.template_store.format(
-                    templates.Templates.BOT_SEQUENCE_PREFIX,
-                    {},
-                ),
-                templates.TemplateToken.BOT_SEQUENCE_SUFFIX: self.template_store.format(
-                    templates.Templates.BOT_SEQUENCE_SUFFIX,
-                    {},
-                ),
-                templates.TemplateToken.AI_NAME: self.persona.ai_name,
-            },
-        ).strip()
+        self.split_responses: bool = discord_settings["split_responses"]
+        self.history_messages: int = discord_settings["history_messages"]
+        self.context_length: int = oobabooga_settings["request_params"]["truncation_length"]
 
         # this will be also used when sending message
         # to suppress sending the prompt text to the user
-        self.bot_name = self.template_store.format(
-            templates.Templates.BOT_NAME,
-            {
-                templates.TemplateToken.NAME: self.persona.ai_name,
-            },
-        )
         self.bot_prompt_block = self.template_store.format(
             templates.Templates.BOT_PROMPT_HISTORY_BLOCK,
             {
-                templates.TemplateToken.BOT_NAME: self.bot_name,
-                templates.TemplateToken.MESSAGE: "",
-            },
+                templates.TemplateToken.NAME: self.persona.ai_name,
+                templates.TemplateToken.MESSAGE: ""
+            }
         )
 
-        image_request_template_tokens = {
+        # Get unformatted example dialogue template that
+        # we will split and format manually later
+        self.example_dialogue = self.template_store.get(
+            templates.Templates.EXAMPLE_DIALOGUE
+        ).strip()
+
+        self.example_dialogue_template_tokens = {
             templates.TemplateToken.AI_NAME: self.persona.ai_name,
-            templates.TemplateToken.SYSTEM_SEQUENCE_PREFIX: self.template_store.format(
-                templates.Templates.SYSTEM_SEQUENCE_PREFIX, {}
+            templates.TemplateToken.SYSTEM_SEQUENCE_PREFIX: self.template_store.get(
+                templates.Templates.SYSTEM_SEQUENCE_PREFIX
             ),
-            templates.TemplateToken.SYSTEM_SEQUENCE_SUFFIX: self.template_store.format(
-                templates.Templates.SYSTEM_SEQUENCE_SUFFIX, {}
+            templates.TemplateToken.SYSTEM_SEQUENCE_SUFFIX: self.template_store.get(
+                templates.Templates.SYSTEM_SEQUENCE_SUFFIX
             ),
-            templates.TemplateToken.USER_SEQUENCE_PREFIX: self.template_store.format(
-                templates.Templates.USER_SEQUENCE_PREFIX, {}
+            templates.TemplateToken.USER_SEQUENCE_PREFIX: self.template_store.get(
+                templates.Templates.USER_SEQUENCE_PREFIX
             ),
-            templates.TemplateToken.USER_SEQUENCE_SUFFIX: self.template_store.format(
-                templates.Templates.USER_SEQUENCE_SUFFIX, {}
+            templates.TemplateToken.USER_SEQUENCE_SUFFIX: self.template_store.get(
+                templates.Templates.USER_SEQUENCE_SUFFIX
             ),
-            templates.TemplateToken.BOT_SEQUENCE_PREFIX: self.template_store.format(
-                templates.Templates.BOT_SEQUENCE_PREFIX, {}
+            templates.TemplateToken.BOT_SEQUENCE_PREFIX: self.template_store.get(
+                templates.Templates.BOT_SEQUENCE_PREFIX
             ),
-            templates.TemplateToken.BOT_SEQUENCE_SUFFIX: self.template_store.format(
-                templates.Templates.BOT_SEQUENCE_SUFFIX, {}
-            ),
+            templates.TemplateToken.BOT_SEQUENCE_SUFFIX: self.template_store.get(
+                templates.Templates.BOT_SEQUENCE_SUFFIX
+            )
         }
-        self.image_request_made = self.template_store.format(
-            templates.Templates.PROMPT_IMAGE_COMING,
-            image_request_template_tokens
-        )
-        self.image_request_failed = self.template_store.format(
-            templates.Templates.PROMPT_IMAGE_NOT_COMING,
-            image_request_template_tokens
-        )
 
         if self.ooba_client.can_get_token_count():
-            self.max_context_units = self.token_space - \
+            self.max_context_units = self.context_length - \
                 oobabooga_settings["request_params"]["max_tokens"]
         else:
             self._init_history_available_chars()
@@ -138,88 +104,117 @@ class PromptGenerator:
 
     def _init_history_available_chars(self) -> None:
         """
-        Calculate the number of characters we have available
-        for history, and raise an exception if we don't have
-        enough.
-
-        Raises:
-            ValueError: if we don't estimate to have enough space
-                for the requested number of lines of history
+        Calculate the number of tokens or characters we have available for
+        history, and raise an exception if we don't have enough. Logs a
+        warning if don't have room for the prompt or the number of
+        requested history messages.
         """
-        # the number of chars we have available for history
-        # is:
-        #   number of chars in token space (estimated)
-        #   minus the number of chars in the prompt
+        # the number of chars we have available for history is:
+        # - number of chars in context (estimated) minus the number of chars in the prompt
         #     - without any history
-        #     - but with the image request
-        #     - or the image failure notification, depending on which is bigger
-        #
-        est_chars_in_token_space = self.token_space * self.EST_CHARACTERS_PER_TOKEN
-        prompt_without_history = self._generate(
-            "",
-            (
-                self.image_request_made if len(self.image_request_made)
-                > len(self.image_request_failed) else self.image_request_failed
+        #     - but with the largest special request templated in
+
+        max_length_display_name = "#" * 32 # we just need any string of the max length
+        special_requests = [
+            self.template_store.format(
+                templates.Templates.PROMPT_IMAGE_COMING,
+                {
+                    **self.example_dialogue_template_tokens,
+                    templates.TemplateToken.USER_NAME: max_length_display_name
+                }
             ),
+            self.template_store.format(
+                templates.Templates.PROMPT_IMAGE_NOT_COMING,
+                {
+                    **self.example_dialogue_template_tokens,
+                    templates.TemplateToken.USER_NAME: max_length_display_name
+                }
+            )
+        ]
+        prompt_without_history = self._render_prompt(
+            "",
+            max(special_requests, key=len),
             guild_name="",
             channel_name=""
         )
 
+        est_chars_in_context = self.context_length * self.EST_CHARACTERS_PER_TOKEN
         # how many chars might we have available for history?
-        available_chars_for_history = est_chars_in_token_space - len(
-            prompt_without_history
-        )
-        # how many chars do we need for the requested number of
-        # lines of history?
-        chars_per_history_line = self.EST_CHARACTERS_PER_HISTORY_LINE
-        if self.dont_split_responses:
-            chars_per_history_line = (
-                self.EST_CHARACTERS_PER_HISTORY_LINE_NOT_SPLITTING_RESPONSES
-            )
-
-        required_history_size_chars = self.history_lines * chars_per_history_line
-
-        if available_chars_for_history < required_history_size_chars:
-            fancy_logger.get().warning(
-                "AI token space is too small for prompt_prefix and history "
-                + "by an estimated %d characters. You may lose history context. "
-                + "You can save space by shortening the persona or reducing the "
-                + "requested number of lines of history.",
-                required_history_size_chars - available_chars_for_history,
-            )
+        available_chars_for_history = est_chars_in_context - len(prompt_without_history)
         self.max_context_units = available_chars_for_history
+
+        # how many chars do we need for the requested number of history messages?
+        if self.split_responses:
+            chars_per_history_line = self.EST_CHARACTERS_PER_HISTORY_LINE
+        else:
+            chars_per_history_line = \
+                self.EST_CHARACTERS_PER_HISTORY_LINE_NOT_SPLITTING_RESPONSES
+        required_history_size_chars = self.history_messages * chars_per_history_line
+        if available_chars_for_history <= 0:
+            fancy_logger.get().warning(
+                "AI context length is too small for the prompt alone by an estimated "
+                + "%d characters. There is no space to add chat history and the bot "
+                + "may not work at all. Please shorten the prompt and try again.",
+                len(prompt_without_history) - est_chars_in_context
+            )
+        elif available_chars_for_history < required_history_size_chars:
+            fancy_logger.get().warning(
+                "AI context length is too small for prompt and history by an estimated "
+                + "%d characters. You may lose chat history. You can save space by "
+                + "shortening the persona fields or reducing the requested number of "
+                + "history messages.",
+                required_history_size_chars - available_chars_for_history
+            )
 
     async def _render_history(
         self,
         bot_user_id: int,
         message_history: typing.AsyncIterator[types.GenericMessage],
-        image_coming: str,
+        system_message: str,
         guild_name: str,
         channel_name: str
     ) -> str:
-        # add on more history, but only if we have room
-        # if we don't have room, we'll just truncate the history
-        # by discarding the oldest messages first
+        """
+        Renders the requested number of history messages to a text string,
+        fully templated to be combined with the rest of the prompt. If
+        we run out of room (either by estimation or token counting), we
+        truncate the oldest messages so that the prompt fits within the
+        model's context length.
+        """
+        # history_messages is newest first, so figure out how many we can
+        # take, then append them in reverse order
+        history_messages = []
 
-        # history_lines is newest first, so figure out
-        # how many we can take, then append them in
-        # reverse order
-        history_lines = []
+        # Instruct templates are static
+        user_sequence_prefix = self.template_store.get(
+            templates.Templates.USER_SEQUENCE_PREFIX
+        )
+        user_sequence_suffix = self.template_store.get(
+            templates.Templates.USER_SEQUENCE_SUFFIX
+        )
+        bot_sequence_prefix = self.template_store.get(
+            templates.Templates.BOT_SEQUENCE_PREFIX
+        )
+        bot_sequence_suffix = self.template_store.get(
+            templates.Templates.BOT_SEQUENCE_SUFFIX
+        )
 
         section_separator = self.template_store.format(
             templates.Templates.SECTION_SEPARATOR,
             {
-                templates.TemplateToken.AI_NAME: self.persona.ai_name,
-            },
+                templates.TemplateToken.AI_NAME: self.persona.ai_name
+            }
         )
-        prompt_without_history = self._generate(
+        prompt_without_history = self._render_prompt(
             "",
-            image_coming,
+            system_message,
             guild_name,
             channel_name
         )
         try:
-            prompt_units = await self.ooba_client.get_token_count(prompt_without_history)
+            prompt_units = await self.ooba_client.get_token_count(
+                prompt_without_history
+            )
             # BOS tokens are stripped from token counts. Add 1 to the count
             # if we are configured to (default is true).
             if self.ooba_client.request_params.get("add_bos_token", True):
@@ -227,7 +222,7 @@ class PromptGenerator:
         except ValueError:
             prompt_units = len(prompt_without_history)
 
-        # first we process and append the chat transcript
+        # First we process and append the chat transcript
         context_full = False
         async for message in message_history:
             if context_full:
@@ -236,160 +231,145 @@ class PromptGenerator:
                 continue
 
             if message.author_id == bot_user_id:
-                line = self.template_store.format(
-                    templates.Templates.BOT_SEQUENCE_PREFIX,
-                    {},
-                )
-                line += self.template_store.format(
+                message_str = bot_sequence_prefix
+                message_str += self.template_store.format(
                     templates.Templates.BOT_PROMPT_HISTORY_BLOCK,
                     {
-                        templates.TemplateToken.BOT_NAME: self.bot_name,
-                        templates.TemplateToken.MESSAGE: message.body_text,
-                    },
+                        templates.TemplateToken.NAME: message.author_name,
+                        templates.TemplateToken.MESSAGE: message.body_text
+                    }
                 )
-                line += self.template_store.format(
-                    templates.Templates.BOT_SEQUENCE_SUFFIX,
-                    {},
-                )
+                message_str += bot_sequence_suffix
             else:
-                line = self.template_store.format(
-                    templates.Templates.USER_SEQUENCE_PREFIX,
-                    {},
-                )
-                line += self.template_store.format(
+                message_str = user_sequence_prefix
+                message_str += self.template_store.format(
                     templates.Templates.USER_PROMPT_HISTORY_BLOCK,
                     {
-                        templates.TemplateToken.USER_NAME: self.template_store.format(
-                            templates.Templates.USER_NAME,
-                            {
-                                templates.TemplateToken.NAME: message.author_name,
-                            },
-                        ),
-                        templates.TemplateToken.MESSAGE: message.body_text,
-                    },
+                        templates.TemplateToken.NAME: message.author_name,
+                        templates.TemplateToken.MESSAGE: message.body_text
+                    }
                 )
-                line += self.template_store.format(
-                    templates.Templates.USER_SEQUENCE_SUFFIX,
-                    {},
-                )
+                message_str += user_sequence_suffix
 
             try:
-                line_units = await self.ooba_client.get_token_count(line)
+                message_units = await self.ooba_client.get_token_count(message_str)
             except ValueError:
-                line_units = len(line)
+                message_units = len(message_str)
 
             units_left = self.max_context_units - prompt_units
-            if line_units >= units_left:
+            if message_units >= units_left:
                 context_full = True
-                if line_units > units_left:
+                if message_units > units_left:
                     break
 
-            prompt_units += line_units
-            history_lines.append(line)
+            prompt_units += message_units
+            history_messages.append(message_str)
 
-        # then we append the example dialogue, if it exists, and there's room in the message history
-        if len(self.example_dialogue) > 0:
-            if not context_full:
+        # then we append the example dialogue, if it exists, and there's room
+        if self.example_dialogue:
+            if not context_full and section_separator:
                 try:
-                    separator_units = await self.ooba_client.get_token_count(section_separator)
+                    separator_units = await self.ooba_client.get_token_count(
+                        section_separator
+                    )
                 except ValueError:
                     separator_units = len(section_separator)
                 context_full = prompt_units + separator_units >= self.max_context_units
 
             if not context_full:
-                remaining_lines = self.history_lines - len(history_lines)
+                remaining_messages = self.history_messages - len(history_messages)
 
-                if remaining_lines > 0:
-                    # append the section separator (and newline) to the top which becomes the bottom
-                    prompt_units += separator_units
-                    history_lines.append(section_separator + "\n")
-                    # split example dialogue into lines and keep the newlines by rebuilding the list
-                    # in a list comprehension
-                    example_dialogue_lines = [
-                        line + "\n" for line in self.example_dialogue.split("\n")]
+                if remaining_messages > 0:
+                    if section_separator:
+                        # Append the section separator to the end, which becomes
+                        # the start.
+                        prompt_units += separator_units
+                        history_messages.append(section_separator)
+                    # Split example dialogue into lines by "real" newlines. The
+                    # default sequence suffixes contain newlines and if templated
+                    # properly, the example dialogue should be formatted correctly.
+                    example_dialogue_lines = self.example_dialogue.split("\n")
+                    example_dialogue_messages: typing.List[str] = []
+                    for line in example_dialogue_lines:
+                        example_dialogue_messages.append(
+                            line.format(**self.example_dialogue_template_tokens)
+                        )
 
-                    # fill remaining quota of history lines with example dialogue lines
-                    # this has the effect of gradually pushing them out as the chat exceeds
-                    # the history limit
-                    for _ in range(remaining_lines):
-                        # start from the end of the list since the order is reversed
-                        example_line = example_dialogue_lines.pop()
+                    # Fill remaining quota of history messages with example dialogue
+                    # messages. This has the effect of gradually pushing them out
+                    # with each requst as the chat exceeds the history limit or the
+                    # model's context length.
+                    while example_dialogue_messages and remaining_messages:
+                        # Start from the end of the list since the order is reversed
+                        example_message = example_dialogue_messages.pop()
+                        # See if it can fit in the context
                         try:
-                            example_units = await self.ooba_client.get_token_count(example_line)
+                            example_units = await self.ooba_client.get_token_count(
+                                example_message
+                            )
                         except ValueError:
-                            example_units = len(example_line)
+                            example_units = len(example_message)
                         if prompt_units + example_units > self.max_context_units:
                             break
 
+                        # Update the prompt statistics and append the example message
                         prompt_units += example_units
-                        # pop the last item of the list into the transcript
-                        history_lines.append(example_line)
-                        # and then break out of the loop once we run out of example dialogue
-                        if not example_dialogue_lines:
-                            break
+                        remaining_messages -= 1
+                        history_messages.append(example_message)
 
         fancy_logger.get().debug(
-            "Number of history messages: %d",
-            len(history_lines),
+            "Fit %d messages in prompt.",
+            len(history_messages)
         )
-        if self.ooba_client.can_get_token_count():
-            unit_type = "tokens"
-        else:
-            unit_type = "characters"
+        unit_type = "tokens" if self.ooba_client.can_get_token_count() else "characters"
         fancy_logger.get().debug(
-            f"Total {unit_type} in prompt: %d. Max {unit_type} allowed: %d. Headroom: %d",
+            f"Total {unit_type} in prompt: %d.  Max {unit_type} allowed: %d. Headroom: %d",
             prompt_units,
             self.max_context_units,
-            self.max_context_units - prompt_units,
+            self.max_context_units - prompt_units
         )
 
         # then reverse the order of the list so it's in order again
-        history_lines.reverse()
-        if not self.reply_in_thread:
-            # strip the last newline (moved to if statement due to causing errors when
-            # 'reply in thread' is True?)
-            history_lines[-1] = history_lines[-1].strip("\n")
-        return "".join(history_lines)
+        history_messages.reverse()
+        return "".join(history_messages)
 
-    def _generate(
+    def _render_prompt(
         self,
         message_history_txt: str,
-        image_coming: str,
+        system_message: str,
         guild_name: str,
         channel_name: str,
     ) -> str:
+        system_sequence_prefix = self.template_store.get(
+            templates.Templates.SYSTEM_SEQUENCE_PREFIX
+        )
+        system_sequence_suffix = self.template_store.get(
+            templates.Templates.SYSTEM_SEQUENCE_SUFFIX
+        )
         current_datetime = self.get_datetime()
         prompt = self.template_store.format(
             templates.Templates.PROMPT,
             {
                 templates.TemplateToken.AI_NAME: self.persona.ai_name,
                 templates.TemplateToken.PERSONA: self.persona.persona,
-                templates.TemplateToken.MESSAGE_HISTORY: message_history_txt,
+                templates.TemplateToken.GUILD_NAME: guild_name,
+                templates.TemplateToken.CHANNEL_NAME: channel_name,
+                templates.TemplateToken.CURRENT_DATETIME: current_datetime,
                 templates.TemplateToken.SECTION_SEPARATOR: self.template_store.format(
                     templates.Templates.SECTION_SEPARATOR,
                     {
-                        templates.TemplateToken.AI_NAME: self.persona.ai_name,
-                        templates.TemplateToken.CURRENTDATETIME: current_datetime,
-                    },
+                        templates.TemplateToken.SYSTEM_SEQUENCE_PREFIX: system_sequence_prefix,
+                        templates.TemplateToken.SYSTEM_SEQUENCE_SUFFIX: system_sequence_suffix,
+                        templates.TemplateToken.AI_NAME: self.persona.ai_name
+                    }
                 ),
-                templates.TemplateToken.SYSTEM_SEQUENCE_PREFIX: self.template_store.format(
-                    templates.Templates.SYSTEM_SEQUENCE_PREFIX,
-                    {},
-                ),
-                templates.TemplateToken.SYSTEM_SEQUENCE_SUFFIX: self.template_store.format(
-                    templates.Templates.SYSTEM_SEQUENCE_SUFFIX,
-                    {},
-                ),
-                templates.TemplateToken.IMAGE_COMING: image_coming,
-                templates.TemplateToken.GUILDNAME: guild_name,
-                templates.TemplateToken.CHANNELNAME: channel_name,
-                templates.TemplateToken.CURRENTDATETIME: current_datetime,
-            },
+                templates.TemplateToken.SYSTEM_SEQUENCE_PREFIX: system_sequence_prefix,
+                templates.TemplateToken.SYSTEM_SEQUENCE_SUFFIX: system_sequence_suffix,
+                templates.TemplateToken.MESSAGE_HISTORY: message_history_txt,
+                templates.TemplateToken.SYSTEM_MESSAGE: system_message
+            }
         )
-        prompt += self.template_store.format(
-            templates.Templates.BOT_SEQUENCE_PREFIX,
-            {},
-        )
+        prompt += self.template_store.get(templates.Templates.BOT_SEQUENCE_PREFIX)
         prompt += (
            self.bot_prompt_block.rstrip()
            if self.strip_prompt else self.bot_prompt_block
@@ -397,8 +377,8 @@ class PromptGenerator:
         return prompt
 
     def get_datetime(self) -> str:
-        datetime_format = self.template_store.format(
-            templates.Templates.DATETIME_FORMAT, {}
+        datetime_format = self.template_store.get(
+            templates.Templates.DATETIME_FORMAT
         )
         tz_str = os.environ.get("TZ")
         if tz_str:
@@ -411,30 +391,49 @@ class PromptGenerator:
         self,
         message_history: typing.Optional[typing.AsyncIterator[types.GenericMessage]],
         bot_user_id: int,
+        user_name: str,
         guild_name: str,
         channel_name: str,
         image_requested: typing.Optional[bool] = None
     ) -> str:
         """
         Generate a prompt for the AI to respond to.
+
+        Formats any special requests according to the prompt template.
+        
+        Available special requests:
+        - image_requested=True - Inform the AI that the image generator is processing a request
+        - image_requested=False - Inform the AI that the image generator didn't work
+        - rewrite_request - Ask the AI to rewrite its last response according to instructions
         """
-        message_history_txt = ""
+        message_history_text = ""
+        # if image requested and SD is online
         if image_requested:
-            # True if image requested and SD is online
-            image_coming = self.image_request_made
+            special_request = self.template_store.format(
+                templates.Templates.PROMPT_IMAGE_COMING,
+                {
+                    **self.example_dialogue_template_tokens,
+                    templates.TemplateToken.USER_NAME: user_name
+                }
+            )
+        # if SD is offline and we can't
         elif image_requested is False:
-            # False if SD is offline and we can't
-            image_coming = self.image_request_failed
+            special_request = self.template_store.format(
+                templates.Templates.PROMPT_IMAGE_NOT_COMING,
+                {
+                    **self.example_dialogue_template_tokens,
+                    templates.TemplateToken.USER_NAME: user_name
+                }
+            )
         else:
-            # None if no image was requested
-            image_coming = ""
+            special_request = ""
 
         if message_history:
-            message_history_txt = await self._render_history(
+            message_history_text = await self._render_history(
                 bot_user_id,
                 message_history,
-                image_coming,
+                special_request,
                 guild_name,
                 channel_name
             )
-        return self._generate(message_history_txt, image_coming, guild_name, channel_name)
+        return self._render_prompt(message_history_text, special_request, guild_name, channel_name)

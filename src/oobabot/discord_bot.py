@@ -415,7 +415,7 @@ class DiscordBot(discord.Client):
         self.bot_user_id = discord_utils.get_user_id_from_token(discord_settings["discord_token"])
         self.message_character_limit = 2000
 
-        self.dont_split_responses = discord_settings["dont_split_responses"]
+        self.split_responses = discord_settings["split_responses"]
         self.ignore_dms = discord_settings["ignore_dms"]
         self.ignore_prefixes = discord_settings["ignore_prefixes"]
         self.ignore_reactions = discord_settings["ignore_reactions"]
@@ -432,7 +432,7 @@ class DiscordBot(discord.Client):
             users="users" in allowed_mentions,
             roles="roles" in allowed_mentions,
         )
-        self.reply_in_thread = discord_settings["reply_in_thread"]
+        self.respond_in_thread = discord_settings["respond_in_thread"]
         self.use_immersion_breaking_filter = discord_settings["use_immersion_breaking_filter"]
         self.retries = discord_settings["retries"]
         if self.retries < 0:
@@ -473,13 +473,21 @@ class DiscordBot(discord.Client):
 
 
     async def on_ready(self) -> None:
+        """
+        Called by our runtime once the bot is set up and has successfully
+        connected to Discord.
+        """
         guilds = self.guilds
-        num_guilds = len(guilds)
+        num_guilds = len(self.guilds)
+        num_private_channels = len(self.private_channels)
         num_channels = sum(len(guild.channels) for guild in guilds)
 
         if self.user:
             self.bot_user_id = self.user.id
             user_id_str = self.user.name
+            # Discriminator is legacy and is 0 if not present.
+            if int(self.user.discriminator):
+                user_id_str += "#" + self.user.discriminator
         else:
             user_id_str = "<unknown>"
 
@@ -491,26 +499,36 @@ class DiscordBot(discord.Client):
         )
         if self.ignore_dms:
             fancy_logger.get().debug("Ignoring DMs")
+        elif num_private_channels:
+            fancy_logger.get().debug(
+                "Monitoring %d%s DMs",
+                num_private_channels,
+                # Discord only returns the most recent 128 channels
+                "+" if num_private_channels >= 128 else ""
+            )
         else:
-            fancy_logger.get().debug("Listening to DMs")
+            fancy_logger.get().debug("Monitoring DMs")
 
-        if self.stream_responses:
-            fancy_logger.get().debug(
-                "Response Grouping: streamed live into a single message"
-            )
-        elif self.dont_split_responses:
-            fancy_logger.get().debug("Response Grouping: returned as whole messages")
-        else:
-            fancy_logger.get().debug(
-                "Response Grouping: split into individual messages"
-            )
+        cap = self.decide_to_respond.unsolicited_channel_cap
+        cap = str(cap) if cap > 0 else "<unlimited>"
+        fancy_logger.get().debug(
+            "Unsolicited channel cap: %s", cap
+        )
 
         fancy_logger.get().debug("AI name: %s", self.persona.ai_name)
-        fancy_logger.get().debug("AI persona: %s", self.persona.persona)
+        if self.persona.persona:
+            fancy_logger.get().debug("AI description: %s", self.persona.persona)
 
         fancy_logger.get().debug(
-            "History: %d lines ", self.prompt_generator.history_lines
+            "History: %d messages ", self.prompt_generator.history_messages
         )
+        if self.stream_responses:
+            response_grouping = "streamed live into a single message"
+        elif self.split_responses:
+            response_grouping = "split into individual messages"
+        else:
+            response_grouping = "returned as whole messages"
+        fancy_logger.get().debug("Response grouping: %s", response_grouping)
 
         if self.stop_markers:
             fancy_logger.get().debug(
@@ -520,14 +538,12 @@ class DiscordBot(discord.Client):
                 ).replace("\n", "\\n")
             )
 
-        cap = self.decide_to_respond.unsolicited_channel_cap
-        cap = str(cap) if cap > 0 else "<unlimited>"
-        fancy_logger.get().debug(
-            "Unsolicited channel cap: %s", cap
-        )
-
         if self.persona.wakewords:
-            fancy_logger.get().debug("Wakewords: %s", ", ".join(self.persona.wakewords))
+            fancy_logger.get().debug(
+                "Wakewords: %s", ", ".join(
+                    [f"'{wakeword}'" for wakeword in self.persona.wakewords]
+                )
+            )
 
         self.ooba_client.on_ready()
 
@@ -535,6 +551,19 @@ class DiscordBot(discord.Client):
             fancy_logger.get().debug("Stable Diffusion: disabled")
         else:
             self.image_generator.on_ready()
+        if not self.vision_client:
+            fancy_logger.get().debug("Vision: disabled")
+
+        # show a warning if the bot is not in any channels or DMs,
+        # with a helpful link on how to fix it
+        if not num_guilds and not num_private_channels:
+            fancy_logger.get().warning(
+                "The bot is not connected to any servers or DMs. "
+                + "Please add the bot to a server here:",
+            )
+            fancy_logger.get().warning(
+                discord_utils.generate_invite_url(self.bot_user_id)
+            )
 
         # we do this at the very end because when you restart
         # the bot, it can take a while for the commands to
@@ -545,17 +574,6 @@ class DiscordBot(discord.Client):
         except discord.DiscordException as err:
             fancy_logger.get().warning(
                 "Failed to register commands: %s (continuing without commands)", err
-            )
-
-        # show a warning if the bot is connected to zero guilds,
-        # with a helpful link on how to fix it
-        if num_guilds == 0:
-            fancy_logger.get().warning(
-                "The bot is not connected to any servers. "
-                + "Please add the bot to a server here:",
-            )
-            fancy_logger.get().warning(
-                discord_utils.generate_invite_url(self.bot_user_id)
             )
 
     async def on_message(self, raw_message: discord.Message) -> None:
@@ -629,7 +647,7 @@ class DiscordBot(discord.Client):
             or await self.fetch_user(payload.user_id)
         )
 
-        # hide all chat history at and before this message
+        # Hide all chat history at and before this message
         if payload.emoji.name == "⏪":
             fancy_logger.get().debug(
                 "Received request from user '%s' to hide chat history in %s.",
@@ -679,7 +697,7 @@ class DiscordBot(discord.Client):
         if raw_message.author.id != self.bot_user_id:
             return
 
-        # message deletion
+        # Message deletion
         if payload.emoji.name == "❌":
             fancy_logger.get().debug(
                 "Received message deletion request from user '%s' in %s.",
@@ -693,7 +711,7 @@ class DiscordBot(discord.Client):
                 pass
             return
 
-        # message regeneration
+        # Response message regeneration
         if payload.emoji.name == "🔁":
             fancy_logger.get().debug(
                 "Received response regeneration request from user '%s' in %s.",
@@ -936,8 +954,8 @@ class DiscordBot(discord.Client):
         """
         Called when we've decided to respond to a message.
 
-        It decides if we're sending a text response, an image response,
-        or both, and then sends the response(s).
+        It decides if we're sending a text response, an image response, or both,
+        and then sends the response(s).
         """
         fancy_logger.get().debug(
             "Responding to message from %s in %s",
@@ -955,8 +973,8 @@ class DiscordBot(discord.Client):
         result = await self._send_text_response(
             message=message,
             raw_message=raw_message,
-            image_requested=is_image_coming,
             is_summon_in_public_channel=is_summon_in_public_channel,
+            image_requested=is_image_coming
         )
         if not result:
             # we failed to create a thread that the user could
@@ -1063,11 +1081,16 @@ class DiscordBot(discord.Client):
     async def _generate_text_response(
         self,
         message: types.GenericMessage,
-        recent_messages: typing.AsyncIterator,
         image_descriptions: typing.List[str],
-        image_requested: typing.Optional[bool],
-        response_channel: discord.abc.Messageable,
-        as_string: bool = False,
+        recent_messages: typing.AsyncIterator[types.GenericMessage],
+        response_channel: typing.Union[
+            discord.TextChannel,
+            discord.Thread,
+            discord.VoiceChannel,
+            discord.DMChannel,
+            discord.GroupChannel
+        ],
+        image_requested: typing.Optional[bool] = None
     ) -> typing.Tuple[
         typing.Union[typing.AsyncIterator[str], str], response_stats.ResponseStats
     ]:
@@ -1087,9 +1110,9 @@ class DiscordBot(discord.Client):
             image_received = self.template_store.format(
                 templates.Templates.PROMPT_IMAGE_RECEIVED,
                 {
-                    templates.TemplateToken.AI_NAME: self.persona.ai_name,
                     templates.TemplateToken.USER_NAME: message.author_name,
-                },
+                    templates.TemplateToken.AI_NAME: self.persona.ai_name
+                }
             )
             description_text = "\n".join(image_received + desc for desc in image_descriptions)
             for msg in recent_messages_list:
@@ -1118,15 +1141,15 @@ class DiscordBot(discord.Client):
             channel_name = message.channel_name
 
         prompt_prefix = await self.prompt_generator.generate(
-            bot_user_id=self.bot_user_id,
             message_history=recent_messages,
+            bot_user_id=self.bot_user_id,
+            user_name=message.author_name,
             guild_name=guild_name,
             channel_name=channel_name,
             image_requested=image_requested
         )
-        response_stat = self.response_stats.log_request_arrived(prompt_prefix)
 
-        stopping_strings = []
+        stop_sequences: typing.List[str] = []
         if self.prevent_impersonation:
             # Populate a list of stopping strings using the display names of the members
             # who posted most recently, up to the history limit. We do this with a list
@@ -1135,23 +1158,17 @@ class DiscordBot(discord.Client):
             # to de-duplicate instead of checking list membership, as this has constant
             # time complexity vs. linear and also preserves order.
             recent_members = dict.fromkeys([msg.author_name for msg in recent_messages_list])
-            # We don't want our own name since our display name isn't used anyway - we always
-            # replace it with our configured AI name.
-            recent_members.pop(
-                self.user.display_name, # type: ignore
-                None
-            )
+            recent_members.pop(self.persona.ai_name, None) # remove our own name
             recent_members = recent_members.keys()
 
-            # utility functions to avoid code-duplication and only evaluate when required
-            # avoids populating unneeded variables and improves performance very slightly
+            # Utility functions to avoid code-duplication
             def _get_user_prompt_prefix(user_name: str) -> str:
                 return self.template_store.format(
                     templates.Templates.USER_PROMPT_HISTORY_BLOCK,
                     {
-                        templates.TemplateToken.USER_NAME: user_name,
-                        templates.TemplateToken.MESSAGE: "",
-                    },
+                        templates.TemplateToken.NAME: user_name,
+                        templates.TemplateToken.MESSAGE: ""
+                    }
                 ).strip()
             def _get_canonical_name(user_name: str) -> str:
                 name = emoji.replace_emoji(user_name, "")
@@ -1159,37 +1176,36 @@ class DiscordBot(discord.Client):
                 return canonical_name if len(canonical_name) >= 3 else name
 
             for member_name in recent_members:
-                user_name = self.template_store.format(
-                    templates.Templates.USER_NAME,
-                    {
-                        templates.TemplateToken.NAME: member_name,
-                    },
-                )
+                user_name = member_name
                 if self.prevent_impersonation == "standard":
-                    stopping_strings.append(_get_user_prompt_prefix(user_name))
+                    stop_sequences.append(_get_user_prompt_prefix(user_name))
                 elif self.prevent_impersonation == "aggressive":
-                    stopping_strings.append("\n" + _get_canonical_name(user_name))
+                    stop_sequences.append("\n" + _get_canonical_name(user_name))
                 elif self.prevent_impersonation == "comprehensive":
-                    stopping_strings.append(_get_user_prompt_prefix(user_name))
-                    stopping_strings.append("\n" + _get_canonical_name(user_name))
+                    stop_sequences.append(_get_user_prompt_prefix(user_name))
+                    stop_sequences.append("\n" + _get_canonical_name(user_name))
 
         fancy_logger.get().debug("Generating text response...")
+        response_stat = self.response_stats.log_request_arrived(prompt_prefix)
         try:
-            if as_string:
-                response = await self.ooba_client.request_as_string(prompt_prefix, stopping_strings)
-                return response, response_stat
+            # If we're streaming our response as groups of tokens
             if self.stream_responses == "token":
                 generator = self.ooba_client.request_as_grouped_tokens(
                     prompt_prefix,
-                    stopping_strings,
-                    interval=self.stream_responses_speed_limit,
+                    stop_sequences,
+                    interval=self.stream_responses_speed_limit
                 )
-            elif self.stream_responses == "sentence":
+                return generator, response_stat
+            # If we're splitting or streaming our response by sentence
+            if self.stream_responses == "sentence" or self.split_responses:
                 generator = self.ooba_client.request_by_message(
                     prompt_prefix,
-                    stopping_strings,
+                    stop_sequences
                 )
-            return generator, response_stat
+                return generator, response_stat
+            # or finally, if we're not splitting our response
+            response = await self.ooba_client.request_as_string(prompt_prefix, stop_sequences)
+            return response, response_stat
 
         except asyncio.CancelledError as err:
             if self.ooba_client.can_abort_generation():
@@ -1201,8 +1217,8 @@ class DiscordBot(discord.Client):
         self,
         message: types.GenericMessage,
         raw_message: discord.Message,
-        image_requested: typing.Optional[bool],
         is_summon_in_public_channel: bool,
+        image_requested: typing.Optional[bool] = None
     ) -> typing.Optional[typing.Tuple[asyncio.Task, discord.abc.Messageable]]:
         """
         Send a text response to a message.
@@ -1215,12 +1231,14 @@ class DiscordBot(discord.Client):
         in, creating a thread if necessary. We then post the message by calling
         _send_text_response_in_channel().
 
-        Returns a tuple of the task that was created to send the message, and the channel
-        that the message was sent to, or None if no message was sent.
+        Returns a tuple with:
+        - the task that was created to send the message
+        - the channel that the message was sent to, or None if no message was sent
         """
         # Determine if there are images and get descriptions (if Vision is enabled)
+        # We do this here instead of in _send_text_response_in_channel to avoid
+        # creating a thread if we end up with no content we can respond to.
         image_descriptions = await self._get_image_descriptions(raw_message)
-        # If the message is essentially devoid of content we can handle, abort response.
         if message.is_empty() and not image_descriptions:
             return
 
@@ -1238,7 +1256,7 @@ class DiscordBot(discord.Client):
 
         response_channel = raw_message.channel
         if (
-            self.reply_in_thread
+            self.respond_in_thread
             and isinstance(response_channel, discord.TextChannel)
             and isinstance(raw_message.author, discord.Member)
         ):
@@ -1283,9 +1301,9 @@ class DiscordBot(discord.Client):
             message=message,
             raw_message=raw_message,
             image_descriptions=image_descriptions,
-            image_requested=image_requested,
             is_summon_in_public_channel=is_summon_in_public_channel,
             response_channel=response_channel, # type: ignore
+            image_requested=image_requested
         )
         response_task = asyncio.create_task(response_coro)
         return response_task, response_channel
@@ -1295,7 +1313,6 @@ class DiscordBot(discord.Client):
         message: types.GenericMessage,
         raw_message: discord.Message,
         image_descriptions: typing.List[str],
-        image_requested: typing.Optional[bool],
         is_summon_in_public_channel: bool,
         response_channel: typing.Union[
             discord.TextChannel,
@@ -1304,11 +1321,15 @@ class DiscordBot(discord.Client):
             discord.DMChannel,
             discord.GroupChannel
         ],
+        image_requested: typing.Optional[bool] = None,
+        existing_message: typing.Optional[discord.Message] = None
     ) -> None:
         """
         Getting closer now! This method requests a text response from the API and then
         sends the message appropriately according to the configured response mode, i.e.
-        if we're streaming the response, or sending it all at once.
+        if we're streaming the response, or sending it all at once. If an existing
+        message is passed, that message will be edited first instead of sending a new
+        message immediately.
         """
 
         repeated_id = self.repetition_tracker.get_throttle_message_id(
@@ -1318,22 +1339,20 @@ class DiscordBot(discord.Client):
             response_channel.id
         )
 
-        # determine if we're responding to a specific message that
-        # summoned us. If so, find out what message ID that was, so
-        # that we can ignore all messages sent after it (as not to
-        # confuse the AI about what to reply to)
+        # If this message is one that summoned us, get a reference to it so we
+        # can reply to it.
         reference = None
         if is_summon_in_public_channel:
-            # we can't use the message reference if we're starting a new thread
+            # We can't use the message reference if we're starting a new thread
             if message.channel_id == response_channel.id:
                 reference = raw_message.to_reference()
         ignore_all_until_message_id = message.message_id
 
-        recent_messages = self._recent_messages_following_thread(
+        recent_messages = self._filtered_history_iterator(
             channel=response_channel,
-            num_history_lines=self.prompt_generator.history_lines,
             stop_before_message_id=repeated_id or history_marker_id,
-            ignore_all_until_message_id=ignore_all_until_message_id
+            ignore_all_until_message_id=ignore_all_until_message_id,
+            limit=self.prompt_generator.history_messages
         )
 
         # will be set to true when we abort the response because:
@@ -1346,56 +1365,21 @@ class DiscordBot(discord.Client):
             # will return a string or generator based on configuration
             response, response_stat = await self._generate_text_response(
                 message=message,
-                recent_messages=recent_messages,
                 image_descriptions=image_descriptions,
-                image_requested=image_requested,
-                response_channel=response_channel
+                recent_messages=recent_messages,
+                response_channel=response_channel,
+                image_requested=image_requested
             )
-
             try:
-                if self.stream_responses:
-                    (
-                        sent_message_count, aborted_by_us
-                    ) = await self._render_streaming_response(
-                        response, # type: ignore
-                        response_stat,
-                        response_channel,
-                        self._allowed_mentions,
-                        reference,
-                    )
-                else:
-                    # Post the whole message at once
-                    if self.dont_split_responses:
-                        (
-                            sent_message_count, aborted_by_us
-                        ) = await self._send_response_message(
-                            response, # type: ignore
-                            response_stat,
-                            response_channel,
-                            self._allowed_mentions,
-                            reference,
-                        )
-                    # or finally, send the response sentence by sentence
-                    # in a new message each time, notifying the channel.
-                    else:
-                        async for sentence in response: # type: ignore
-                            (
-                                sent_message_count, aborted_by_us
-                            ) = await self._send_response_message(
-                                sentence,
-                                response_stat,
-                                response_channel,
-                                self._allowed_mentions,
-                                reference
-                            )
-                            if aborted_by_us:
-                                break
-                            if sent_message_count:
-                                # only use the reference for the first
-                                # message in a multi-message chain
-                                reference = None
-                            await asyncio.sleep(self.stream_responses_speed_limit)
-
+                (
+                    sent_message_count, aborted_by_us
+                ) = await self._render_response(
+                    response,
+                    response_stat,
+                    response_channel,
+                    reference,
+                    existing_message
+                )
             except discord.DiscordException as err:
                 if (
                     isinstance(err, discord.HTTPException)
@@ -1414,7 +1398,8 @@ class DiscordBot(discord.Client):
                     )
                 else:
                     fancy_logger.get().error(
-                        "Error while sending message: %s", err, stack_info=True
+                        "Error while sending response: %s: %s",
+                        type(err).__name__, err, stack_info=True
                     )
                 self.response_stats.log_response_failure()
                 return
@@ -1433,111 +1418,11 @@ class DiscordBot(discord.Client):
             self.response_stats.log_response_failure()
             return
 
-        response_stat.write_to_log(f"Response to {message.author_name} done!  ")
+        if existing_message:
+            response_stat.write_to_log(f"Regeneration of message #{existing_message.id} done!  ")
+        else:
+            response_stat.write_to_log(f"Response to {message.author_name} done!  ")
         self.response_stats.log_response_success(response_stat)
-
-    async def _send_response_message(
-        self,
-        response: str,
-        response_stat: response_stats.ResponseStats,
-        response_channel: typing.Union[
-            discord.TextChannel,
-            discord.Thread,
-            discord.VoiceChannel,
-            discord.DMChannel,
-            discord.GroupChannel
-        ],
-        allowed_mentions: discord.AllowedMentions,
-        reference: typing.Optional[
-            typing.Union[discord.Message, discord.MessageReference]
-        ],
-    ) -> typing.Tuple[int, bool]:
-        """
-        Given a string that represents an individual response message,
-        post it as a message in the given channel. If the response is
-        too large to fit in a single message, split it into as many
-        messages as required.
-
-        It also looks to see if a message contains a termination string,
-        and if so it will return False to indicate that we should stop
-        the response.
-
-        Also does some bookkeeping to make sure we don't repeat ourselves,
-        and to track how many messages we've sent.
-
-        Returns a tuple with:
-        - the number of sent Discord messages
-        - a boolean indicating if we need to abort the response entirely
-        """
-        response, abort_response = self.immersion_breaking_filter.filter(response)
-        sent_message_count = 0
-        message_to_log = None
-        # Reference cannot be None, so we handle it gracefully
-        kwargs = {}
-        if reference:
-            kwargs["reference"] = reference
-
-        # Hopefully we don't get here often but if we do, split the response
-        # into sentences, append them to a response buffer until the next
-        # sentence would cause the response to exceed the character limit,
-        # then post what we have and continue in a new message.
-        if len(response.strip()) > self.message_character_limit:
-            new_response = ""
-            # Split lines using the compiled regex from the immersion-breaking filter,
-            # which uses regex split with a capturing group to return the split
-            # character(s) in the list.
-            for line in self.immersion_breaking_filter.split(response):
-                for sentence in self.immersion_breaking_filter.segment(line):
-                    if len((new_response + sentence).strip()) > self.message_character_limit:
-                        fancy_logger.get().debug(
-                            "Response exceeded %d character limit by %d "
-                            + "characters! Posting current message and continuing "
-                            + "in a new message.",
-                            self.message_character_limit,
-                            len(response) - self.message_character_limit
-                        )
-                        sent_message = await response_channel.send(
-                            new_response.strip(),
-                            allowed_mentions=self._allowed_mentions,
-                            suppress_embeds=True,
-                            **kwargs
-                        )
-                        response_stat.log_response_part()
-                        # If we are splitting a large message, use only the first message
-                        # we send for the repetition tracker.
-                        if not message_to_log:
-                            message_to_log = sent_message
-                        # Reply to our last message in a chain that tracks the whole response
-                        kwargs["reference"] = sent_message
-                        sent_message_count += 1
-                        new_response = ""
-                        # Finally, wait for the configured rate-limit timeout
-                        await asyncio.sleep(self.stream_responses_speed_limit)
-                    new_response += sentence
-            response = new_response
-
-        # We can't send an empty message
-        response = response.strip()
-        if response:
-            sent_message = await response_channel.send(
-                response,
-                allowed_mentions=allowed_mentions,
-                suppress_embeds=True,
-                **kwargs
-            )
-            response_stat.log_response_part()
-            sent_message_count += 1
-            if not message_to_log:
-                message_to_log = sent_message
-
-        # Log the message with the repetition tracker, if we sent one
-        if message_to_log:
-            self.repetition_tracker.log_message(
-                response_channel.id,
-                discord_utils.discord_message_to_generic_message(message_to_log)
-            )
-
-        return sent_message_count, abort_response
 
     async def _regenerate_response_message(
         self,
@@ -1551,8 +1436,9 @@ class DiscordBot(discord.Client):
         ],
     ) -> None:
         """
-        Regenerates a given message by editing it with updated contents using
-        the chat history up to the provided message as the prompt.
+        Regenerates a given response message by editing it with updated
+        contents using the chat history up to the provided message as the
+        prompt.
         """
         # We need to find the message our response was directed at
         raw_target_message = None
@@ -1579,7 +1465,7 @@ class DiscordBot(discord.Client):
             # otherwise, try to get the latest message before the provided raw message
             # that isn't hidden
             async for raw_msg in response_channel.history(
-                limit=self.prompt_generator.history_lines,
+                limit=self.prompt_generator.history_messages,
                 before=raw_message
             ):
                 if (
@@ -1598,72 +1484,81 @@ class DiscordBot(discord.Client):
             )
 
         # Now that we know the last user message, begin generating a new response
-        repeated_id = self.repetition_tracker.get_throttle_message_id(response_channel.id)
-        history_marker_id = self.repetition_tracker.get_history_marker_id(response_channel.id)
-        recent_messages = self._recent_messages_following_thread(
-            channel=response_channel,
-            num_history_lines=self.prompt_generator.history_lines,
-            stop_before_message_id=repeated_id or history_marker_id,
-            ignore_all_until_message_id=target_message.message_id
-        )
         image_descriptions = await self._get_image_descriptions(raw_target_message)
-        # Show the typing indicator for the text response
-        async with response_channel.typing():
-            response, response_stat = await self._generate_text_response(
-                message=target_message,
-                recent_messages=recent_messages,
-                image_descriptions=image_descriptions,
-                image_requested=None,
-                response_channel=response_channel
-            )
 
-            try:
-                if self.stream_responses:
-                    await self._render_streaming_response(
-                        response, # type: ignore
+        await self._send_text_response_in_channel(
+            message=target_message,
+            raw_message=raw_target_message,
+            image_descriptions=image_descriptions,
+            is_summon_in_public_channel=False,
+            response_channel=response_channel,
+            existing_message=raw_message
+        )
+
+    async def _render_response(
+        self,
+        response: typing.Union[typing.AsyncIterator[str], str],
+        response_stat: response_stats.ResponseStats,
+        response_channel: typing.Union[
+            discord.TextChannel,
+            discord.Thread,
+            discord.VoiceChannel,
+            discord.DMChannel,
+            discord.GroupChannel
+        ],
+        reference: typing.Optional[
+            typing.Union[discord.Message, discord.MessageReference]
+        ] = None,
+        existing_message: typing.Optional[discord.Message] = None
+    ) -> typing.Tuple[int, bool]:
+        """
+        Determines if we're streaming the response live, splitting the response
+        into individual messages and posting them one-by-one, or posting the
+        entire response at once. It then calls the appropriate method to render
+        the response to the channel accordingly. If an existing message is
+        provided, its contents are replaced with the response.
+
+        Returns a tuple with:
+        - the number of sent Discord messages
+        - a boolean indicating if we need to abort the response entirely
+        """
+        # If we're streaming the response live, call the relevant method
+        if self.stream_responses:
+            (
+                sent_message_count, abort_response
+            ) = await self._render_streaming_response(
+                response, # type: ignore
+                response_stat,
+                response_channel,
+                reference,
+                existing_message
+            )
+        # Send the response sentence by sentence in a new message
+        # each time, notifying the channel.
+        elif self.split_responses:
+            async for sentence in response: # type: ignore
+                (
+                    sent_message_count, abort_response
+                ) = await self._send_messages(
+                        sentence,
                         response_stat,
                         response_channel,
-                        self._allowed_mentions,
-                        existing_message=raw_message,
+                        reference,
+                        existing_message
                     )
-                else:
-                    response, _ = self._filter_immersion_breaking_lines(response) # type: ignore
-                    if response:
-                        # If it exceeds the character limit, just truncate it for now,
-                        # until I figure out how to best handle sending multiple messages
-                        # without upsetting the order of messages too much.
-                        if len(response) > self.message_character_limit:
-                            fancy_logger.get().debug(
-                                "Response exceeded %d character limit by %d characters! "
-                                + "Truncating excess.",
-                                self.message_character_limit,
-                                len(response) - self.message_character_limit
-                            )
-                            response = response[:self.message_character_limit]
-                        sent_message = await raw_message.edit(content=response, suppress=True)
-                        response_stat.log_response_part()
-                        self.repetition_tracker.log_message(
-                            response_channel.id,
-                            discord_utils.discord_message_to_generic_message(sent_message)
-                        )
-                    else:
-                        fancy_logger.get().warning(
-                            "An empty response was received from Oobabooga. Please check that "
-                            + "the AI is running properly on the Oobabooga server at %s.",
-                            self.ooba_client.base_url,
-                        )
-                        self.response_stats.log_response_failure()
-                        return
-
-            except discord.DiscordException as err:
-                fancy_logger.get().error(
-                    "Error while regenerating message: %s", err, stack_info=True
+        # or finally, post the whole message at once
+        else:
+            (
+                sent_message_count, abort_response
+            ) = await self._send_messages(
+                    response, # type: ignore
+                    response_stat,
+                    response_channel,
+                    reference,
+                    existing_message
                 )
-                self.response_stats.log_response_failure()
-                return
 
-        self.response_stats.log_response_success(response_stat)
-        response_stat.write_to_log(f"Regeneration of message #{raw_message.id} done!  ")
+        return sent_message_count, abort_response
 
     async def _render_streaming_response(
         self,
@@ -1676,15 +1571,16 @@ class DiscordBot(discord.Client):
             discord.DMChannel,
             discord.GroupChannel
         ],
-        allowed_mentions: discord.AllowedMentions,
         reference: typing.Optional[
             typing.Union[discord.Message, discord.MessageReference]
         ] = None,
-        existing_message: typing.Optional[discord.Message] = None,
+        existing_message: typing.Optional[discord.Message] = None
     ) -> typing.Tuple[int, bool]:
         """
         Renders a streaming response into a message by editing it with updated
-        contents each time a new group of response tokens is received.
+        contents each time a new group of response tokens is received. If the
+        size of the response exceeds the character limit, the response is
+        continued in a new message.
 
         Returns a tuple with:
         - the number of sent Discord messages
@@ -1693,6 +1589,7 @@ class DiscordBot(discord.Client):
         buffer = ""
         response = ""
         last_message = existing_message
+        last_message_time = 0
         message_to_log = None
         sent_message_count = 0
         abort_response = False
@@ -1704,6 +1601,14 @@ class DiscordBot(discord.Client):
                 buffer, abort_response = self.immersion_breaking_filter.filter(buffer + tokens)
                 # If we would exceed the character limit, post what we have and start a new message
                 if len(buffer.strip()) > self.message_character_limit:
+                    if existing_message:
+                        # If we're editing an existing message, truncate excess and
+                        # abort. We can't send multiple responses in past history.
+                        fancy_logger.get().debug(
+                            "Response exceeded %d character limit! Truncating excess.",
+                            self.message_character_limit
+                        )
+                        break
                     fancy_logger.get().debug(
                         "Response exceeded %d character limit! Posting current "
                         + "message and continuing in a new message.",
@@ -1722,6 +1627,12 @@ class DiscordBot(discord.Client):
                 sentence = sentence.rstrip(" ") + " "
                 # If we would exceed the character limit, start a new message
                 if len((response + sentence).strip()) > self.message_character_limit:
+                    if existing_message:
+                        fancy_logger.get().debug(
+                            "Response exceeded %d character limit! Truncating excess.",
+                            self.message_character_limit
+                        )
+                        break
                     fancy_logger.get().debug(
                         "Response exceeded %d character limit! Posting current "
                         + "message and continuing in a new message.",
@@ -1731,6 +1642,14 @@ class DiscordBot(discord.Client):
                     reference = last_message
                     last_message = None
                 response += sentence
+                # The sentence iterator does not group by time, therefore we ensure that
+                # we wait for at least a rate-limit interval before continuing.
+                now = time.perf_counter()
+                if now < last_message_time + self.stream_responses_speed_limit:
+                    await asyncio.sleep(
+                        (last_message_time + self.stream_responses_speed_limit) - now
+                    )
+                last_message_time = time.perf_counter()
 
             # don't send an empty message
             if not response.strip():
@@ -1745,7 +1664,7 @@ class DiscordBot(discord.Client):
                     kwargs["reference"] = reference
                 last_message = await response_channel.send(
                     response.strip(),
-                    allowed_mentions=allowed_mentions,
+                    allowed_mentions=self._allowed_mentions,
                     suppress_embeds=True,
                     **kwargs
                 )
@@ -1753,7 +1672,7 @@ class DiscordBot(discord.Client):
             else:
                 last_message = await last_message.edit(
                     content=response.strip(),
-                    allowed_mentions=allowed_mentions,
+                    allowed_mentions=self._allowed_mentions,
                     suppress=True,
                 )
                 # If we never sent an initial message (e.g. we're editing an existing
@@ -1781,10 +1700,145 @@ class DiscordBot(discord.Client):
 
         return sent_message_count, abort_response
 
+    async def _send_messages(
+        self,
+        response: str,
+        response_stat: response_stats.ResponseStats,
+        response_channel: typing.Union[
+            discord.TextChannel,
+            discord.Thread,
+            discord.VoiceChannel,
+            discord.DMChannel,
+            discord.GroupChannel
+        ],
+        reference: typing.Optional[
+            typing.Union[discord.Message, discord.MessageReference]
+        ] = None,
+        existing_message: typing.Optional[discord.Message] = None
+    ) -> typing.Tuple[int, bool]:
+        """
+        Given a string that represents an individual response message,
+        post it as a message in the given channel. If the response is
+        too large to fit in a single message, split it into as many
+        messages as required. If an existing message is provided,
+        The response is truncated to fit in one message and the
+        contents of the provided message is replaced with the new
+        response.
+
+        It also looks to see if a message contains a termination string,
+        and if so it will return False to indicate that we should stop
+        the response.
+
+        Also does some bookkeeping to make sure we don't repeat ourselves,
+        and to track how many messages we've sent.
+
+        Returns a tuple with:
+        - the number of sent Discord messages
+        - a boolean indicating if we need to abort the response entirely
+        """
+        response, abort_response = self.immersion_breaking_filter.filter(response)
+        sent_message_count = 0
+        last_message = existing_message
+        last_message_time = 0
+        message_to_log = None
+        kwargs = {}
+        if reference:
+            kwargs["reference"] = reference
+
+        # Hopefully we don't get here often but if we do, split the response
+        # into sentences, append them to a response buffer until the next
+        # sentence would cause the response to exceed the character limit,
+        # then post what we have and continue in a new message.
+        if len(response.strip()) > self.message_character_limit and not existing_message:
+            new_response = ""
+            # Split lines using the compiled regex from the immersion-breaking filter,
+            # which uses regex split with a capturing group to return the split
+            # character(s) in the list.
+            for line in self.immersion_breaking_filter.split(response):
+                if not line.strip(self.immersion_breaking_filter.line_split_pattern):
+                    new_response += line
+                    continue
+                for sentence in self.immersion_breaking_filter.segment(line):
+                    if len((new_response + sentence).strip()) > self.message_character_limit:
+                        fancy_logger.get().warning(
+                            "Response exceeded %d character limit by %d "
+                            + "characters! Posting current message and continuing "
+                            + "in a new message.",
+                            self.message_character_limit,
+                            len(response) - self.message_character_limit
+                        )
+                        last_message = await response_channel.send(
+                            new_response.strip(),
+                            allowed_mentions=self._allowed_mentions,
+                            suppress_embeds=True,
+                            **kwargs
+                        )
+                        sent_message_count += 1
+                        response_stat.log_response_part()
+                        # If we are splitting a large message, use only the first message
+                        # we send for the repetition tracker.
+                        if not message_to_log:
+                            message_to_log = last_message
+                        # Reply to our last message in a chain that tracks the whole response
+                        kwargs["reference"] = last_message
+                        last_message = None
+                        new_response = ""
+                    new_response += sentence
+            response = new_response
+            # Finally, wait for the configured rate-limit timeout
+            now = time.perf_counter()
+            if now < last_message_time + self.stream_responses_speed_limit:
+                await asyncio.sleep(
+                    (last_message_time + self.stream_responses_speed_limit) - now
+                )
+            last_message_time = time.perf_counter()
+
+        # We can't send an empty message
+        response = response.strip()
+        if response:
+            # If our response is too big, just truncate it. There's no easy way
+            # to send multiple messages in order through past chat history.
+            if len(response) > self.message_character_limit:
+                response = response[:self.message_character_limit]
+            # If we haven't passed an existing message, send a new one
+            if not last_message:
+                kwargs = {}
+                if reference:
+                    kwargs["reference"] = reference
+                last_message = await response_channel.send(
+                    response,
+                    allowed_mentions=self._allowed_mentions,
+                    suppress_embeds=True,
+                    **kwargs
+                )
+                sent_message_count += 1
+            # otherwise, edit the existing message
+            else:
+                last_message = await last_message.edit(
+                    content=response,
+                    allowed_mentions=self._allowed_mentions,
+                    suppress=True
+                )
+                if not sent_message_count:
+                    sent_message_count += 1
+            response_stat.log_response_part()
+
+            if not message_to_log:
+                message_to_log = last_message
+
+        # Log the message with the repetition tracker, if we sent one
+        if message_to_log:
+            self.repetition_tracker.log_message(
+                response_channel.id,
+                discord_utils.discord_message_to_generic_message(message_to_log)
+            )
+
+        return sent_message_count, abort_response
+
     async def _filter_history_message(
       self,
       message: discord.Message,
-      stop_before_message_id: typing.Optional[int],
+      stop_before_message_id: typing.Optional[int] = None,
    ) -> typing.Tuple[typing.Optional[types.GenericMessage], bool]:
         """
         Filter out any messages that we don't want to include in the
@@ -1794,12 +1848,17 @@ class DiscordBot(discord.Client):
         - messages generated by our image generator
         - messages at or before the stop_before_message_id
         - messages that have been explicitly hidden by the user
+        - system messages that are not default messages or replies
 
         Also, modify the message in the following ways:
         - if the message is from the AI, set the author name to
-            the AI's persona name, not its Discord account name
-        - remove <@_0000000_> user-id based message mention text,
-            replacing them with @username mentions
+        the AI's persona name, not its Discord account name
+        - remove <@_0000000_> user ID-based message mention text,
+        replacing them with @username mentions
+        - remove <#_0000000_> channel ID-based message mention text,
+        replacing them with #channel mentions
+        - remove <:emoji_name:_0000000_> emoji IDs, replacing them
+        with the :emoji_name: between colons.
         """
         # If we've hit the throttle message, stop and don't add any more history
         if stop_before_message_id and message.id == stop_before_message_id:
@@ -1919,30 +1978,36 @@ class DiscordBot(discord.Client):
 
     async def _filtered_history_iterator(
         self,
-        async_iter_history: typing.AsyncIterator[discord.Message],
+        channel: typing.Union[
+            discord.TextChannel,
+            discord.Thread,
+            discord.VoiceChannel,
+            discord.DMChannel,
+            discord.GroupChannel
+        ],
         stop_before_message_id: typing.Optional[int],
         ignore_all_until_message_id: typing.Optional[int],
-        limit: int,
+        limit: int
     ) -> typing.AsyncIterator[types.GenericMessage]:
         """
-        When returning the history of a thread, Discord
-        does not include the message that kicked off the thread.
-
-        It will show it in the UI as if it were, but it's not
-        one of the messages returned by the history iterator.
-
-        This method attempts to return that message as well,
-        if we need it.
+        Gathers channel history up to the limit and returns an asynchronous
+        iterator of all the messages the AI should see. If any messages are
+        filtered out, this recursively fetches history (ignoring the limit)
+        until all filtered messages are accounted for, we reach our message
+        limit, or we reach the beginning of the channel.
         """
-        items = 0
+        messages = 0
         last_returned = None
-        ignoring_all = ignore_all_until_message_id is not None
-        async for item in async_iter_history:
-            if items >= limit:
+        ignoring_all = bool(ignore_all_until_message_id)
+
+        channel_history = channel.history(limit=limit)
+        async for message in channel_history:
+            # Stop if we've collected as many messages as we're looking for
+            if messages >= limit:
                 return
 
             if ignoring_all:
-                if item.id == ignore_all_until_message_id:
+                if message.id == ignore_all_until_message_id:
                     ignoring_all = False
                 else:
                     # This message was sent after the message we're
@@ -1951,88 +2016,34 @@ class DiscordBot(discord.Client):
                     # instead.
                     continue
 
-            # Don't include thread creation system messages
-            if item.type == discord.MessageType.thread_created:
-                continue
-
-            # Don't include hidden messages
-            if self.decide_to_respond.is_hidden_message(item.content):
-                continue
-
-            last_returned = item
+            last_returned = message
             sanitized_message, allow_more = await self._filter_history_message(
-                item,
-                stop_before_message_id=stop_before_message_id,
+                message,
+                stop_before_message_id=stop_before_message_id
             )
             if sanitized_message:
                 yield sanitized_message
-                items += 1
+                messages += 1
             if not allow_more:
-                # We've hit a message which requires us to stop
-                # and look at more history.
+                # We've hit a message which requires us to stop fetching history
                 return
 
-        if last_returned and items < limit:
-            # We've reached the beginning of the history, but
-            # still have space. If this message was a reply
-            # to another message, return that message as well.
-            if not last_returned.reference:
-                return
+        # We've reached the beginning of the history, but still have space.
+        if last_returned and messages < limit:
+            reference = None
+            # If this message was a reply to another message,
+            # return that message
+            if (
+                last_returned.type is discord.MessageType.reply
+                and last_returned.reference
+            ):
+                reference = last_returned.reference.resolved
 
-            reference = last_returned.reference.resolved
-
-            # The resolved message may be None if the message
-            # was deleted
-            if reference and isinstance(reference, discord.Message):
+            # The resolved message may be None or a DeletedReferencedMessage
+            # if the message was deleted.
+            if isinstance(reference, discord.Message):
                 sanitized_message, _ = await self._filter_history_message(
-                    reference,
-                    stop_before_message_id,
+                    reference
                 )
                 if sanitized_message:
                     yield sanitized_message
-
-    # When looking through the history of a channel, we'll have a goal
-    # of retrieving a certain number of lines of history. However,
-    # there are some messages in the history that we'll want to filter
-    # out. These include messages that were generated by our image
-    # generator, as well as certain messages that will be ignored
-    # in order to generate a response for a specific user who
-    # @-mentions the bot.
-    #
-    # This is the maximum number of "extra" messages to retrieve
-    # from the history, in an attempt to find enough messages
-    # that we can filter out the ones we don't want and still
-    # have enough left over to satisfy the request.
-    #
-    # Note that since the history is returned in reverse order,
-    # and each is pulled in only as needed, there's not much of a
-    # penalty to making this somewhat large. But still, we want
-    # to keep it reasonable.
-    MESSAGE_HISTORY_LOOKBACK_BONUS = 20
-
-    def _recent_messages_following_thread(
-        self,
-        channel: typing.Union[
-            discord.TextChannel,
-            discord.VoiceChannel,
-            discord.DMChannel,
-            discord.GroupChannel,
-            discord.Thread
-        ],
-        stop_before_message_id: typing.Optional[int],
-        ignore_all_until_message_id: typing.Optional[int],
-        num_history_lines: int,
-    ) -> typing.AsyncIterator[types.GenericMessage]:
-        """
-        Gets an async iterator of the chat history, between the limits provided.
-        """
-        max_messages_to_check = num_history_lines + self.MESSAGE_HISTORY_LOOKBACK_BONUS
-        history = channel.history(limit=max_messages_to_check)
-        result = self._filtered_history_iterator(
-            history,
-            limit=num_history_lines,
-            stop_before_message_id=stop_before_message_id,
-            ignore_all_until_message_id=ignore_all_until_message_id
-        )
-
-        return result

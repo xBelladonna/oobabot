@@ -114,7 +114,7 @@ class Runtime:
 
         # converts images into text descriptions so the bot can understand the contents
         self.vision_client: typing.Optional[vision.VisionClient] = None
-        vision_settings = settings.vision_api_settings.get_all()
+        vision_settings = settings.vision_settings.get_all()
         if vision_settings["vision_api_url"]:
             self.vision_client = vision.VisionClient(
                 settings=vision_settings,

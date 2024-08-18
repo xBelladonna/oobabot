@@ -54,14 +54,17 @@ def _console_wrapped(message):
 
 
 def _make_template_comment(
-    tokens_desc_tuple: typing.Tuple[typing.List[templates.TemplateToken], str, bool],
+    allowed_tokens: typing.List[templates.TemplateToken],
+    purpose: str
 ) -> list[str]:
-    return [
-        tokens_desc_tuple[1],
-        ".",
-        f"Allowed tokens: {', '.join([str(t) for t in tokens_desc_tuple[0]])}",
-        "."
-    ]
+    description_lines = [purpose]
+    if allowed_tokens:
+        description_lines.append(".")
+        description_lines.append(
+            f"Allowed tokens: {', '.join([str(t) for t in allowed_tokens])}"
+        )
+        description_lines.append(".")
+    return description_lines
 
 
 class Settings:
@@ -71,20 +74,21 @@ class Settings:
     """
 
     ############################################################
-    # This section is for constants which are not yet
-    # customizable by the user.
+    # This section is for constants and defaults
+
+    DEFAULT_AI_NAME = "oobabot"
 
     # This is a table of the probability that the bot will respond
     # in an unsolicited manner (i.e. it isn't specifically pinged)
     # to a message, based on how long ago it was pinged in that
     # same channel.
-    TIME_VS_RESPONSE_CHANCE: typing.List[typing.Tuple[float, float]] = [
+    TIME_VS_RESPONSE_CHANCE = [
         # (seconds, base % chance of an unsolicited response)
         (180.0, 0.99),
         (300.0, 0.70),
         (60.0 * 10, 0.50)
     ]
-    VOICE_TIME_VS_RESPONSE_CHANCE: typing.List[typing.Tuple[float, float]] = [
+    VOICE_TIME_VS_RESPONSE_CHANCE = [
         # (seconds, base % chance of an unsolicited response)
         (30.0,  0.95),
         (60.0,  0.90),
@@ -159,16 +163,15 @@ class Settings:
         "negative_prompt": ""
     }
 
-    # set default negative prompts to make it more difficult
-    # to create content against the discord TOS
-    # https://discord.com/guidelines
+    # Set default negative prompts to make it more difficult to create content
+    # against the discord ToS: https://discord.com/guidelines
 
-    # use this prompt for "age_restricted" Discord channels
+    # Use this prompt for "age_restricted" Discord channels
     #  i.e. channel.nsfw is true
-    DEFAULT_SD_NEGATIVE_PROMPT_NSFW: str = "animal harm, suicide, loli"
+    DEFAULT_SD_NEGATIVE_PROMPT_NSFW = "animal harm, suicide, loli"
 
-    # use this prompt for non-age-restricted channels
-    DEFAULT_SD_NEGATIVE_PROMPT: str = DEFAULT_SD_NEGATIVE_PROMPT_NSFW + ", nsfw"
+    # Use this prompt for non-age-restricted channels
+    DEFAULT_SD_NEGATIVE_PROMPT = DEFAULT_SD_NEGATIVE_PROMPT_NSFW + ", nsfw"
 
     SD_CLIENT_MAGIC_MODEL_KEY = "model"
 
@@ -213,7 +216,7 @@ class Settings:
 
     # words to look for in the prompt to indicate that the user
     # wants to generate an image
-    DEFAULT_IMAGE_WORDS: typing.List[str] = [
+    DEFAULT_IMAGE_PHRASES = [
         "draw",
         "sketch",
         "paint",
@@ -223,7 +226,7 @@ class Settings:
         "upload"
     ]
 
-    DEFAULT_AVATAR_WORDS: typing.List[str] = [
+    DEFAULT_AVATAR_PHRASES = [
         "self-portrait",
         "self portrait",
         "your avatar",
@@ -234,8 +237,8 @@ class Settings:
     ]
 
     # ENVIRONMENT VARIABLES ####
-    DISCORD_TOKEN_ENV_VAR: str = "DISCORD_TOKEN"
-    OOBABOT_PERSONA_ENV_VAR: str = "OOBABOT_PERSONA"
+    DISCORD_TOKEN_ENV_VAR = "DISCORD_TOKEN"
+    OOBABOT_PERSONA_ENV_VAR = "OOBABOT_PERSONA"
 
     def __init__(self):
         self._settings = None
@@ -298,9 +301,8 @@ class Settings:
                 description_lines=[
                     textwrap.dedent(
                         """
-                        Print a URL which can be used to invite the
-                        bot to a Discord server. Requires that
-                        the Discord token is set.
+                        Print a URL which can be used to invite the bot to a Discord
+                        server. Requires that the Discord token is set.
                         """
                     ),
                 ],
@@ -317,7 +319,7 @@ class Settings:
         self.persona_settings.add_setting(
             oesp.ConfigSetting[str](
                 name="ai_name",
-                default="oobabot",
+                default=self.DEFAULT_AI_NAME,
                 description_lines=[
                     textwrap.dedent(
                         """
@@ -331,17 +333,17 @@ class Settings:
             oesp.ConfigSetting[str](
                 name="persona",
                 default=os.environ.get(self.OOBABOT_PERSONA_ENV_VAR, ""),
-                description_lines=[
+                description_lines=_make_template_comment(
+                    [templates.TemplateToken.AI_NAME],
                     textwrap.dedent(
                         f"""
                         This prefix will be added in front of every user-supplied
-                        request. This is useful for setting up a 'character' for the
-                        bot to play. Alternatively, this can be set with the
+                        request. This is useful for setting up a 'character' for
+                        the bot to play. Alternatively, this can be set with the
                         {self.OOBABOT_PERSONA_ENV_VAR} environment variable.
                         """
-                    ),
-                    _make_template_comment(([templates.TemplateToken.AI_NAME], "", True))[2],
-                ],
+                    )
+                ),
                 show_default_in_yaml=False
             )
         )
@@ -354,14 +356,17 @@ class Settings:
                     textwrap.dedent(
                         """
                         Path to a file containing a persona. This can be just a
-                        single string, a JSON file in the common "tavern" formats,
+                        plaintext file, a JSON file in the common "tavern" formats,
                         or a YAML file in the Oobabooga format.
 
-                        With a single string, the persona will be set to that string.
+                        If the file is plaintext, we try to extract persona description,
+                        personality and scenario based on regex matching. If no
+                        additional fields can be found, everything is assigned to the
+                        description attribute.
 
-                        Otherwise, the ai_name and persona will be overwritten with
-                        the values in the file. Also, the wakewords will be
-                        extended to include the character's own name.
+                        The ai_name and persona fields are only updated if they aren't
+                        filled in above. Also, the wakewords will be extended to include
+                        the character's own name.
                         """
                     )
                 ],
@@ -371,20 +376,22 @@ class Settings:
         self.persona_settings.add_setting(
             oesp.ConfigSetting[typing.List[str]](
                 name="wakewords",
-                default=["oobabot"],
+                default=[],
                 description_lines=[
                     textwrap.dedent(
                         """
-                        One or more words that the bot will listen for.
-                        The bot will listen in all discord channels it can
-                        access for one of these words to be mentioned, then reply
-                        to any messages it sees with a matching word.
-                        The bot will always reply to @-mentions and
-                        direct messages, even if no wakewords are supplied.
+                        One or more phrases that the bot will listen for. The bot will
+                        listen in all channels (and group DMs) it can access for one
+                        of these words to be mentioned, then reply to any messages it
+                        sees with a matching phrase. The bot will always reply to
+                        @-mentions and direct messages, even if no wakewords are
+                        supplied. If loading from a persona file, the AI name is added
+                        to the list automatically.
                         """
                     )
                 ],
-                include_in_argparse=False
+                include_in_argparse=False,
+                show_default_in_yaml=False
             )
         )
 
@@ -428,12 +435,12 @@ class Settings:
         )
         self.discord_settings.add_setting(
             oesp.ConfigSetting[int](
-                name="history_lines",
-                default=7,
+                name="history_messages",
+                default=20,
                 description_lines=[
                     textwrap.dedent(
                         """
-                        The maximum number of lines of chat history the AI will see
+                        The maximum number of chat history messages the AI will see
                         when generating a response. The actual number may be smaller
                         than this, due to the model's context length limit.
                         """
@@ -459,8 +466,8 @@ class Settings:
                     "  - `roles`: enables @-mentioning roles",
                     textwrap.dedent(
                         """
-                        If none of these options are selected, only the original author
-                        may be @-mentioned.
+                        By default, none of these options are enabled and only the
+                        original author may be @-mentioned.
                         """
                     )
                 ],
@@ -469,7 +476,7 @@ class Settings:
         )
         self.discord_settings.add_setting(
             oesp.ConfigSetting[bool](
-                name="reply_in_thread",
+                name="respond_in_thread",
                 default=False,
                 description_lines=[
                     textwrap.dedent(
@@ -573,24 +580,23 @@ class Settings:
                 description_lines=[
                     textwrap.dedent(
                         """
-                        FEATURE PREVIEW: Stream responses into a single message as
-                        they are generated. If not set, the feature is disabled.
-                        Note: may be janky
+                        Stream responses into a single message as they are generated.
+                        If not set, the feature is disabled. Note: may be janky.
                         """
                     ),
                     "There are 2 options:",
                     textwrap.dedent(
                         """
-                        token: Stream responses by groups of tokens, whose size is defined
-                        by the stremaing speed limit.
+                        token: Stream responses by groups of tokens, whose size is
+                        defined by the stremaing speed limit.
                         """
                     ),
                     textwrap.dedent(
                         """
-                        sentence: Stream responses sentence by sentence. Useful if streaming
-                        by token is too janky but not splitting responses is too slow. Note:
-                        this will cause newlines to be lost, as the responses are returned
-                        from the client without newlines.
+                        sentence: Stream responses sentence by sentence. Useful if
+                        streaming by token is too janky but not splitting responses
+                        is too slow. Note: this will cause newlines to be lost, as
+                        the responses are returned from the client without newlines.
                         """
                     )
                 ],
@@ -604,20 +610,20 @@ class Settings:
                 description_lines=[
                     textwrap.dedent(
                         """
-                        FEATURE PREVIEW: When streaming responses, cap the
-                        rate at which we send updates to Discord to be no
-                        more than once per this many seconds.
+                        When streaming responses, cap the rate at which we send
+                        updates to Discord to be no more than once per this many
+                        seconds.
 
                         This does not guarantee that updates will be sent this
                         fast, only that they will not be sent any faster than
                         this rate.
 
-                        This is useful because Discord has a rate limit on
-                        how often you can send messages, and if you exceed
-                        it, the updates will suddenly become slow.
+                        This is useful because Discord has a rate limit on how
+                        often you can send messages, and if you exceed it, the
+                        updates will suddenly become slow.
 
-                        Example: 0.2 means we will send updates no faster
-                        than 5 times per second.
+                        Example: 0.2 means we will send updates no faster than
+                        5 times per second.
                         """
                     )
                 ]
@@ -625,13 +631,15 @@ class Settings:
         )
         self.discord_settings.add_setting(
             oesp.ConfigSetting[bool](
-                name="dont_split_responses",
-                default=False,
+                name="split_responses",
+                default=True,
                 description_lines=[
                     textwrap.dedent(
                         """
-                        Post the entire response as a single message, rather than
-                        splitting it into separate messages by sentence.
+                        Split the response into separate messages by sentence,
+                        rather than posting the entire response as a single
+                        message. This has no effect if response streaming is
+                        enabled.
                         """
                     )
                 ]
@@ -780,7 +788,7 @@ class Settings:
         )
         self.discord_settings.add_setting(
             oesp.ConfigSetting[bool](
-                name="disable_unsolicited_replies",
+                name="disable_unsolicited_responses",
                 default=False,
                 description_lines=[
                     textwrap.dedent(
@@ -895,10 +903,13 @@ class Settings:
                     ),
                     textwrap.dedent(
                         """
-                        aggressive: Uses just the "canonical" user display name
-                        (for models that use "narrative voice"). This is the "common sense"
+                        aggressive: Uses just the "canonical" user display name (for models
+                        that use "narrative voice"). This is the "common sense"
                         transformation of any given name, i.e. using only the first name in
-                        capitalized form, removing any emojis, etc.
+                        capitalized form, removing any emojis, etc. The response will be
+                        filtered if the canonical name immediately follows a newline, or
+                        is the first word in a new message. Be careful when using this,
+                        as it may prevent the AI from using participant names properly.
                         """
                     ),
                     textwrap.dedent(
@@ -994,7 +1005,7 @@ class Settings:
 
         self.discord_settings.add_setting(
             oesp.ConfigSetting[bool](
-                name="speak_voice_replies",
+                name="speak_voice_responses",
                 default=True,
                 description_lines=[
                     textwrap.dedent(
@@ -1007,7 +1018,7 @@ class Settings:
         )
         self.discord_settings.add_setting(
             oesp.ConfigSetting[bool](
-                name="post_voice_replies",
+                name="post_voice_responses",
                 default=False,
                 description_lines=[
                     textwrap.dedent(
@@ -1122,8 +1133,8 @@ class Settings:
                 description_lines=[
                     textwrap.dedent(
                         """
-                        Use the OpenAI Chat Completions API endpoint
-                        instead of the legacy Completions API.
+                        Use the OpenAI Chat Completions API endpoint instead of the
+                        legacy Completions API.
                         """
                     )
                 ]
@@ -1184,10 +1195,10 @@ class Settings:
                     textwrap.dedent(
                         """
                         A dictionary which will be passed straight through to
-                        Oobabooga on every request. Feel free to add additional
-                        simple parameters here as Oobabooga's API evolves.
-                        See Oobabooga's documentation for what these parameters
-                        mean.
+                        the text generation API on every request. Feel free to
+                        add additional simple parameters here. See the
+                        Oobabooga Text Generation WebUI documentation for what
+                        these parameters mean.
                         """
                     )
                 ],
@@ -1214,11 +1225,11 @@ class Settings:
         )
 
         ###########################################################
-        # Vision API Settings
-        self.vision_api_settings = oesp.ConfigSettingGroup("Vision API")
-        self.setting_groups.append(self.vision_api_settings)
+        # Vision Settings
+        self.vision_settings = oesp.ConfigSettingGroup("Vision")
+        self.setting_groups.append(self.vision_settings)
 
-        self.vision_api_settings.add_setting(
+        self.vision_settings.add_setting(
             oesp.ConfigSetting[str](
                name="vision_api_url",
                default="",
@@ -1233,7 +1244,7 @@ class Settings:
                show_default_in_yaml=False
             )
         )
-        self.vision_api_settings.add_setting(
+        self.vision_settings.add_setting(
             oesp.ConfigSetting[str](
                name="vision_api_key",
                default="",
@@ -1247,7 +1258,7 @@ class Settings:
                show_default_in_yaml=False
             )
         )
-        self.vision_api_settings.add_setting(
+        self.vision_settings.add_setting(
             oesp.ConfigSetting[str](
                name="vision_model",
                default="",
@@ -1261,7 +1272,7 @@ class Settings:
                show_default_in_yaml=False
             )
         )
-        self.vision_api_settings.add_setting(
+        self.vision_settings.add_setting(
             oesp.ConfigSetting[bool](
                 name="fetch_urls",
                 default=False,
@@ -1275,7 +1286,7 @@ class Settings:
                ]
             )
         )
-        self.vision_api_settings.add_setting(
+        self.vision_settings.add_setting(
             oesp.ConfigSetting[int](
                name="max_image_size",
                default=1344,
@@ -1283,13 +1294,14 @@ class Settings:
                     textwrap.dedent(
                         """
                         Maximum size for the longest side of the image. It will be
-                        downsampled to this size if necessary.
+                        downsampled to this size if necessary, preserving the aspect
+                        ratio of the image.
                         """
                     )
                ]
             )
         )
-        self.vision_api_settings.add_setting(
+        self.vision_settings.add_setting(
             oesp.ConfigSetting[oesp.SettingDictType](
                 name="request_params",
                 default=self.VISION_DEFAULT_REQUEST_PARAMS,
@@ -1328,13 +1340,13 @@ class Settings:
         )
         self.stable_diffusion_settings.add_setting(
             oesp.ConfigSetting[typing.List[str]](
-                name="image_words",
-                default=self.DEFAULT_IMAGE_WORDS,
+                name="image_phrases",
+                default=self.DEFAULT_IMAGE_PHRASES,
                 description_lines=[
                     textwrap.dedent(
                         """
-                        When one of these words/phrases is used in a message, the bot will
-                        generate an image.
+                        When one of these words/phrases is used in a message, the
+                        bot will generate an image.
                         """
                     )
                 ],
@@ -1345,14 +1357,14 @@ class Settings:
         )
         self.stable_diffusion_settings.add_setting(
             oesp.ConfigSetting[typing.List[str]](
-                name="avatar_words",
-                default=self.DEFAULT_AVATAR_WORDS,
+                name="avatar_phrases",
+                default=self.DEFAULT_AVATAR_PHRASES,
                 description_lines=[
                     textwrap.dedent(
                         """
-                        When one of these words is used in a message, the bot will
-                        generate a self-portrait, substituting the avatar word for
-                        the configured avatar prompt.
+                        When one of these words/phrases is used in a message, the
+                        bot will generate a self-portrait, substituting the avatar
+                        word for the configured avatar prompt.
                         """
                     )
                 ],
@@ -1484,15 +1496,17 @@ class Settings:
         )
         self.setting_groups.append(self.template_settings)
 
-        for template, tokens_desc_tuple in templates.TemplateStore.TEMPLATES.items():
-            _, _, is_ai_prompt = tokens_desc_tuple
-
+        for template, (allowed_tokens, purpose) in templates.TemplateStore.TEMPLATES.items():
+            show_default_in_yaml = bool(
+                templates.TemplateStore.DEFAULT_TEMPLATES.get(template, "").strip()
+            )
             self.template_settings.add_setting(
                 oesp.ConfigSetting[str](
                     name=str(template),
                     default=templates.TemplateStore.DEFAULT_TEMPLATES[template],
-                    description_lines=_make_template_comment(tokens_desc_tuple),
-                    include_in_yaml=is_ai_prompt
+                    description_lines=_make_template_comment(allowed_tokens, purpose),
+                    include_in_yaml=True,
+                    show_default_in_yaml=show_default_in_yaml
                 )
             )
 
