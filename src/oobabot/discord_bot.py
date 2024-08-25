@@ -1325,88 +1325,140 @@ class DiscordBot(discord.Client):
         message immediately.
         """
 
-        repeated_id = self.repetition_tracker.get_throttle_message_id(
-            response_channel.id
-        )
-        history_marker_id = self.repetition_tracker.get_history_marker_id(
-            response_channel.id
-        )
-
-        # If this message is one that summoned us, get a reference to it so we
-        # can reply to it.
-        reference = None
-        if is_summon_in_public_channel:
-            # We can't use the message reference if we're starting a new thread
-            if message.channel_id == response_channel.id:
-                reference = raw_message.to_reference()
-        ignore_all_until_message_id = message.message_id
-
-        recent_messages = self._filtered_history_iterator(
-            channel=response_channel,
-            stop_before_message_id=repeated_id or history_marker_id,
-            ignore_all_until_message_id=ignore_all_until_message_id,
-            limit=self.prompt_generator.history_messages
-        )
-
-        # will be set to true when we abort the response because:
-        # - it was empty
-        # - it repeated a previous response and we're throttling it
-        aborted_by_us = False
-        sent_message_count = 0
-        # Show typing indicator in Discord
-        async with response_channel.typing():
-            # will return a string or generator based on configuration
-            response, response_stat = await self._generate_text_response(
-                message=message,
-                image_descriptions=image_descriptions,
-                recent_messages=recent_messages,
-                response_channel=response_channel,
-                image_requested=image_requested
-            )
-            try:
-                (
-                    sent_message_count, aborted_by_us
-                ) = await self._render_response(
-                    response,
-                    response_stat,
-                    response_channel,
-                    reference,
-                    existing_message
+        tries = range(self.retries + 1) # add offset of 1 as range() is zero-indexed
+        retry_throttle_id = 0
+        for _retry in tries:
+            repeated_id = (
+                retry_throttle_id
+                or self.repetition_tracker.get_throttle_message_id(
+                    response_channel.id
                 )
-            except discord.DiscordException as err:
-                if (
-                    isinstance(err, discord.HTTPException)
-                    and err.status == 400 and err.code == 50035 # pylint: disable=no-member
-                ):
-                    # Sometimes it's the case where the message we're responding to gets deleted
-                    # between when we received it and when we finished generating a response.
-                    # If we're trying to send a message with a reference to a deleted message,
-                    # this raises a discord.HTTPException with status 400 (bad request) and
-                    # code 50035 (invalid form body - unknown reference). We attempt to prevent
-                    # responding to deleted messages as much as possible, but it might still
-                    # happen due to the time it takes to handle responses.
-                    fancy_logger.get().warning(
-                        "Original message was deleted before we could reply. "
-                        + "Aborting response."
-                    )
-                else:
-                    fancy_logger.get().error(
-                        "Error while sending response: %s: %s",
-                        type(err).__name__, err, stack_info=True
-                    )
-                self.response_stats.log_response_failure()
-                return
+            )
+            history_marker_id = self.repetition_tracker.get_history_marker_id(
+                response_channel.id
+            )
 
+            # If this message is one that summoned us, get a reference to it so we
+            # can reply to it.
+            reference = None
+            if is_summon_in_public_channel:
+                # We can't use the message reference if we're starting a new thread
+                if message.channel_id == response_channel.id:
+                    reference = raw_message.to_reference()
+            ignore_all_until_message_id = message.message_id
+
+            recent_messages = self._filtered_history_iterator(
+                channel=response_channel,
+                stop_before_message_id=repeated_id or history_marker_id,
+                ignore_all_until_message_id=ignore_all_until_message_id,
+                limit=self.prompt_generator.history_messages
+            )
+
+            # will be set to true when we abort the response because:
+            # - it was empty
+            # - it repeated a previous response and we're throttling it
+            aborted_by_us = False
+            sent_message_count = 0
+            # Show typing indicator in Discord
+            async with response_channel.typing():
+                # will return a string or generator based on configuration
+                response, response_stat = await self._generate_text_response(
+                    message=message,
+                    image_descriptions=image_descriptions,
+                    recent_messages=recent_messages,
+                    response_channel=response_channel,
+                    image_requested=image_requested
+                )
+                # If we have the whole response at once, we can check for
+                # similarity to the last response and retry if too similar.
+                if isinstance(response, str) and self.repetition_tracker.repetition_threshold:
+                    response_text, aborted_by_us = self.immersion_breaking_filter.filter(
+                        response, suppress_logging=True
+                    )
+                    if response_text.strip():
+                        # Check to see if this response is a repetition of the last
+                        # message logged with the repetition tracker, without logging
+                        # the message itself, since we haven't sent it yet.
+                        repeated_message = self.repetition_tracker.is_repetition(
+                            response_channel.id, response_text
+                        )
+                        if repeated_message:
+                            # Log a warning and skip this iteration to retry generation
+                            # with history throttled behind the last user message.
+                            if repeated_message is True:
+                                detail_text = "exact match"
+                            else:
+                                detail_text = f"similarity score: {repeated_message:.2f}"
+                            warn_text = (
+                                "Response was too similar to the previous response "
+                                + f"({detail_text})."
+                            )
+                            if _retry < self.retries:
+                                warn_text += " Regenerating response..."
+                            fancy_logger.get().warning(warn_text)
+                            retry_throttle_id = message.message_id
+                            continue
+
+                # Now send the response after all retries have completed
+                try:
+                    (
+                        sent_message_count, aborted_by_us
+                    ) = await self._render_response(
+                        response,
+                        response_stat,
+                        response_channel,
+                        reference,
+                        existing_message
+                    )
+                except discord.DiscordException as err:
+                    if (
+                        isinstance(err, discord.HTTPException)
+                        and err.status == 400 and err.code == 50035 # pylint: disable=no-member
+                    ):
+                        # Sometimes it's the case where the message we're responding to gets deleted
+                        # between when we received it and when we finished generating a response.
+                        # If we're trying to send a message with a reference to a deleted message,
+                        # this raises a discord.HTTPException with status 400 (bad request) and
+                        # code 50035 (invalid form body - unknown reference). We attempt to prevent
+                        # responding to deleted messages as much as possible, but it might still
+                        # happen due to the time it takes to handle responses.
+                        fancy_logger.get().warning(
+                            "Original message was deleted before we could reply. "
+                            + "Aborting response."
+                        )
+                    else:
+                        fancy_logger.get().error(
+                            "Error while sending response: %s: %s",
+                            type(err).__name__, err, stack_info=True
+                        )
+                    self.response_stats.log_response_failure()
+                    return
+
+            # If we sent any messages, break out of the retry loop
+            if sent_message_count:
+                break
+            # otherwise, log a warning and retry
+            if aborted_by_us:
+                warn_text = "Response was empty after filtering immersion-breaking lines."
+            else:
+                warn_text = "An empty text response was received from the API."
+            if _retry < self.retries:
+                warn_text += " Regenerating response..."
+            fancy_logger.get().warning(warn_text)
+
+        # If we reached the maximum number of tries and still didn't send any messages
         if not sent_message_count:
             if aborted_by_us:
                 fancy_logger.get().warning(
-                    "No response sent. The AI has generated a response that we have "
-                    + "chosen not to send, probably because it was repeated or "
-                    + "broke immersion."
+                    "No response sent after %d tries. The AI has generated a response "
+                    + "that we have chosen not to send, probably because it was repeated "
+                    + "or broke immersion.",
+                    len(tries)
                 )
             else:
                 fancy_logger.get().warning(
-                    "Empty response received. Giving up."
+                    "No response sent after %d tries. Giving up.",
+                    len(tries)
                 )
             self.response_stats.log_response_failure()
             return

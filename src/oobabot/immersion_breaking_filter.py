@@ -88,7 +88,7 @@ class ImmersionBreakingFilter:
 
         return sentences
 
-    def filter(self, text: str) -> typing.Tuple[str, bool]:
+    def filter(self, text: str, suppress_logging = False) -> typing.Tuple[str, bool]:
         """
         Given a string that represents an individual response message,
         filter any lines that would break immersion.
@@ -131,10 +131,11 @@ class ImmersionBreakingFilter:
                     bot_name_sequence, remaining_text = bot_message_match.groups()
                     bot_prompt_block = self.prompt_generator.bot_prompt_block.strip("\n")
                     if bot_prompt_block in bot_name_sequence:
-                        fancy_logger.get().warning(
-                            "Caught '%s' in response, trimming '%s' and continuing",
-                            sentence, bot_name_sequence
-                        )
+                        if not suppress_logging:
+                            fancy_logger.get().warning(
+                                "Caught '%s' in response, trimming '%s' and continuing",
+                                sentence, bot_name_sequence
+                            )
                         sentence = remaining_text
 
                 # Otherwise, filter out any potential user impersonation
@@ -143,9 +144,10 @@ class ImmersionBreakingFilter:
                     # If the display name is not the bot's name and matches the
                     # user name pattern, assume it is a user name and abort the
                     # response for breaking immersion.
-                    fancy_logger.get().warning(
-                        "Filtered out '%s' from response, aborting", sentence
-                    )
+                    if not suppress_logging:
+                        fancy_logger.get().warning(
+                            "Filtered out '%s' from response, aborting", sentence
+                        )
                     abort_response = True
                     break # break out of the sentence processing loop
 
@@ -153,10 +155,11 @@ class ImmersionBreakingFilter:
                 for marker in self.stop_markers:
                     if marker in sentence:
                         keep_part, removed = sentence.split(marker, 1)
-                        fancy_logger.get().warning(
-                            "Caught '%s' in response, trimming '%s' and aborting",
-                            sentence, removed
-                        )
+                        if not suppress_logging:
+                            fancy_logger.get().warning(
+                                "Caught '%s' in response, trimming '%s' and aborting",
+                                sentence, removed
+                            )
                         if keep_part:
                             good_sentences.append(keep_part)
                         abort_response = True
