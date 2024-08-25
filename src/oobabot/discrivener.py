@@ -195,7 +195,7 @@ class Discrivener:
             ):
                 # workaround nonsense noise in whisper.cpp
                 continue
-            fancy_logger.get().error("Discrivener: %s", line)
+            fancy_logger.get().debug("Discrivener: %s", line)
 
         fancy_logger.get().info("Discrivener stderr reader exited")
 

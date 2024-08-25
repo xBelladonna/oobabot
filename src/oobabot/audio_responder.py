@@ -6,15 +6,17 @@ then queues a response.
 """
 
 import asyncio
-import typing
+from collections import deque
 import re
-import emoji
+import typing
 
+import emoji
 import discord
 
 from oobabot import discord_utils
 from oobabot import discrivener
 from oobabot import fancy_logger
+from oobabot import immersion_breaking_filter
 from oobabot import ooba_client
 from oobabot import prompt_generator
 from oobabot import templates
@@ -40,9 +42,7 @@ class AudioResponder:
         prompt_generator: prompt_generator.PromptGenerator,
         template_store: templates.TemplateStore,
         transcript: transcript.Transcript,
-        speak_voice_responses: bool,
-        post_voice_responses: bool,
-        prevent_impersonation: bool
+        discord_settings: dict
     ):
         self._abort = False
         self._channel = channel
@@ -52,14 +52,36 @@ class AudioResponder:
         self._template_store = template_store
         self._transcript = transcript
         self._task: typing.Optional[asyncio.Task] = None
+        self._response_queue: typing.Deque[str] = deque()
+        self._response_task: typing.Optional[asyncio.Task] = None
+        self._first_response = True
 
-        self.bot_user_id = bot_user_id
-        self.speak_voice_responses = speak_voice_responses
-        self.post_voice_responses = post_voice_responses
-        self.prevent_impersonation = prevent_impersonation
-        self.dialogue_extractor = re.compile(r"\s?\*(.*?)\*")
-        self.dialogue_cleaner = re.compile(r"\b[a-zA-Zé\d\s\'\.`,;!\?\-]+\b")
-        self.emoticon_matcher = re.compile(r"\s+(:[\w]|[\^><\-;Tce]\w[\^><\-;Tce]|<3)\b")
+        self.bot_user_id: int = bot_user_id
+        self.speak_voice_responses: bool = discord_settings["speak_voice_responses"]
+        self.post_voice_responses: bool = discord_settings["post_voice_responses"]
+        self.prevent_impersonation: str = discord_settings["prevent_impersonation"]
+        self.use_immersion_breaking_filter: bool = discord_settings["use_immersion_breaking_filter"]
+        # Get our immersion-breaking filter ready
+        self.immersion_breaking_filter = immersion_breaking_filter.ImmersionBreakingFilter(
+            discord_settings, self._prompt_generator, self._template_store
+        )
+        flags = re.MULTILINE + re.UNICODE
+        # Match dialogue and narration in 2 separate capture groups
+        self.dialogue_matcher = re.compile(
+            r"\b([\w\d \b\'\.`,;!\?\-]+)|( ?\*.*?(?:\* ?| (?=\")))",
+            flags
+        )
+        emoticon_regex = (
+            r"(?:\*?[03<>]|\(\)|3>)?(?:[¦|:;=38BEXxz@%+]|\(:\))'?[-'o^~]?"
+            + r"[\)\(\|\]\[}{>3DdQPpOoXxSs@€*$#/\\°~]|[\)\(\|\]\[}{>3DdQPpOoXxSs@€*$#/\\°~]"
+            + r"[-'o^~]?'?(?:[¦|:;=38BEXxz@%+]|\(:\))(?:\*?[03<>]|\(\)|3>)?|<(?:/|\\)?3"
+            + r"|&\[ \]|\[]==\[]|\(___\(--#|>°\)+><|69|\(\.\\°\)|\([_ ][Y¤)()][_ ]\)"
+            + r"|\( [o\.] (?:\)\(|Y) [o\.] \)|(?:\(_\)_\)|[c83])=+[D3]|{\('\)}|_@_/|i@_|@}[->',]+"
+        )
+        self.emoticon_matcher = re.compile(
+            emoticon_regex,
+            flags
+        )
 
     async def start(self):
         await self.stop()
@@ -83,19 +105,46 @@ class AudioResponder:
     # @fancy_logger.log_async_task
     async def _transcript_reply_task(self):
         fancy_logger.get().info("audio_responder: started")
-        while not self._abort:
-            await self._transcript.wakeword_event.wait()
-            self._transcript.wakeword_event.clear()
-            await self._respond()
+        def _clear_response_task():
+            if self._response_task:
+                self._response_task = None
+        try:
+            while not self._abort:
+                await self._transcript.wakeword_event.wait()
+                self._transcript.wakeword_event.clear()
+                response_task = asyncio.create_task(self._respond())
+                response_task.add_done_callback(
+                    lambda _: _clear_response_task()
+                )
+                if not self._is_responding():
+                    self._response_task = response_task
+                else:
+                    await response_task
+        except asyncio.CancelledError:
+            self._response_queue.clear()
+            await self._cancel_response_task()
 
         fancy_logger.get().info("audio_responder: exiting")
 
     async def _respond(self):
         transcript_history = self._transcript_history_iterator()
+        voice_messages = self._transcript.message_buffer.get()
+        voice_messages.reverse()
+        user_id = voice_messages[-1].user_id
+        user_name = ""
+        author = discord_utils.author_from_user_id(
+            user_id,
+            self._channel.guild,
+        )
+        user_name = author.author_name if author else "<unknown user>"
+        fancy_logger.get().debug(
+            "Responding to message from %s in %s",
+            user_name, self._channel.name
+        )
         prompt, author_names = await self._prompt_generator.generate(
             bot_user_id=self.bot_user_id,
             message_history=transcript_history,
-            user_name="",
+            user_name=user_name,
             guild_name=self._channel.guild.name,
             channel_name=self._channel.name
         )
@@ -128,27 +177,71 @@ class AudioResponder:
         response = await self._ooba_client.request_as_string(
             prompt, stop_sequences
         )
-        fancy_logger.get().debug("Received response: %s", response)
+        # filter immersion-breaking content
+        if self.use_immersion_breaking_filter:
+            response, _should_abort = self.immersion_breaking_filter.filter(response)
 
         # wait for silence before responding
         await self._transcript.silence_event.wait()
 
-        # shove response into history
-        self._transcript.on_bot_response(response)
+        if self._first_response and bool(self._response_queue):
+            self._first_response = False
+        # queue response
+        fancy_logger.get().debug("Queueing response: %s", response)
+        self._response_queue.appendleft(response)
+        # abort if already processing response queue
+        if not self._first_response and self._is_responding():
+            return
+        # process queue, if not already responding
+        while self._response_queue:
+            response = self._response_queue.pop()
+            # shove response into history
+            self._transcript.on_bot_response(response)
+            # post and/or speak response
+            if self.post_voice_responses:
+                text_response = response
+                kwargs = {}
+                # mention user if there are multiple participants and the last user
+                # responded to is different, to make it clear who is being spoken to
+                if (
+                    #self._transcript.num_participants > 1
+                    #and user_id != self._transcript.last_response_user_id
+                    user_id != self._transcript.last_response_user_id
+                ):
+                    text_response = f"<@{user_id}> {text_response}"
+                    # don't send the user a notification
+                    kwargs["allowed_mentions"] = discord.AllowedMentions(users=False)
+                # post raw response, if configured to do so
+                await self._channel.send(
+                    text_response,
+                    suppress_embeds=True,
+                    silent=True,
+                    **kwargs
+                )
+            # speak response aloud
+            if self.speak_voice_responses:
+                dialogue = response
+                # extract sanitized dialogue from response
+                dialogue = self.emoticon_matcher.sub("", dialogue) # remove "emoticons"
+                dialogue = emoji.replace_emoji(dialogue, "") # remove actual emoji
+                # collapse consecutive spaces and newlines into a single space
+                dialogue = re.sub(r"\b\s+\b", " ", dialogue, re.MULTILINE)
+                # get all valid dialogue and drop any narration
+                dialogue = self.dialogue_matcher.findall(dialogue)
+                dialogue = " ".join([block[0].strip() for block in dialogue]).strip()
+                # finally, speak the dialogue
+                self._discrivener.speak(dialogue)
+            fancy_logger.get().debug("Response to %s done!", user_name)
 
-        if self.post_voice_responses:
-            # post raw response, if configured to do so
-            await self._channel.send(response)
-        if self.speak_voice_responses:
-            # extract sanitized dialogue from response
-            dialogue = self.dialogue_extractor.sub("", response) # suppress non-dialogue
-            dialogue = self.emoticon_matcher.sub("", dialogue) # remove "emoticons"
-            dialogue = emoji.replace_emoji(dialogue, "") # remove actual emoji
-            # collapse consecutive spaces and newlines into a single space
-            dialogue = re.sub(r"[\s\n]+\b", " ", dialogue, re.MULTILINE)
-            dialogue = self.dialogue_cleaner.findall(dialogue)
-            dialogue = " ".join(dialogue).strip()
-            self._discrivener.speak(dialogue)
+    async def _cancel_response_task(self) -> None:
+        if self._response_task and not self._response_task.done():
+            self._response_task.cancel()
+            await self._response_task
+
+    def _is_responding(self) -> bool:
+        if self._response_task:
+            return not self._response_task.done()
+        return False
 
     def _transcript_history_iterator(
         self,
@@ -183,3 +276,8 @@ class AudioResponder:
                 )
 
         return _gen()
+
+    def _get_latest_message(self) -> types.VoiceMessage:
+        voice_messages = self._transcript.message_buffer.get()
+        voice_messages.reverse()
+        return voice_messages[-1]

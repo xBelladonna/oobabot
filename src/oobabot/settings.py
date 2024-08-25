@@ -1093,6 +1093,40 @@ class Settings:
                 ]
             )
         )
+        self.discord_settings.add_setting(
+            oesp.ConfigSetting[float](
+                name="voice_response_chance_penalty",
+                default=0.25,
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        FEATURE PREVIEW: Sometimes it can be busy in voice calls with lots
+                        of participants. To alleviate this, the default response chance is
+                        multiplied by this penalty factor, scaled with the number of
+                        participants. Setting this to 0 disables this feature. Values
+                        greater than 1 increase the response chance per additional
+                        participant.
+                        """
+                    )
+                ]
+            )
+        )
+        self.discord_settings.add_setting(
+            oesp.ConfigSetting[int](
+                name="voice_response_chance_penalty_limit",
+                default=2,
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        FEATURE PREVIEW: Limit to the number of times the reponse chance
+                        penalty can be applied cumulatively, i.e. places a cap on the
+                        number of additional participants that lower the bot's response
+                        chance. Disabled if set to 0.
+                        """
+                    )
+                ]
+            )
+        )
         ###########################################################
         # Oobabooga Settings
 

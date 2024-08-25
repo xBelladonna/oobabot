@@ -44,13 +44,9 @@ class VoiceClient(discord.VoiceProtocol):
     cls=voice_client.VoiceClient
     """
 
-    discrivener_location: str
-    discrivener_model_location: str
+    discord_settings: dict
     inviter: str
     decide_to_respond: decide_to_respond.DecideToRespond
-    speak_voice_responses: bool
-    post_voice_responses: bool
-    prevent_impersonation: bool
     current_instance: typing.Optional["VoiceClient"] = None
     ooba_client: ooba_client.OobaClient
     prompt_generator: prompt_generator.PromptGenerator
@@ -81,8 +77,8 @@ class VoiceClient(discord.VoiceProtocol):
             raise ValueError("Client does not have a user.")
 
         self._discrivener = discrivener.Discrivener(
-            self.discrivener_location,
-            self.discrivener_model_location,
+            self.discord_settings["discrivener_location"],
+            self.discord_settings["discrivener_model_location"],
             self._handle_discrivener_output,
         )
         self._discrivener_connected = False
@@ -110,9 +106,7 @@ class VoiceClient(discord.VoiceProtocol):
             self.prompt_generator,
             self.template_store,
             self._transcript,
-            self.speak_voice_responses,
-            self.post_voice_responses,
-            self.prevent_impersonation
+            self.discord_settings
         )
 
     @property

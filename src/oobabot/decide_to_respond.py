@@ -118,6 +118,12 @@ class DecideToRespond:
                         )
                     table.append(row)
                     table.sort()
+        self.voice_response_chance_penalty: float = discord_settings[
+            "voice_response_chance_penalty"
+        ]
+        self.voice_response_chance_penalty_limit: int = discord_settings[
+            "voice_response_chance_penalty_limit"
+        ]
 
         # Keep a dict of channel mention timestamps, per guild
         self.last_mention_cache_timeout = max(
@@ -292,7 +298,20 @@ class DecideToRespond:
         # Clamp the number of participants to a reasonable value
         # otherwise the response chance may become too low with a
         # very large number of participants.
-        response_chance /= min(3, number_of_participants)
+        if (
+            self.voice_response_chance_penalty
+            and self.voice_response_chance_penalty_limit
+        ):
+            penalty_factor = self.voice_response_chance_penalty * int(
+                min(
+                    self.voice_response_chance_penalty_limit,
+                    number_of_participants
+                )
+            )
+            response_chance = response_chance - (
+                response_chance * penalty_factor
+            )
+
         if random.random() <= response_chance:
             return True, response_chance
 

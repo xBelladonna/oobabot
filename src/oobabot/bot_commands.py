@@ -82,9 +82,7 @@ class BotCommands:
                 ooba_client,
                 prompt_generator,
                 self.decide_to_respond,
-                self.template_store,
-                self.speak_voice_responses,
-                self.post_voice_responses
+                self.template_store
             )
 
     async def on_ready(self, client: discord.Client):

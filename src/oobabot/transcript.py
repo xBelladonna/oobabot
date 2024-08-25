@@ -37,6 +37,8 @@ class Transcript:
         self.silence_event = asyncio.Event()
         self.wakeword_event = asyncio.Event()
         self.last_mention = datetime.datetime.min
+        self.last_response_user_id = 0
+        self.num_participants = 0
 
     def on_bot_response(self, text: str):
         """
@@ -68,20 +70,24 @@ class Transcript:
                 seconds_since_mention = (now - self.last_mention).seconds
             users = set()
             for msg in self.message_buffer.get():
-                if not msg.is_bot:
+                if (
+                    (self.decide_to_respond.ignore_bots and not msg.is_bot)
+                    or msg.user_id != self._bot_user_id
+                ):
                     users.add(msg.user_id)
-            number_of_participants = len(users)
-            should_reply, response_chance = self.decide_to_respond.provide_voice_response(
+                    self.last_response_user_id = msg.user_id
+            self.num_participants = len(users)
+            should_respond, response_chance = self.decide_to_respond.provide_voice_response(
                 seconds_since_mention,
-                number_of_participants,
+                self.num_participants
             )
             fancy_logger.get().debug(
                 "transcript: %d%% chance of replying after %d seconds (users: %d)",
                 round(response_chance * 100),
                 seconds_since_mention,
-                number_of_participants,
+                self.num_participants
             )
-            if should_reply:
+            if should_respond:
                 self.wakeword_event.set()
 
     def on_channel_silent(

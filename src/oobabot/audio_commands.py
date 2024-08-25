@@ -29,21 +29,13 @@ class AudioCommands:
         prompt_generator: prompt_generator.PromptGenerator,
         decide_to_respond: decide_to_respond.DecideToRespond,
         template_store: templates.TemplateStore,
-        speak_voice_responses: bool,
-        post_voice_responses: bool
     ):
         voice_client.VoiceClient.wakewords = persona.wakewords
 
         self.persona = persona
         self.voice_client: typing.Optional[voice_client.VoiceClient] = None
 
-        voice_client.VoiceClient.discrivener_location = discord_settings["discrivener_location"]
-        voice_client.VoiceClient.discrivener_model_location = \
-            discord_settings["discrivener_model_location"]
-        voice_client.VoiceClient.speak_voice_responses = speak_voice_responses
-        voice_client.VoiceClient.post_voice_responses = post_voice_responses
-        voice_client.VoiceClient.prevent_impersonation = discord_settings["prevent_impersonation"]
-
+        voice_client.VoiceClient.discord_settings = discord_settings
         voice_client.VoiceClient.decide_to_respond = decide_to_respond
         voice_client.VoiceClient.persona = persona
         voice_client.VoiceClient.ooba_client = ooba_client
