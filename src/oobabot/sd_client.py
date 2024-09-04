@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Client for generating images using the AUTOMATIC1111
-API.  Takes a prompt and returns image binary data in PNG format.
+API. Takes a prompt and returns image binary data in PNG format.
 """
 
 import asyncio
@@ -31,11 +31,11 @@ def _find_substring_in_dict(
 class StableDiffusionClient(http_client.SerializedHttpClient):
     """
     Purpose: Client for generating images using the AUTOMATIC1111
-    API.  Takes a prompt and returns image binary data in PNG format.
+    API. Takes a prompt and returns image binary data in PNG format.
     """
 
     SERVICE_NAME = "Stable Diffusion"
-    STABLE_DIFFUSION_API_URI_PATH: str = "/sdapi/v1/"
+    STABLE_DIFFUSION_API_URI_PATH = "/sdapi/v1/"
 
     SAMPLER_KEY = "sampler_name"
     SAMPLER_KEY_ALIAS = "sampler"
@@ -48,7 +48,7 @@ class StableDiffusionClient(http_client.SerializedHttpClient):
         "options": STABLE_DIFFUSION_API_URI_PATH + "options",
         # options: GET and POST
         #   retrieves (GET) and sets (POST) global options
-        #   for the server.  This is how we set the checkpoint
+        #   for the server. This is how we set the checkpoint
         #   and also a few privacy-related fields.
         "progress": STABLE_DIFFUSION_API_URI_PATH + "progress",
         # progress: GET only
@@ -74,7 +74,7 @@ class StableDiffusionClient(http_client.SerializedHttpClient):
     def __init__(
         self,
         settings: typing.Dict[str, typing.Any],
-        magic_model_key: str,
+        magic_model_key: str
     ):
         super().__init__(self.SERVICE_NAME, settings["stable_diffusion_url"])
 
@@ -92,9 +92,9 @@ class StableDiffusionClient(http_client.SerializedHttpClient):
             param = param.lower()
             if param not in self.request_params:
                 fancy_logger.get().warning(
-                    "Stable Diffusion:  customizable param '%s' not in request_params."
+                    "Stable Diffusion: customizable param '%s' not in request_params."
                     + "  Ignoring setting.",
-                    param,
+                    param
                 )
                 continue
             # store the type of the param, so we can validate user input later
@@ -104,46 +104,22 @@ class StableDiffusionClient(http_client.SerializedHttpClient):
 
         # when we're in a "age restricted" channel, we'll swap
         # the "negative_prompt" in the request_params with this
-        # value.  Otherwise we'll use the one already in
+        # value. Otherwise we'll use the one already in
         # request_params["negative_prompt"]
         self.negative_prompt_nsfw = self.request_params.pop("negative_prompt_nsfw", "")
 
     DEFAULT_OPTIONS = {
         #
-        # - "enable_pnginfo"
-        #   by default, this will store the parameters used to generate the image.
-        #   For instance:
-        #         Parameters: zombie taylor swift pinup movie posterSteps: 30,
-        #           Sampler: DPM++ 2M Karras, CFG scale: 7, Seed: 1317257172,
-        #           Size: 768x768, Model hash: 9aba26abdf, Model: Deliberate-2.0-15236
-        #   We want to disable this, for a few reasons:
-        #   - it's a privacy concern, since it's not clear to the user what
-        #     is happening
-        #   - it will include our negative prompts, which are actually bad
-        #     phrases that represent content we DON'T want to generate.  If
-        #     we upload these same strings to Discord, they might mistakenly
-        #     flag the content as violating their TOS.  Even though the only
-        #     reason those strings are used is to prevent that content.
-        #
-        #   Actually, we don't want to set this permanently, as people may
-        #   actually be using the web UI separately and this being permanently
-        #   disabled by the bot is confusing and tedious as it requires the
-        #   user to manually re-enable it every time. Instead, we set this as
-        #   a default override option that only applies to the current image
-        #   generation request. See settings.py for the default options.
-        #
-        #"enable_pnginfo": False,
-        #
         # - "do_not_add_watermark"
         #    Similar to the above, we don't want to add a watermark to the
-        #    generated image, just since it looks bad.  Also, it can leak
+        #    generated image, just since it looks bad. Also, it can leak
         #    the version of the SD software we are using, which isn't a good
         #    idea for security reasons.
         "do_not_add_watermark": True,
         #
         # - "samples_format"
         #   this is the format used for all image generation.
-        "samples_format": "png",
+        "samples_format": "png"
     }
 
     async def try_session(self) -> bool:
@@ -155,7 +131,7 @@ class StableDiffusionClient(http_client.SerializedHttpClient):
                 await self.setup()
             return connected and self.is_set_up
         except (
-            aiohttp.client_exceptions.ClientConnectorError,
+            aiohttp.ClientConnectorError,
             http_client.OobaHttpClientError, AssertionError
         ) as err:
             if isinstance(err, AssertionError):
@@ -163,7 +139,7 @@ class StableDiffusionClient(http_client.SerializedHttpClient):
                 # fail silently, as we notified the user of this on startup.
                 return False
             fancy_logger.get().debug(
-                "Cannot set up connection to %s server: [%s]",
+                "Cannot set up connection to %s server: %s",
                 self.service_name, self.base_url
             )
             return False
@@ -171,7 +147,7 @@ class StableDiffusionClient(http_client.SerializedHttpClient):
     async def set_options(self):
         url = self.API_COMMAND_URLS["options"]
 
-        # first, get the current options.  We do this for two
+        # first, get the current options. We do this for two
         # reasons;
         #  - show the user exactly what we changed, if anything
         #  - some versions of the API don't support the
@@ -192,16 +168,13 @@ class StableDiffusionClient(http_client.SerializedHttpClient):
                 continue
             options_to_set[option_name] = option_value
             fancy_logger.get().info(
-                "Stable Diffusion:  changing option '%s' from to '%s' to '%s'",
+                "Stable Diffusion: changing option '%s' from to '%s' to '%s'",
                 option_name,
                 current_options[option_name],
-                option_value,
+                option_value
             )
 
         if not options_to_set:
-            fancy_logger.get().debug(
-                "Stable Diffusion: Options are already set correctly, no changes made."
-            )
             return
 
         async with self._get_session().post(url, json=options_to_set) as response:
@@ -277,20 +250,20 @@ class StableDiffusionClient(http_client.SerializedHttpClient):
         except ValueError:
             return None
 
-        return (key, val)
+        return key, val
 
     def update_model_and_sampler(self, params: typing.Dict[str, typing.Any]):
         """
         Model and Sampler are special since we have a list of known acceptable
-        values.  If the user specifies a value that is not in the list, we
-        ignore it.  If the user specifies a value that is in the list, we
+        values. If the user specifies a value that is not in the list, we
+        ignore it. If the user specifies a value that is in the list, we
         override the default.
 
         Also, "sampler" is an alias for "sampler_name", and "model" is an
         alias for what should appear in "override_settings.sd_model_checkpoint".
 
         Finally, we allow the user to specify a substring of the model or
-        sampler name, and we will match the first one we find.  This is
+        sampler name, and we will match the first one we find. This is
         useful for when the user doesn't know the exact name of the model
         or sampler, but knows a substring of it.
         """
@@ -306,13 +279,13 @@ class StableDiffusionClient(http_client.SerializedHttpClient):
                 )
             else:
                 fancy_logger.get().debug(
-                    "Stable Diffusion: unavailable model requested.  "
-                    + "If newly added, restart oobabot: '%s'",
-                    desired_model,
+                    "Stable Diffusion: unavailable model '%s' requested. "
+                    + "If newly added, restart oobabot.",
+                    desired_model
                 )
 
         # the proper key is "sampler_name", but we also allow
-        # "sampler" for convenience.  Move the value, if any, over now.
+        # "sampler" for convenience. Move the value, if any, over now.
         desired_sampler = params.pop(self.SAMPLER_KEY_ALIAS, None)
         if desired_sampler:
             params[self.SAMPLER_KEY] = desired_sampler
@@ -324,13 +297,13 @@ class StableDiffusionClient(http_client.SerializedHttpClient):
                 params[self.SAMPLER_KEY] = sampler
             else:
                 fancy_logger.get().debug(
-                    "Stable Diffusion: unavailable sampler requested.  "
-                    + "If newly added, restart oobabot: '%s'",
-                    desired_sampler,
+                    "Stable Diffusion: unavailable sampler '%s' requested. "
+                    + "If newly added, restart oobabot.",
+                    desired_sampler
                 )
 
     # this is intended to split the prompt into words, but
-    # also to handle quoted strings.  For instance, if the
+    # also to handle quoted strings. For instance, if the
     # prompt is:
     #   "zombie taylor swift" pinup movie poster
     # then we want to split it into:
@@ -382,7 +355,7 @@ class StableDiffusionClient(http_client.SerializedHttpClient):
             request["negative_prompt"] = self.negative_prompt_nsfw
 
         # extract any allowed user overrides from the prompt
-        # and add them to the request dict.  The remaining
+        # and add them to the request dict. The remaining
         # prompt is returned.
         request["prompt"] = self.update_params(prompt, request)
 
@@ -393,13 +366,13 @@ class StableDiffusionClient(http_client.SerializedHttpClient):
             fancy_logger.get().debug(
                 "Stable Diffusion: Image request (nsfw: %r): %s",
                 is_channel_nsfw,
-                request,
+                request
             )
             start_time = time.time()
 
             async with self._get_session().post(
                 self.API_COMMAND_URLS["txt2img"],
-                json=request,
+                json=request
             ) as response:
                 if response.status != 200:
                     raise http_client.OobaHttpClientError(response)
@@ -407,9 +380,9 @@ class StableDiffusionClient(http_client.SerializedHttpClient):
                 json_body = await response.json()
                 image_bytes = base64.b64decode(json_body["images"][0])
                 fancy_logger.get().debug(
-                    "Stable Diffusion: Image generated, %d bytes in %.2f seconds",
-                    len(image_bytes),
-                    duration,
+                    "Stable Diffusion: Image generated, %.1f KiB in %.2f seconds",
+                    len(image_bytes) / 1024,
+                    duration
                 )
                 return image_bytes
 
@@ -432,8 +405,8 @@ class StableDiffusionClient(http_client.SerializedHttpClient):
 
                     fancy_logger.get().warning(
                         "Stable Diffusion: Connection reset error: %s, "
-                        + "retrying in 1 second",
-                        err,
+                        + "retrying in 1 second...",
+                        err
                     )
                     await asyncio.sleep(1)
                     tries += 1
@@ -454,7 +427,7 @@ class StableDiffusionClient(http_client.SerializedHttpClient):
             if not model:
                 fancy_logger.get().warning(
                     "Stable Diffusion: Desired default model '%s' not available.",
-                    desired_model,
+                    desired_model
                 )
             else:
                 fancy_logger.get().debug(
@@ -473,28 +446,25 @@ class StableDiffusionClient(http_client.SerializedHttpClient):
             if not sampler:
                 fancy_logger.get().warning(
                     "Stable Diffusion: Desired default sampler '%s' not available.",
-                    desired_sampler,
+                    desired_sampler
                 )
             else:
                 fancy_logger.get().debug(
                     "Stable Diffusion: Using default sampler '%s'", desired_sampler
                 )
 
-        fancy_logger.get().debug(
-            "Stable Diffusion: Using negative prompt: %s",
-            str(self.request_params.get("negative_prompt", "")),
-        )
+        if self.request_params["negative_prompt"]:
+            fancy_logger.get().debug(
+                "Stable Diffusion: Using negative prompt: %s",
+                self.request_params["negative_prompt"]
+            )
         if self.extra_prompt_text:
             fancy_logger.get().debug(
                 "Stable Diffusion: Bot will append to every prompt: '%s'",
-                self.extra_prompt_text,
+                self.extra_prompt_text
             )
-        if 0 == len(self.user_override_params):
-            fancy_logger.get().debug(
-                "Stable Diffusion: Users cannot override any SD params"
-            )
-        else:
+        if self.user_override_params:
             fancy_logger.get().debug(
                 "Stable Diffusion: Users may override: %s",
-                ", ".join(self.user_override_params.keys()),
+                ", ".join(self.user_override_params.keys())
             )

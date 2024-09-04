@@ -19,11 +19,11 @@ class Persona:
     """
 
     # list of keys that, depending on the json/yaml schema, might
-    # contain the AI's name.  Take the first one found, in order.
+    # contain the AI's name. Take the first one found, in order.
     NAME_KEYS = ["char_name", "name"]
 
     # list of keys that, depending on the json/yaml schema, might
-    # contain the AI's persona.  Take the first one found, in order.
+    # contain the AI's persona. Take the first one found, in order.
     DESCRIPTION_KEYS = ["description"]
     PERSONALITY_KEYS = ["char_persona", "personality"]
     SCENARIO_KEYS = ["context", "scenario"]
@@ -95,7 +95,7 @@ class Persona:
 
         except json.JSONDecodeError as err:
             fancy_logger.get().warning(
-                "Could not parse persona file: %s.  Cause: %s",
+                "Could not parse persona file: %s. Cause: %s",
                 filename,
                 err,
             )
@@ -109,7 +109,7 @@ class Persona:
                 yaml_settings = yaml.load(file)
             except ryaml.YAMLError as err:
                 fancy_logger.get().warning(
-                    "Could not parse persona file: %s.  Cause: %s",
+                    "Could not parse persona file: %s. Cause: %s",
                     filename,
                     err,
                 )

@@ -38,7 +38,6 @@ class BotCommands:
         self.include_lobotomize_response = discord_settings["include_lobotomize_response"]
         self.reply_in_thread = discord_settings["reply_in_thread"]
         self.history_lines = discord_settings["history_lines"]
-        self.ignore_prefixes = discord_settings["ignore_prefixes"]
         self.template_store = template_store
         self.ooba_client = ooba_client
 
@@ -59,7 +58,7 @@ class BotCommands:
             fancy_logger.get().warning(
                 "Audio disabled because executable at discrivener_location "
                 + "could not be found: %s",
-                discord_settings["discrivener_location"],
+                discord_settings["discrivener_location"]
             )
 
         if (
@@ -67,9 +66,9 @@ class BotCommands:
             and not self.discrivener_model_location
         ):
             fancy_logger.get().warning(
-                "Audio disable because the discrivener_model_location "
+                "Audio disabled because the discrivener_model_location "
                 + "could not be found: %s",
-                discord_settings["discrivener_model_location"],
+                discord_settings["discrivener_model_location"]
             )
 
         if not self.discrivener_location or not self.discrivener_model_location:
@@ -83,7 +82,7 @@ class BotCommands:
                 self.discrivener_model_location,
                 self.decide_to_respond,
                 self.speak_voice_replies,
-                self.post_voice_replies,
+                self.post_voice_replies
             )
 
     async def on_ready(self, client: discord.Client):
@@ -93,16 +92,15 @@ class BotCommands:
 
         async def get_messageable(
             interaction: discord.Interaction,
-        ) -> (
-            typing.Optional[
-                typing.Union[
-                    discord.TextChannel,
-                    discord.Thread,
-                    discord.DMChannel,
-                    discord.GroupChannel,
-                ]
+        ) -> typing.Optional[
+            typing.Union[
+                discord.TextChannel,
+                discord.Thread,
+                discord.VoiceChannel,
+                discord.DMChannel,
+                discord.GroupChannel
             ]
-        ):
+        ]:
             if interaction.channel_id:
                 try:
                     channel = await interaction.client.fetch_channel(interaction.channel_id)
@@ -112,6 +110,7 @@ class BotCommands:
                             (
                                 discord.TextChannel,
                                 discord.Thread,
+                                discord.VoiceChannel,
                                 discord.DMChannel,
                                 discord.GroupChannel
                             )
@@ -119,14 +118,14 @@ class BotCommands:
                             return channel
                 except discord.DiscordException as err:
                     fancy_logger.get().error(
-                        "Error while fetching channel for command: %s", err, exc_info=True
+                        "Error while fetching channel for command: %s: %s",
+                        type(err).__name__, err
                     )
-                return
 
 
         @discord.app_commands.command(
             name="stop",
-            description=f"Force {self.persona.ai_name} to stop typing the current message.",
+            description=f"Force {self.persona.ai_name} to stop typing the current message."
         )
         async def stop(interaction: discord.Interaction):
             channel = await get_messageable(interaction)
@@ -137,9 +136,9 @@ class BotCommands:
             channel_name = discord_utils.get_channel_name(channel)
             fancy_logger.get().debug(
                 "/%s called by user '%s' in %s",
-                interaction.command.name,
+                interaction.command.name, # type: ignore
                 interaction.user.name,
-                channel_name,
+                channel_name
             )
 
             if self.ooba_client.api_type not in ["oobabooga", "openai", "tabbyapi"]:
@@ -165,30 +164,30 @@ class BotCommands:
             channel_name = discord_utils.get_channel_name(channel)
             fancy_logger.get().debug(
                 "/%s called by user '%s' in %s",
-                interaction.command.name,
+                interaction.command.name, # type: ignore
                 interaction.user.name,
-                channel_name,
+                channel_name
             )
 
+            await interaction.response.defer(ephemeral=True)
             async for message in channel.history(limit=self.history_lines):
-                for ignore_prefix in self.ignore_prefixes:
-                    if message.content.startswith(ignore_prefix):
-                        continue
-                await interaction.response.defer(ephemeral=True, thinking=False)
-                await interaction.delete_original_response()
+                if self.decide_to_respond.is_hidden_message(message.content):
+                    continue
                 # respond with certainty
                 self.decide_to_respond.guaranteed_response = True
                 # log a fake mention so the bot considers responses from now on
                 self.decide_to_respond.log_mention(
                     channel_id=channel.id,
-                    send_timestamp=interaction.created_at.timestamp(),
+                    send_timestamp=interaction.created_at.timestamp()
                 )
-                # trigger a fake message request
-                return client.dispatch("message", message)
+                await interaction.delete_original_response()
+                # Trigger a new incoming message event with the message we fetched
+                client.dispatch("message", message)
+                break
 
         @discord.app_commands.command(
             name="say",
-            description=f"Force {self.persona.ai_name} to say the provided message.",
+            description=f"Force {self.persona.ai_name} to say the provided message."
         )
         @discord.app_commands.rename(text_to_send="message")
         @discord.app_commands.describe(
@@ -212,26 +211,26 @@ class BotCommands:
 
             channel_name = discord_utils.get_channel_name(channel)
             fancy_logger.get().debug(
-                "/%s called by user '%s' in channel #%s",
-                interaction.command.name,
+                "/%s called by user '%s' in %s",
+                interaction.command.name, # type: ignore
                 interaction.user.name,
-                channel_name,
+                channel_name
             )
             # this will cause the bot to monitor the channel
             # and consider unsolicited responses
             self.decide_to_respond.log_mention(
-                channel_id=interaction.channel_id,
-                send_timestamp=interaction.created_at.timestamp(),
+                channel_id=interaction.channel_id, # type: ignore
+                send_timestamp=interaction.created_at.timestamp()
             )
             await interaction.response.send_message(
                 text_to_send,
-                suppress_embeds=True,
+                suppress_embeds=True
             )
 
         @discord.app_commands.command(
             name="edit",
             description=f"Edit {self.persona.ai_name}'s most recent message in the channel "
-            + "with the provided message.",
+            + "with the provided message."
         )
         @discord.app_commands.rename(text_to_send="message")
         @discord.app_commands.describe(
@@ -245,41 +244,34 @@ class BotCommands:
 
             channel_name = discord_utils.get_channel_name(channel)
             fancy_logger.get().debug(
-                "/%s called by user '%s' in channel #%s",
-                interaction.command.name,
+                "/%s called by user '%s' in %s",
+                interaction.command.name, # type: ignore
                 interaction.user.name,
-                channel_name,
+                channel_name
             )
             self.decide_to_respond.log_mention(
-                channel_id=interaction.channel_id,
-                send_timestamp=interaction.created_at.timestamp(),
+                channel_id=interaction.channel_id, # type: ignore
+                send_timestamp=interaction.created_at.timestamp()
             )
 
             bot_last_message = None
-            skip = False
-
             async for message in channel.history(limit=self.history_lines):
-                for ignore_prefix in self.ignore_prefixes:
-                    if message.content.startswith(ignore_prefix):
-                        skip = True
-                        break
-                    skip = False
-                if skip:
+                if self.decide_to_respond.is_hidden_message(message.content):
                     continue
 
-                if message.author.id == client.user.id:
+                if message.author.id == client.user.id: # type: ignore
                     bot_last_message = message
                     break
 
             if bot_last_message:
-                await interaction.response.defer(ephemeral=True, thinking=False)
+                await interaction.response.defer(ephemeral=True)
                 await bot_last_message.edit(content=text_to_send)
                 await interaction.delete_original_response()
 
         @discord.app_commands.command(
             name="lobotomize",
             description=f"Erase {self.persona.ai_name}'s memory of any message "
-            + "before now in this channel.",
+            + "before now in this channel."
         )
         async def lobotomize(interaction: discord.Interaction):
             channel = await get_messageable(interaction)
@@ -289,23 +281,23 @@ class BotCommands:
 
             channel_name = discord_utils.get_channel_name(channel)
             fancy_logger.get().debug(
-                "/%s called by user '%s' in channel #%s",
-                interaction.command.name,
+                "/%s called by user '%s' in %s",
+                interaction.command.name, # type: ignore
                 interaction.user.name,
-                channel_name,
+                channel_name
             )
 
             response = self.template_store.format(
                 template_name=templates.Templates.COMMAND_LOBOTOMIZE_RESPONSE,
                 format_args={
                     templates.TemplateToken.AI_NAME: self.persona.ai_name,
-                    templates.TemplateToken.NAME: interaction.user.name,
-                },
+                    templates.TemplateToken.NAME: interaction.user.name
+                }
             )
             await interaction.response.send_message(
                 response,
                 silent=True,
-                suppress_embeds=True,
+                suppress_embeds=True
             )
             # find the current message in this channel or the
             # message before that if we're including our response.
@@ -316,7 +308,7 @@ class BotCommands:
                 fancy_logger.get().debug("Excluding bot response from chat history.")
                 self.repetition_tracker.hide_messages_before(
                     channel_id=channel.id,
-                    message_id=sent_message.id,
+                    message_id=sent_message.id
                 )
                 return
             finished = False
@@ -324,7 +316,7 @@ class BotCommands:
                 if finished:
                     self.repetition_tracker.hide_messages_before(
                         channel_id=channel.id,
-                        message_id=message.id,
+                        message_id=message.id
                     )
                     break
                 if message.id == sent_message.id:

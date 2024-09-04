@@ -90,9 +90,8 @@ class AudioResponder:
         prompt_prefix = await self._prompt_generator.generate(
             bot_user_id=self.bot_user_id,
             message_history=transcript_history,
-            image_requested=False,
             guild_name=self._channel.guild.name,
-            response_channel=self._channel.name
+            channel_name=self._channel.name
         )
 
         response = await self._ooba_client.request_as_string(

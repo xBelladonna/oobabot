@@ -6,6 +6,7 @@ Contains all runtime state of the bot.
 import asyncio
 from concurrent import futures
 import contextlib
+import os
 import threading
 import typing
 
@@ -36,9 +37,11 @@ class OobabotRuntimeError(Exception):
 
 class Runtime:
     """
-    Contains all the runtime state of the bot.  It should be
+    Contains all the runtime state of the bot. It should be
     created once the configuration is known.
     """
+
+    DISCORD_TOKEN_ENV_VAR: str = "DISCORD_TOKEN"
 
     def __init__(self, settings: settings.Settings):
         # templates used to generate prompts to send to the AI
@@ -76,29 +79,9 @@ class Runtime:
         )
 
         # decides which messages the bot will respond to
-        time_vs_response_chance: typing.List[typing.Tuple[float, float]] = []
-        voice_time_vs_response_chance: typing.List[typing.Tuple[float, float]] = []
-        for setting in "time_vs_response_chance", "voice_time_vs_response_chance":
-            for x in settings.discord_settings.get_list(setting):
-                x = str(x).replace("(", "").replace(")", "").replace(",", " ")
-                x = list(map(float, x.split()))
-                row: typing.Tuple[float, float] = (x[0], x[1])
-                for value in row:
-                    if value < 0:
-                        raise ValueError(
-                            "Durations and response chances in the time_vs_response_chance "
-                            + "calibration tables can't be negative! Please fix your configuration."
-                        )
-                if setting == "time_vs_response_chance":
-                    time_vs_response_chance.append(row)
-                else:
-                    voice_time_vs_response_chance.append(row)
         self.decide_to_respond = decide_to_respond.DecideToRespond(
             discord_settings=settings.discord_settings.get_all(),
             persona=self.persona,
-            interrobang_bonus=float(settings.discord_settings.get_str("interrobang_bonus")),
-            time_vs_response_chance=time_vs_response_chance,
-            voice_time_vs_response_chance=voice_time_vs_response_chance,
         )
 
         # once we decide to respond, this generates a prompt
@@ -140,7 +123,7 @@ class Runtime:
             )
 
         # if a bot sees itself repeating a message over and over,
-        # it will keep doing so forever.  This attempts to fix that.
+        # it will keep doing so forever. This attempts to fix that.
         # by looking for repeated responses, and deciding how far
         # back in history the bot can see.
         self.repetition_tracker = repetition_tracker.RepetitionTracker(
@@ -160,10 +143,22 @@ class Runtime:
         ########################################################
         # Connect to Discord
 
+        self.discord_settings = settings.discord_settings.get_all()
+
+        env_discord_token = os.environ.get(settings.DISCORD_TOKEN_ENV_VAR, "")
+        if env_discord_token:
+            self.discord_settings["discord_token"] = env_discord_token
+        if not self.discord_settings.get("discord_token", ""):
+            raise ValueError(
+                f"Please set the '{self.DISCORD_TOKEN_ENV_VAR}' "
+                + "environment variable to your bot's discord token,"
+                + "or place the token in the configuration file."
+            )
+
         self.discord_bot = discord_bot.DiscordBot(
             bot_commands=self.bot_commands,
             decide_to_respond=self.decide_to_respond,
-            discord_settings=settings.discord_settings.get_all(),
+            discord_settings=self.discord_settings,
             ooba_client=self.ooba_client,
             image_generator=self.image_generator,
             vision_client=self.vision,
@@ -173,8 +168,6 @@ class Runtime:
             repetition_tracker=self.repetition_tracker,
             response_stats=self.response_stats,
         )
-
-        self.discord_token = settings.discord_settings.get_str("discord_token")
 
     def test_connections(self) -> typing.Tuple[bool, bool]:
         """
@@ -200,15 +193,15 @@ class Runtime:
                     client.base_url,
                 )
                 fancy_logger.get().warning("Please check the URL and try again.")
-                if err.__cause__:
+                if str(err.__cause__):
                     fancy_logger.get().error("Reason: %s", err.__cause__)
-                return (client is self.ooba_client, False)
-        return (client is self.ooba_client, True)
+                return client is self.ooba_client, False
+        return client is self.ooba_client, True
 
     async def run(self):
         """
         Opens HTTP connections to oobabooga and stable diffusion,
-        then connects to Discord.  Blocks until the bot is stopped.
+        then connects to Discord. Blocks until the bot is stopped.
 
         Raises OobabotRuntimeError if the bot cannot connect to Discord.
         """
@@ -221,16 +214,17 @@ class Runtime:
                 if context_manager:
                     await stack.enter_async_context(context_manager)
 
+            discord_token = str(self.discord_settings["discord_token"])
             try:
                 fancy_logger.get().info("Connecting to Discord... ")
-                await self.discord_bot.start(self.discord_token)
+                await self.discord_bot.start(discord_token)
                 fancy_logger.get().info("Discord bot exited.")
 
             except discord.errors.PrivilegedIntentsRequired as err:
                 fancy_logger.get().warning("Could not log in to Discord: %s", err)
                 fancy_logger.get().warning(
                     "The bot token you provided does not have the required "
-                    + "gateway intents.  Did you remember to enable both "
+                    + "gateway intents. Did you remember to enable both "
                     + "'SERVER MEMBERS INTENT' and 'MESSAGE CONTENT INTENT' "
                     + "in the bot's settings on Discord?"
                 )
@@ -251,7 +245,7 @@ class Runtime:
 
     def stop(self, wait_timeout: float = 5.0) -> None:
         """
-        Stops the bot, if it's running.  Safe to be called
+        Stops the bot, if it's running. Safe to be called
         from a separate thread from the one that called run().
 
         Blocks until the bot is gracefully stopped, or until
@@ -261,7 +255,7 @@ class Runtime:
         self.response_stats.write_stat_summary_to_log()
 
         # if we're on our main thread, then we can just terminate
-        # the bot loop directly.  But if we're on a separate thread,
+        # the bot loop directly. But if we're on a separate thread,
         # then we need to call it from the  discord bot's event loop.
         if threading.current_thread() == threading.main_thread():
             self.discord_bot.loop.stop()
@@ -269,7 +263,7 @@ class Runtime:
 
         try:
             # if discord is already stopped, then their .loop is set
-            # _MissingSentinel.  So instead check if it's still connected.
+            # _MissingSentinel. So instead check if it's still connected.
             if self.discord_bot.is_closed():
                 fancy_logger.get().info("Discord bot already stopped.")
                 return

@@ -1,4 +1,12 @@
 ARG IMAGE=${IMAGE:-nvidia/cuda:12.2.2-runtime-ubuntu22.04}
+
+# Builder stage to checkout code and copy requirements from
+FROM alpine AS builder
+RUN apk --no-cache add git
+WORKDIR /app
+COPY . .
+
+# Main image
 FROM $IMAGE
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -11,8 +19,12 @@ RUN apt-get update && \
 RUN pip --no-cache-dir install poetry
 
 WORKDIR /app
-COPY . .
 
+# Check if dependencies have changed
+COPY --from=builder /app/pyproject.toml /app/poetry.lock ./
+RUN poetry install --no-interaction
+
+COPY --from=builder /app/* ./
 RUN poetry install --no-interaction
 RUN rm -rf ~/.cache/pypoetry/{cache,artifacts}
 

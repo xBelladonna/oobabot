@@ -44,7 +44,7 @@ class MessageSplitter(abc.ABC):
 
         Note:
         When there is no longer any input, the caller must pass
-        MessageSplitter.END_OF_INPUT to this function.  This
+        MessageSplitter.END_OF_INPUT to this function. This
         function will then yield any remaining text, even if it
         doesn't look like a full sentence.
         """
@@ -104,7 +104,7 @@ class SentenceSplitter(MessageSplitter):
         )  # type: ignore -- type is determined by char_span=True above
 
         # any remaining non-sentence things will be in the last element
-        # of the list.  Don't print that yet.  At the very worst, we'll
+        # of the list. Don't print that yet. At the very worst, we'll
         # print it when the END_OF_INPUT signal is reached.
         for sentence_w_char_spans in segments[:-1]:
             # sentence_w_char_spans is a class with the following fields:
@@ -125,7 +125,7 @@ class SentenceSplitter(MessageSplitter):
 
 class OobaClient(http_client.SerializedHttpClient):
     """
-    Client for the Ooba API.  Can provide the response by token or by sentence.
+    Client for the Ooba API. Can provide the response by token or by sentence.
     """
 
 
@@ -148,16 +148,15 @@ class OobaClient(http_client.SerializedHttpClient):
         self.message_regex = settings["message_regex"]
         self.request_params = settings["request_params"]
         self.log_all_the_things = settings["log_all_the_things"]
-        self.base_url = settings["base_url"]
         self.api_type = settings["api_type"].lower()
-        if self.api_type not in ["oobabooga", "openai", "tabbyapi", "aphrodite", "cohere"]:
+        if self.api_type not in ("oobabooga", "openai", "tabbyapi", "aphrodite", "cohere"):
             raise ValueError(
                 f"Unsupported API type '{self.api_type}'. Please fix your configuration."
             )
         self.fetch_token_counts = settings["fetch_token_counts"]
         self.use_chat_completions = settings["use_chat_completions"]
         # OpenAI-compatible APIs
-        if self.api_type in ["oobabooga", "openai", "tabbyapi", "aphrodite"]:
+        if self.api_type in ("oobabooga", "openai", "tabbyapi", "aphrodite"):
             if self.use_chat_completions:
                 raise NotImplementedError(
                     "Chat Completions API is not implemented yet. "
@@ -207,8 +206,8 @@ class OobaClient(http_client.SerializedHttpClient):
     def get_stopping_strings(self) -> typing.List[str]:
         """
         Returns a list of strings that indicate the end of a response.
-        Taken from the yaml `stopping_strings` within our
-        response_params.
+        Taken from the yaml `stop` within our response_params, and
+        includes any system and user beginning of sequence markers.
         """
 
         stopping_strings = self.request_params.get("stop", [])
@@ -232,9 +231,9 @@ class OobaClient(http_client.SerializedHttpClient):
         """
         Indicates if the API type in use supports fetching token counts.
         """
-        if self.fetch_token_counts and self.api_type in [
+        if self.fetch_token_counts and self.api_type in (
             "oobabooga", "tabbyapi", "aphrodite", "cohere"
-        ]:
+        ):
             return True
         return False
 
@@ -243,7 +242,7 @@ class OobaClient(http_client.SerializedHttpClient):
         Gets the token count for the given prompt from the Oobabooga internal API.
         """
 
-        if not self.can_get_token_count:
+        if not self.can_get_token_count():
             raise ValueError(
                 "API type '%s' does not support tokenization. Cannot get token count."
             )
@@ -258,7 +257,7 @@ class OobaClient(http_client.SerializedHttpClient):
 
         if self.api_type == "oobabooga":
             url = self.base_url + self.OOBABOOGA_TOKENIZER_URI_PATH
-        elif self.api_type in ["tabbyapi", "aphrodite"]:
+        elif self.api_type in ("tabbyapi", "aphrodite"):
             # Currently the endpoint for both of these is the same
             url = self.base_url + self.TABBYAPI_TOKENIZER_URI_PATH
         elif self.api_type == "cohere":
@@ -403,7 +402,7 @@ class OobaClient(http_client.SerializedHttpClient):
         stopping_strings = self.request_params["stop"] + stopping_strings
         # then if there are any stop sequences at all, we handle API special cases
         if stopping_strings:
-            if self.api_type in ["oobabooga", "openai", "tabbyapi"]:
+            if self.api_type in ("oobabooga", "openai", "tabbyapi"):
                 # The real OpenAI Completions and Chat Completions API have a limit
                 # of 4 stop sequences
                 # TODO: figure out how to properly detect the real OpenAI API

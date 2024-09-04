@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Discrivener process launcher and handler.  Receives and
+Discrivener process launcher and handler. Receives and
 parses messages from the Discrivener process and passes
 them to the handler.
 """

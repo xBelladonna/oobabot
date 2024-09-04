@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Documents all the settings for the bot.  Allows for settings
+Documents all the settings for the bot. Allows for settings
 to be loaded from the environment, command line and config file.
 
 Methods:
@@ -66,7 +66,7 @@ def _make_template_comment(
 
 class Settings:
     """
-    User=customizable settings for the bot.  Reads from
+    User=customizable settings for the bot. Reads from
     environment variables and command line arguments.
     """
 
@@ -102,9 +102,13 @@ class Settings:
     OOBABOOGA_DEFAULT_REQUEST_PARAMS: oesp.SettingDictType = {
         "max_tokens": 300,
         "truncation_length": 4096,
-        "add_bos_token": False,
+        "auto_max_new_tokens": True,
+        "min_length": 0,
+        "add_bos_token": True,
         "ban_eos_token": False,
         "skip_special_tokens": True,
+        "custom_token_bans": "",
+        "logit_bias": {},
         "stop": [],
         "do_sample": True,
         "temperature_last": True,
@@ -112,6 +116,7 @@ class Settings:
         "temperature": 0.98,
         "top_p": 1,
         "min_p": 0.05,
+        "top_a": 0,
         "top_k": 40,
         "typical_p": 1,
         "tfs": 1,
@@ -119,13 +124,13 @@ class Settings:
         "repetition_penalty_range": 0,
         "frequency_penalty": 0,
         "presence_penalty": 0,
+        "grammar_string": "",
         "guidance_scale": 1,
         "negative_prompt": "",
         "dynamic_temperature": False,
         "dynatemp_low": 0.83,
         "dynatemp_high": 1.3,
         "dynatemp_exponent": 1,
-        "top_a": 0,
         "epsilon_cutoff": 0,  # In units of 1e-4
         "eta_cutoff": 0,  # In units of 1e-4
         "mirostat_mode": 0,
@@ -133,13 +138,14 @@ class Settings:
         "mirostat_eta": 0.1,
         "smoothing_factor": 0,
         "encoder_repetition_penalty": 1,
-        "no_repeat_ngram_size": 0,
-        "min_length": 0
+        "no_repeat_ngram_size": 0
     }
 
     VISION_DEFAULT_REQUEST_PARAMS: oesp.SettingDictType = {
         "max_tokens": 300,
         "truncation_length": 4096,
+        "auto_max_new_tokens": True,
+        "min_length": 0,
         "add_bos_token": True,
         "ban_eos_token": False,
         "skip_special_tokens": True,
@@ -149,8 +155,8 @@ class Settings:
         "seed": -1,
         "temperature": 0.2,
         "top_p": 0.95,
-        "min_p": 0.05,
-        "top_k": 100,
+        "min_p": 0,
+        "top_k": 0,
         "typical_p": 1,
         "tfs": 1,
         "repetition_penalty": 1,
@@ -158,12 +164,7 @@ class Settings:
         "frequency_penalty": 0,
         "presence_penalty": 0,
         "guidance_scale": 1,
-        "negative_prompt": "",
-        "dynamic_temperature": False,
-        "dynatemp_low": 0.1,
-        "dynatemp_high": 0.3,
-        "dynatemp_exponent": 1,
-        "min_length": 0
+        "negative_prompt": ""
     }
 
     # set default negative prompts to make it more difficult
@@ -183,13 +184,13 @@ class Settings:
         "cfg_scale": 7,
         #    This is a privacy concern for the users of the service.
         #    We don't want to save the generated images anyway, since they
-        #    are going to be on Discord.  Also, we don't want to use the
+        #    are going to be on Discord. Also, we don't want to use the
         #    disk space.
         "do_not_save_samples": True,
         "do_not_save_grid": True,
         "enable_hr": False,
         # this is a fake setting, SD calls it "sd_model_checkpoint",
-        # and it needs to appear under "override_params".  But put it here
+        # and it needs to appear under "override_params". But put it here
         # for convenience, the SD client will do the right thing with it.
         SD_CLIENT_MAGIC_MODEL_KEY: "",
         "negative_prompt": DEFAULT_SD_NEGATIVE_PROMPT,
@@ -291,7 +292,7 @@ class Settings:
                     textwrap.dedent(
                         """
                         If set, oobabot will print its configuration as a .yml file,
-                        then exit.  Any command-line settings also passed will be
+                        then exit. Any command-line settings also passed will be
                         reflected in this file.
                         """
                     )
@@ -306,7 +307,7 @@ class Settings:
                     textwrap.dedent(
                         """
                         Print a URL which can be used to invite the
-                        bot to a Discord server.  Requires that
+                        bot to a Discord server. Requires that
                         the Discord token is set.
                         """
                     ),
@@ -367,7 +368,7 @@ class Settings:
                         With a single string, the persona will be set to that string.
 
                         Otherwise, the ai_name and persona will be overwritten with
-                        the values in the file.  Also, the wakewords will be
+                        the values in the file. Also, the wakewords will be
                         extended to include the character's own name.
                         """
                     )
@@ -403,7 +404,7 @@ class Settings:
         self.discord_settings.add_setting(
             oesp.ConfigSetting[str](
                 name="discord_token",
-                default=os.environ.get(self.DISCORD_TOKEN_ENV_VAR, ""),
+                default="",
                 description_lines=[
                     textwrap.dedent(
                         f"""
@@ -415,8 +416,7 @@ class Settings:
                     )
                 ],
                 cli_args=["--discord-token"],
-                show_default_in_yaml=False,
-                place_default_in_yaml=True,
+                show_default_in_yaml=False
             )
         )
         self.discord_settings.add_setting(
@@ -514,7 +514,7 @@ class Settings:
         self.discord_settings.add_setting(
             oesp.ConfigSetting[typing.List[str]](
                 name="ignore_prefixes",
-                default="",
+                default=[],
                 description_lines=[
                     textwrap.dedent(
                         """
@@ -524,6 +524,7 @@ class Settings:
                         """
                     )
                 ],
+                show_default_in_yaml=False
             )
         )
         self.discord_settings.add_setting(
@@ -706,7 +707,7 @@ class Settings:
                         more than once per this many seconds.
 
                         This does not guarantee that updates will be sent
-                        this fast.  Only that they will not be sent any
+                        this fast. Only that they will not be sent any
                         faster than this rate.
 
                         This is useful because Discord has a rate limit on
@@ -742,13 +743,14 @@ class Settings:
                 description_lines=[
                     textwrap.dedent(
                         """
-                        Adds a limit to the number of channels the bot will post
-                        unsolicited messages in at the same time.  This is to
-                        prevent the bot from being too noisy in large servers.
+                        Adds a limit to the number of channels per guild the
+                        bot will post unsolicited responses in at the same
+                        time. This is to prevent the bot from being too noisy
+                        in large servers.
 
                         When set, only the most recent N channels the bot has
                         been summoned in will have a chance of receiving an
-                        unsolicited message.  The bot will still respond to
+                        unsolicited response. The bot will still respond to
                         @-mentions and wake words in any channel it can access.
 
                         Set to 0 to disable this feature.
@@ -765,10 +767,10 @@ class Settings:
                 description_lines=[
                     textwrap.dedent(
                         """
-                        If set, the bot will not reply to any messages that
+                        If set, the bot will not respond to any messages that
                         do not @-mention it or include a wakeword.
 
-                        If unsolicited replies are disabled, the unsolicited_channel_cap
+                        If unsolicited responses are disabled, the unsolicited_channel_cap
                         setting will have no effect.
                         """
                     )
@@ -802,7 +804,7 @@ class Settings:
                         Same calibration table as above but for voice calls. The difference is that
                         we use the last entry's response chance as a fallback instead of refusing
                         to respond after the specified duration, since it's assumed all voice
-                        replies are solicited.
+                        responses are solicited.
                         """
                     )
                 ],
@@ -862,7 +864,7 @@ class Settings:
                 description_lines=[
                     textwrap.dedent(
                         """
-                        FEATURE PREVIEW: Whether to speak replies in voice calls with discrivener
+                        FEATURE PREVIEW: Whether to speak responses in voice calls with discrivener
                         """
                     )
                 ],
@@ -876,7 +878,7 @@ class Settings:
                 description_lines=[
                     textwrap.dedent(
                         """
-                        FEATURE PREVIEW: Whether to reply in the voice-text channel of voice calls
+                        FEATURE PREVIEW: Whether to respond in the voice-text channel of voice calls
                         """
                     )
                 ],
@@ -902,6 +904,20 @@ class Settings:
                         """
                     )
                 ],
+            )
+        )
+        self.oobabooga_settings.add_setting(
+            oesp.ConfigSetting[str](
+                name="api_key",
+                default="",
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        API key for whatever text generation API you are using.
+                        """
+                    )
+                ],
+                show_default_in_yaml=False
             )
         )
         self.oobabooga_settings.add_setting(
@@ -933,7 +949,7 @@ class Settings:
         self.oobabooga_settings.add_setting(
             oesp.ConfigSetting[bool](
                 name="fetch_token_counts",
-                default=True,
+                default=False,
                 description_lines=[
                     textwrap.dedent(
                         """
@@ -941,19 +957,10 @@ class Settings:
                         accurate token counting. However, this may incur a performance cost
                         depending on your system's performance, or your network latency.
                         If the prompt generation takes too long, you can try disabling this.
-                        """
-                    )
-                ],
-            )
-        )
-        self.oobabooga_settings.add_setting(
-            oesp.ConfigSetting[str](
-                name="api_key",
-                default="awesome_api_key",
-                description_lines=[
-                    textwrap.dedent(
-                        """
-                        API key for whatever API you are using.
+
+                        Note: this checks the token count per-message, so it may push you to
+                        an API rate limit very fast or incur large costs if you are using a
+                        paid service, so please check with your service before using this!
                         """
                     )
                 ],
@@ -1167,6 +1174,19 @@ class Settings:
         self.setting_groups.append(self.stable_diffusion_settings)
 
         self.stable_diffusion_settings.add_setting(
+            oesp.ConfigSetting[str](
+                name="stable_diffusion_url",
+                default="",
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        URL for an AUTOMATIC1111 Stable Diffusion server.
+                        """
+                    )
+                ],
+            )
+        )
+        self.stable_diffusion_settings.add_setting(
             oesp.ConfigSetting[typing.List[str]](
                 name="image_words",
                 default=self.DEFAULT_IMAGE_WORDS,
@@ -1190,19 +1210,6 @@ class Settings:
                         When one of these words is used in a message, the bot will
                         generate a self-portrait, substituting the avatar word for
                         the configured avatar prompt.
-                        """
-                    )
-                ],
-            )
-        )
-        self.stable_diffusion_settings.add_setting(
-            oesp.ConfigSetting[str](
-                name="stable_diffusion_url",
-                default="",
-                description_lines=[
-                    textwrap.dedent(
-                        """
-                        URL for an AUTOMATIC1111 Stable Diffusion server.
                         """
                     )
                 ],
@@ -1243,7 +1250,7 @@ class Settings:
                     textwrap.dedent(
                         """
                         Time in seconds that the generated image will be displayed without
-                        interaction before being deleted.
+                        interaction before being deleted. Timeout is disabled if set to 0.
                         """
                     )
                 ],
@@ -1364,10 +1371,10 @@ class Settings:
             for config_flag in config_setting.cli_args:
                 # find the element after config_flag in args
                 try:
-                    return (args[args.index(config_flag) + 1], False)
+                    return args[args.index(config_flag) + 1], False
                 except (ValueError, IndexError):
                     continue
-        return (config_setting.default, True)
+        return config_setting.default, True
 
     def load_from_yaml_stream(self, stream: typing.TextIO) -> typing.Optional[str]:
         """
@@ -1442,14 +1449,3 @@ class Settings:
                 )
             )
         )
-
-        if "" == self.discord_settings.get("discord_token"):
-            print(
-                "\n"
-                + _console_wrapped(
-                    (
-                        f"Please set the '{self.DISCORD_TOKEN_ENV_VAR}' "
-                        "environment variable to your bot's discord token."
-                    )
-                )
-            )

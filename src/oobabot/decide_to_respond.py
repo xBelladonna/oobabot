@@ -17,9 +17,9 @@ class LastReplyTimes(dict):
     in a channel.
 
     This uses the timestamp on the message, not the local system's
-    RTC.  The advantage of this is that if messages are delayed,
+    RTC. The advantage of this is that if messages are delayed,
     we'll only respond to ones that were actually sent within the
-    appropriate time window.  It also makes it easier to test.
+    appropriate time window. It also makes it easier to test.
     """
 
     def __init__(self, cache_timeout: float, unsolicited_channel_cap: int):
@@ -59,28 +59,45 @@ class DecideToRespond:
 
     def __init__(
         self,
-        discord_settings: dict,
+        discord_settings: typing.Dict,
         persona: persona.Persona,
-        interrobang_bonus: float,
-        time_vs_response_chance: typing.List[typing.Tuple[float, float]],
-        voice_time_vs_response_chance: typing.List[typing.Tuple[float, float]],
     ):
         self.disable_unsolicited_replies = discord_settings[
             "disable_unsolicited_replies"
         ]
         self.ignore_dms = discord_settings["ignore_dms"]
         self.ignore_bots = discord_settings["ignore_bots"]
+        self.ignore_prefixes = discord_settings["ignore_prefixes"]
         self.guaranteed_response = False
-        self.interrobang_bonus = interrobang_bonus
+        self.interrobang_bonus = discord_settings["interrobang_bonus"]
         self.persona = persona
-        self.time_vs_response_chance = sorted(time_vs_response_chance)
-        self.voice_time_vs_response_chance = sorted(voice_time_vs_response_chance)
 
-        last_reply_cache_timeout = max(time for time, _ in time_vs_response_chance)
+        self.time_vs_response_chance: typing.List[typing.Tuple[float, float]] = []
+        self.voice_time_vs_response_chance: typing.List[typing.Tuple[float, float]] = []
+        for setting in "time_vs_response_chance", "voice_time_vs_response_chance":
+            table: typing.List[typing.Tuple[float, float]] = getattr(self, setting)
+            for x in discord_settings.get(setting): # type: ignore
+                x = str(x).replace("(", "").replace(")", "").replace(",", " ")
+                x = tuple(map(float, x.split()))
+                row: typing.Tuple[float, float] = (x[0], x[1])
+                for value in row:
+                    if value < 0:
+                        raise ValueError(
+                            "Durations and response chances in the "
+                            + "time_vs_response_chance calibration tables can't be "
+                            + "negative! Please fix your configuration."
+                        )
+                    table.append(row)
+                    table.sort()
+
+        # Keep a dict of channel mention timestamps, per guild
+        self.last_mention_cache_timeout = max(
+            time for time, _ in self.time_vs_response_chance
+        )
         unsolicited_channel_cap = discord_settings["unsolicited_channel_cap"]
         self.last_reply_times = LastReplyTimes(
-            last_reply_cache_timeout,
-            unsolicited_channel_cap,
+            self.last_mention_cache_timeout,
+            unsolicited_channel_cap
         )
 
     def is_directly_mentioned(
@@ -108,6 +125,15 @@ class DecideToRespond:
 
         return False
 
+    def is_hidden_message(self, content: str) -> bool:
+        hidden = False
+        for prefix in self.ignore_prefixes:
+            if content.startswith(prefix):
+                hidden = True
+                break
+
+        return hidden
+
     def calc_interpolated_response_chance(
         self,
         time_since_last_mention: float,
@@ -118,22 +144,23 @@ class DecideToRespond:
         the current and next calibration entries, based on the exact
         duration since the last mention.
         """
+        # If our calibration table is empty, always respond
+        if not time_vs_response_chance:
+            return 1.0
+
         response_chance = 0.0
-        if time_vs_response_chance:
-            duration = 0
-            chance = time_vs_response_chance[0][1]
-            for next_duration, next_chance in time_vs_response_chance:
-                if duration <= time_since_last_mention <= next_duration:
-                    scaling_factor = (time_since_last_mention -
-                                      duration) / (next_duration - duration)
-                    response_chance = chance + (next_chance - chance) * scaling_factor
-                    break
-                duration, chance = next_duration, next_chance
-        else:
-            response_chance = 1.0
+        duration = 0.0
+        chance = time_vs_response_chance[0][1]
+        for next_duration, next_chance in time_vs_response_chance:
+            if duration <= time_since_last_mention <= next_duration:
+                scaling_factor = (time_since_last_mention -
+                                  duration) / (next_duration - duration)
+                response_chance = chance + (next_chance - chance) * scaling_factor
+                break
+            duration, chance = next_duration, next_chance
         return response_chance
 
-    def provide_unsolicited_reply_in_channel(
+    def provide_unsolicited_response_in_channel(
         self, our_user_id: int, message: types.ChannelMessage
     ) -> bool:
         """
@@ -141,39 +168,37 @@ class DecideToRespond:
         though we weren't directly mentioned.
         """
 
-        # if we're not at-mentioned but others are, don't reply
+        # if we're not at-mentioned but others are, don't respond
         if message.mentions and not message.is_mentioned(our_user_id):
             return False
 
-        # if we've posted recently in this channel, there are a few
-        # other reasons we may respond.  But if we haven't, just
-        # ignore the message.
-
-        # if the admin has disabled unsolicited replies, don't reply
+        # if the admin has disabled unsolicited replies, don't respond
         if self.disable_unsolicited_replies:
             return False
 
-        # if we haven't posted to this channel recently, don't reply
+        # get response chance based on when we were last mentioned in this channel
         time_since_last_mention = self.last_reply_times.time_since_last_mention(message)
         response_chance = self.calc_interpolated_response_chance(
             time_since_last_mention,
-            self.time_vs_response_chance,
+            self.time_vs_response_chance
         )
+
         if not response_chance:
             return False
 
-        # if the new message ends with a question mark, we'll respond
+        # if the message ends with a question mark,
+        # increase response chance
         if message.body_text.endswith("?"):
             response_chance += self.interrobang_bonus
-        # if the new message ends with an exclamation point, we'll respond
+        # if the message ends with an exclamation point,
+        # increase response chance
         if message.body_text.endswith("!"):
             response_chance += self.interrobang_bonus
         # clamp the upper-limit of the final chance at 100%
         response_chance = min(1.0, response_chance)
 
-        time_since_last_mention = self.last_reply_times.time_since_last_mention(message)
         fancy_logger.get().debug(
-            "Considering unsolicited response in %s after %2.0f seconds.  "
+            "Considering unsolicited response in %s after %2.0f seconds. "
             + "chance: %2.0f%%.",
             message.channel_name,
             time_since_last_mention,
@@ -185,7 +210,7 @@ class DecideToRespond:
 
         return False
 
-    def provide_voice_reply(
+    def provide_voice_response(
         self,
         time_since_last_mention: float,
         number_of_participants: int,
@@ -197,7 +222,7 @@ class DecideToRespond:
         the number of call participants.
         """
         if number_of_participants == 1:
-            return (True, 1.0)
+            return True, 1.0
         response_chance = self.calc_interpolated_response_chance(
             time_since_last_mention,
             self.voice_time_vs_response_chance,
@@ -211,11 +236,11 @@ class DecideToRespond:
         # very large number of participants.
         response_chance /= min(3, number_of_participants)
         if random.random() <= response_chance:
-            return (True, response_chance)
+            return True, response_chance
 
-        return (False, response_chance)
+        return False, response_chance
 
-    def should_reply_to_message(
+    def should_respond_to_message(
         self, our_user_id: int, message: types.GenericMessage
     ) -> typing.Tuple[bool, bool]:
         """
@@ -233,29 +258,33 @@ class DecideToRespond:
         # A response has been explicitly guaranteed
         if self.guaranteed_response:
             # REMEMBER TO SET THIS TO FALSE WHEREVER IT HAS BEEN SET!
-            return (True, False)
+            return True, False
 
         # Ignore messages from other bots, out of fear of infinite loops,
         # as well as world domination.
         if message.author_is_bot and self.ignore_bots:
-            return (False, False)
+            return False, False
 
         # We do not want the bot to reply to itself. This is redundant
         # with the previous check, except it won't be if someone decides
         # to run this under their own user token, rather than a proper
         # bot token, or if they allow responding to other bots.
         if message.author_id == our_user_id:
-            return (False, False)
+            return False, False
+
+        # Ignore any hidden messages
+        if self.is_hidden_message(message.body_text):
+            return False, False
 
         if self.is_directly_mentioned(our_user_id, message):
-            return (True, True)
+            return True, True
 
         if isinstance(message, types.ChannelMessage):
-            if self.provide_unsolicited_reply_in_channel(our_user_id, message):
-                return (True, False)
+            if self.provide_unsolicited_response_in_channel(our_user_id, message):
+                return True, False
 
         # Ignore anything else
-        return (False, False)
+        return False, False
 
     def log_mention(self, channel_id: int, send_timestamp: float) -> None:
         self.last_reply_times.log_mention(channel_id, send_timestamp)
