@@ -456,6 +456,7 @@ class DiscordBot(discord.Client):
         self.is_bot = True
         self.bot_user_id = discord_utils.get_user_id_from_token(discord_settings["discord_token"])
         self.message_character_limit = 2000
+        self.status_character_limit = 128
 
         self.split_responses = discord_settings["split_responses"]
         self.ignore_dms = discord_settings["ignore_dms"]
@@ -865,6 +866,32 @@ class DiscordBot(discord.Client):
                 "Error while rewriting response: %s", err
             )
             self.response_stats.log_response_failure()
+
+    async def on_status(
+        self,
+        text: typing.Optional[str],
+        status: typing.Optional[discord.Status]
+    ) -> None:
+        self._status = status or discord.Status.online
+        if text:
+            text = text.strip()
+            if len(text) <= self.status_character_limit:
+                self._activity = discord.CustomActivity(text)
+            else:
+                fancy_logger.get().warning(
+                    "Status exceeds maximum status length (%d chracters) "
+                    + "by %d character(s). Leaving current status alone.",
+                    self.status_character_limit,
+                    len(text) - self.status_character_limit
+                )
+        elif not text and not status:
+            self._activity = None
+
+        await self.change_presence(status=self._status, activity=self._activity)
+        if self._status == discord.Status.online:
+            self.idle_countdown()
+        else:
+            await self._stop_idle_timer()
 
 
     async def process_messages(

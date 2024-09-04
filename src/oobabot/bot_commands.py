@@ -479,6 +479,69 @@ class BotCommands:
                 response, ephemeral=True, silent=True
             )
 
+        @discord.app_commands.command(
+            name="status",
+            description=f"Set {self.persona.ai_name}'s status to the "
+            + "provided text, or clear if none is provided."
+        )
+        @discord.app_commands.describe(
+            text=f"Text to set {self.persona.ai_name}'s status to.",
+            presence="Status to set (i.e. Online, Idle, Do Not Disturb or Invisible)"
+        )
+        async def status(
+            interaction: discord.Interaction,
+            text: typing.Optional[
+                discord.app_commands.Range[
+                    str, 1, client.status_character_limit # type: ignore
+                ]
+            ],
+            presence: typing.Optional[
+                typing.Literal[
+                    "Online",
+                    "Idle",
+                    "Do Not Disturb",
+                    "Invisible"
+                ]
+            ]
+        ):
+            channel = await get_messageable(interaction)
+            if not channel:
+                await discord_utils.fail_interaction(interaction)
+                return
+
+            channel_name = discord_utils.get_channel_name(channel)
+            fancy_logger.get().debug(
+                "/%s called by user '%s' in %s",
+                interaction.command.name, # type: ignore
+                interaction.user.name,
+                channel_name
+            )
+
+            info = await client.application_info()
+            if info.team:
+                if interaction.user.id not in [
+                    member.id for member in info.team.members
+                    if member.role != discord.TeamMemberRole.read_only
+                ]:
+                    return await discord_utils.fail_interaction(
+                        interaction,
+                        "Only a non-read only team member can use this command."
+                    )
+            elif interaction.user.id != info.owner.id:
+                return await discord_utils.fail_interaction(
+                    interaction,
+                    "Only the bot owner can use this command."
+                )
+
+            await interaction.response.defer()
+            status = None
+            if presence:
+                status = discord.Status(
+                    presence.replace("Do Not Disturb", "dnd").lower()
+                )
+            client.dispatch("status", text, status)
+            await interaction.delete_original_response()
+
 
         fancy_logger.get().debug(
             "Registering commands, sometimes this takes a while..."
@@ -492,6 +555,7 @@ class BotCommands:
         tree.add_command(edit)
         tree.add_command(rewrite)
         tree.add_command(stop)
+        tree.add_command(status)
 
         if self.audio_commands:
             self.audio_commands.add_commands(tree)
