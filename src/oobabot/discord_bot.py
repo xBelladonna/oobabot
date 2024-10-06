@@ -65,6 +65,7 @@ class MessageQueue:
         self.response_tasks: typing.Dict[int, asyncio.Task] = {}
         self.wait_tasks: typing.Dict[int, asyncio.Task] = {}
         self.panic_tasks: typing.Dict[int, asyncio.Task] = {}
+        self.reply_in_channel: typing.Set[int] = set()
 
 
     async def _accumulate_messages(self, channel_id: int) -> None:
@@ -236,6 +237,27 @@ class MessageQueue:
             return self.response_tasks[channel_id].cancel()
         return False
 
+    def reply(self, channel_id: int) -> None:
+        """
+        Mark the specified channel as one the AI always
+        replies to the incoming messages in.
+        """
+        self.reply_in_channel.add(channel_id)
+
+    def stop_replying(self, channel_id: int) -> None:
+        """
+        Cancel using replies to messages by default in
+        the specified channel.
+        """
+        self.reply_in_channel.discard(channel_id)
+
+    def is_replying(self, channel_id: int) -> bool:
+        """
+        Check if we're replying to incoming messages
+        by default in the specified channel.
+        """
+        return channel_id in self.reply_in_channel
+
     def is_responding(self, channel_id: int) -> bool:
         """
         Checks if the specified channel has an ongoing response task.
@@ -273,9 +295,25 @@ class MessageQueue:
     # Standard deque methods but per channel
     def append(self, channel_id: int, message: discord.Message) -> None:
         self._ensure_queue(channel_id).append(message)
+        if (
+            self.get_queue_length(channel_id) > 1
+            or (
+                self.get_queue_length(channel_id) == 1
+                and self.is_responding(channel_id)
+            )
+        ):
+            self.reply(channel_id)
 
     def appendleft(self, channel_id: int, message: discord.Message) -> None:
         self._ensure_queue(channel_id).appendleft(message)
+        if (
+            self.get_queue_length(channel_id) > 1
+            or (
+                self.get_queue_length(channel_id) == 1
+                and self.is_responding(channel_id)
+            )
+        ):
+            self.reply(channel_id)
 
     def pop(self, channel_id: int) -> discord.Message:
         if channel_id in self.queues:
@@ -377,6 +415,7 @@ class MessageQueue:
             and not self.queues[channel_id]
         ):
             self.remove_queue(channel_id)
+            self.stop_replying(channel_id)
 
     def _done_callback(self, channel_id: int) -> None:
         self.remove_response_task(channel_id)
@@ -1291,6 +1330,8 @@ class DiscordBot(discord.Client):
                     response_channel.id,
                     message.channel_name,
                 )
+                # Edit the GenericMessage with the new response channel ID
+                message.channel_id = response_channel.id
                 # If we created a new thread, log the mention there too so we
                 # can continue the conversation.
                 if is_summon_in_public_channel:
@@ -1443,6 +1484,7 @@ class DiscordBot(discord.Client):
                         response,
                         response_stat,
                         response_channel,
+                        raw_message,
                         reference,
                         existing_message
                     )
@@ -1591,6 +1633,7 @@ class DiscordBot(discord.Client):
             discord.DMChannel,
             discord.GroupChannel
         ],
+        raw_message: typing.Optional[discord.Message],
         reference: typing.Optional[
             typing.Union[discord.Message, discord.MessageReference]
         ] = None,
@@ -1615,6 +1658,7 @@ class DiscordBot(discord.Client):
                 response, # type: ignore
                 response_stat,
                 response_channel,
+                raw_message,
                 reference,
                 existing_message
             )
@@ -1628,6 +1672,7 @@ class DiscordBot(discord.Client):
                         sentence,
                         response_stat,
                         response_channel,
+                        raw_message,
                         reference,
                         existing_message
                     )
@@ -1639,6 +1684,7 @@ class DiscordBot(discord.Client):
                     response, # type: ignore
                     response_stat,
                     response_channel,
+                    raw_message,
                     reference,
                     existing_message
                 )
@@ -1656,6 +1702,7 @@ class DiscordBot(discord.Client):
             discord.DMChannel,
             discord.GroupChannel
         ],
+        raw_message: typing.Optional[discord.Message],
         reference: typing.Optional[
             typing.Union[discord.Message, discord.MessageReference]
         ] = None,
@@ -1747,6 +1794,9 @@ class DiscordBot(discord.Client):
                 kwargs = {}
                 if reference:
                     kwargs["reference"] = reference
+                elif raw_message:
+                    if self.message_queue.is_replying(response_channel.id):
+                        kwargs["reference"] = raw_message
                 last_message = await response_channel.send(
                     response.strip(),
                     allowed_mentions=self._allowed_mentions,
@@ -1796,6 +1846,7 @@ class DiscordBot(discord.Client):
             discord.DMChannel,
             discord.GroupChannel
         ],
+        raw_message: typing.Optional[discord.Message],
         reference: typing.Optional[
             typing.Union[discord.Message, discord.MessageReference]
         ] = None,
@@ -1827,8 +1878,6 @@ class DiscordBot(discord.Client):
         last_message_time = 0
         message_to_log = None
         kwargs = {}
-        if reference:
-            kwargs["reference"] = reference
 
         # Hopefully we don't get here often but if we do, split the response
         # into sentences, append them to a response buffer until the next
@@ -1852,6 +1901,11 @@ class DiscordBot(discord.Client):
                             self.message_character_limit,
                             len(response) - self.message_character_limit
                         )
+                        if "reference" not in kwargs or not kwargs["reference"]:
+                            if reference:
+                                kwargs["reference"] = reference
+                            elif self.message_queue.is_replying(response_channel.id):
+                                kwargs["reference"] = raw_message
                         last_message = await response_channel.send(
                             new_response.strip(),
                             allowed_mentions=self._allowed_mentions,
@@ -1890,6 +1944,8 @@ class DiscordBot(discord.Client):
                 kwargs = {}
                 if reference:
                     kwargs["reference"] = reference
+                elif self.message_queue.is_replying(response_channel.id):
+                    kwargs["reference"] = raw_message
                 last_message = await response_channel.send(
                     response,
                     allowed_mentions=self._allowed_mentions,
