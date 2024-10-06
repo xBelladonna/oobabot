@@ -153,16 +153,19 @@ After the action is complete, the reaction will be automatically removed. Note t
 
 ### Slash Commands
 
-As of 0.3.3, the bot now supports the following slash commands:
+As of 0.3.4, the bot now supports the following slash commands:
 
 | **`/command`**  | What it does |
 |---------------|------------------|
 | **`/lobotomize`** | Make the bot forget everything in the channel before the command is run
 | **`/say "message"`** | Make the bot post the provided message
-| **`/edit "message"`** | Make the bot edit its most recent message with the provided message
+| **`/edit "message"`** | Make the bot edit a specific message if provided, or its most recent message, with the provided message
 | **`/stop`** | Make the bot abort the currently generating message and post what it has so far
-| **`/poke`** | Prompt the bot to reply to the last message
+| **`/poke`** | Prompt the bot to reply to a specific message if provided, or the latest message
 | **`/unpoke`** | Stop paying attention to the channel the command is issued in
+| **`/rewrite`** | Make the bot rewrite one of its messages if provided, or most recent message, according to an instruction provided
+| **`/status`** | Set the bot's presence status (online, idle, etc) and/or a custom activity (status text). **Note:** Only the bot owner (or a team member with write permissions) may use this command.
+
 
 Oobabot doesn't add any restrictions on who can run these commands, but luckily Discord does! You can find this inside Discord by visiting "Server Settings" -> Integrations -> Bots and Apps -> hit the icon which looks like [/] next to your bot
 

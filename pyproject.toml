@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "oobabot"
-version = "0.3.3"
+version = "0.3.4"
 description = "A Discord bot which talks to Large Language Model AIs using just about any API-enabled backend."
 authors = ["Christopher Rude <chris@rudesoftware.net>", "Isabella Nightshade <bella@nightshade.fun>"]
 license = "MIT"

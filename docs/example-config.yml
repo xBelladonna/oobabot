@@ -17,24 +17,40 @@ persona:
   #   default: oobabot
   ai_name: Reisen
 
-  # This prefix will be added in front of every user-supplied request. This is useful for
-  # setting up a 'character' for the bot to play. Alternatively, this can be set with the
-  # OOBABOT_PERSONA environment variable.
+  # This prefix will be added in front of every request. It is intended to describe the AI
+  # more generally. Useful for defining the AI's general character profile, appearance, etc.
+  # .
   # Allowed tokens: {AI_NAME}
-  persona: "{AI_NAME} is a friendly AI made in the likeness of the lunarian moon rabbit youkai Reisen Udongein Inaba, from Touhou Project. {AI_NAME} lives in the bamboo forest of Eintei, located in Gensokyo. She is shy and somewhat timid until provoked, in which case she will not hesitate to let insults and profanity fly. {AI_NAME} always ends her messages with :3"
+  # .
+  description: "{AI_NAME} is a friendly AI made in the likeness of the lunarian moon rabbit youkai Reisen Udongein Inaba, from Touhou Project. {AI_NAME} lives in the bamboo forest of Eintei, located in Gensokyo. She is shy and somewhat timid until provoked, in which case she will not hesitate to let insults and profanity fly. {AI_NAME} always ends her messages with :3"
 
-  # Path to a file containing a persona. This can be just a single string, a JSON file in
-  # the common "tavern" formats, or a YAML file in the Oobabooga format. With a single
-  # string, the persona will be set to that string. Otherwise, the ai_name and persona will
-  # be overwritten with the values in the file. Also, the wakewords will be extended to
-  # include the character's own name.
+  # This prefix will be added in front of every request. It is intended to describe the AI's
+  # personality traits. Useful for defining the AI's behaviour and personality style.
+  # .
+  # Allowed tokens: {AI_NAME}
+  # .
+  personality:
+
+  # This prefix will be added in front of every request. It is intended to describe the
+  # scenario the AI is part of. Useful for giving the AI context to behave according to.
+  # .
+  # Allowed tokens: {AI_NAME}
+  # .
+  scenario:
+
+  # Path to a file containing a persona. This can be just a plaintext file, a JSON file in
+  # the common "tavern" formats, or a YAML file in the Oobabooga format.  If the file is
+  # plaintext, we try to extract persona description, personality and scenario based on
+  # regex matching. If no additional fields can be found, everything is assigned to the
+  # description attribute.  The AI name and persona fields are only updated if they aren't
+  # filled in above.
   persona_file:
 
-  # One or more words that the bot will listen for. The bot will listen in all discord
-  # channels it can access for one of these words to be mentioned, then reply to any
-  # messages it sees with a matching word. The bot will always reply to @-mentions and
-  # direct messages, even if no wakewords are supplied.
-  #   default: ['oobabot']
+  # One or more phrases that the bot will listen for. The bot will listen in all channels
+  # (and group DMs) it can access for one of these words to be mentioned, then reply to any
+  # messages it sees with a matching phrase. The bot will always reply to @-mentions and
+  # direct messages, even if no wakewords are supplied. If loading from a persona file, the
+  # AI name is added to the list automatically.
   wakewords:
     - reisen
     - udon
@@ -53,10 +69,23 @@ discord:
   #   default: DEBUG
   log_level:
 
+  # Time in seconds before the bot is marked as away, starting after the last message has
+  # been processed. Disabled if set to 0.
+  #   default: 300
+  idle_timeout:
+
   # The maximum number of chat history messages the AI will see when generating a response.
   # The actual number may be smaller than this, due to the model's context length limit.
-  #   default: 7
-  history_lines: 80
+  #   default: 20
+  history_messages: 80
+
+  # Some of the messages in the history may be filtered out for various reasons. The bot
+  # will automatically fetch an additional message for any message that was filtered. This
+  # can have a slight performance impact depending on how many filtered messages there are
+  # in the channel (usually takes less than a couple of seconds). Disable this if you want
+  # lower latency. See also `fetch_token_counts` in the Oobabooga settings.
+  #   default: True
+  automatic_lookback:
 
   # This is a list of allowed @-mention types. Used to limit what the bot can mention, e.g.
   # to prevent users from tricking the bot into @-mentioning large groups of people and
@@ -69,9 +98,13 @@ discord:
   # @-mentioned.
   allowed_mentions:
 
+  # Whether to mention the user in replies, which shows up as a ping.
+  #   default: True
+  mention_replied_user:
+
   # If set, the bot will generate a thread to respond in if it is not already in one.
   #   default: False
-  reply_in_thread:
+  respond_in_thread:
 
   # Time in seconds (rounded to the nearest single decimal, i.e. in increments of 0.1) that
   # the bot will wait for additional messages before deciding to respond. Useful if people
@@ -124,10 +157,10 @@ discord:
   #   default: 0.7
   stream_responses_speed_limit:
 
-  # Post the entire response as a single message, rather than splitting it into separate
-  # messages by sentence.
-  #   default: False
-  dont_split_responses:
+  # Split the response into separate messages by sentence, rather than posting the entire
+  # response as a single message. This has no effect if response streaming is enabled.
+  #   default: True
+  split_responses:
 
   # If set, the bot will not respond to direct messages.
   #   default: False
@@ -185,12 +218,18 @@ discord:
   # wakeword. If unsolicited responses are disabled, the unsolicited_channel_cap setting
   # will have no effect.
   #   default: False
-  disable_unsolicited_replies:
+  disable_unsolicited_responses:
 
   # Whether or not to include the bot's /lobotomize response in the history following the
   # command.
   #   default: True
   include_lobotomize_response:
+
+  # The depth to insert the secondary prompt template at in the message history, i.e. if set
+  # to 4, the 4th message from the latest will be the secondary prompt. Disabled if set to
+  # 0.
+  #   default: 0
+  secondary_prompt_depth:
 
   # Strips any whitespace and/or newlines from the end of the final templated prompt.
   # Sometimes, especially depending on the model's prompt template, it makes a difference to
@@ -221,7 +260,10 @@ discord:
   # standard: Uses the fully templated user prompt prefix from the user history block.
   # aggressive: Uses just the "canonical" user display name (for models that use "narrative
   # voice"). This is the "common sense" transformation of any given name, i.e. using only
-  # the first name in capitalized form, removing any emojis, etc.
+  # the first name in capitalized form, removing any emojis, etc. The response will be
+  # filtered if the canonical name immediately follows a newline, or is the first word in a
+  # new message. Be careful when using this, as it may prevent the AI from using participant
+  # names properly.
   # comprehensive: Combines both standard and aggressive modes. Keep in mind the sequence
   # limit if you are using OpenAI, as they will be truncated at 4 sequences even if there
   # otherwise would be more.
@@ -256,11 +298,24 @@ discord:
 
   # FEATURE PREVIEW: Whether to speak responses in voice calls with discrivener
   #   default: True
-  speak_voice_replies:
+  speak_voice_responses:
 
   # FEATURE PREVIEW: Whether to respond in the voice-text channel of voice calls
   #   default: False
-  post_voice_replies:
+  post_voice_responses:
+
+  # FEATURE PREVIEW: Sometimes it can be busy in voice calls with lots of participants. To
+  # alleviate this, the default response chance is multiplied by this penalty factor, scaled
+  # with the number of participants. Setting this to 0 disables this feature. Values greater
+  # than 1 increase the response chance per additional participant.
+  #   default: 0.25
+  voice_response_chance_penalty:
+
+  # FEATURE PREVIEW: Limit to the number of times the reponse chance penalty can be applied
+  # cumulatively, i.e. places a cap on the number of additional participants that lower the
+  # bot's response chance. Disabled if set to 0.
+  #   default: 2
+  voice_response_chance_penalty_limit:
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 # oobabooga
@@ -388,9 +443,9 @@ oobabooga:
   plugin_auto_start:
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-# vision_api
+# vision
 # .
-vision_api:
+vision:
 
   # Base URL for the OpenAI-like Vision API. Optionally takes a path component to the Chat
   # Completions endpoint.
@@ -454,7 +509,7 @@ stable_diffusion:
   stable_diffusion_url: ws://localhost:7861
 
   # When one of these words/phrases is used in a message, the bot will generate an image.
-  image_words:
+  image_phrases:
     - draw a pic
     - draw a picture
     - draw me a pic
@@ -471,13 +526,25 @@ stable_diffusion:
 
   # When one of these words/phrases is used in a message, the bot will generate a self-
   # portrait, substituting the avatar word for the configured avatar prompt.
-  avatar_words:
+  avatar_phrases:
+    - self-portrait
+    - self portrait
+    - your avatar
+    - your pfp
+    - your profile pic
+    - yourself
+    - you
 
   # This will be appended to every image generation prompt sent to Stable Diffusion.
   extra_prompt_text: best quality, absurdres, masterpiece
 
   # Prompt to send to Stable Diffusion to generate self-portrait if asked.
   avatar_prompt: reisen_udongein_inaba, rabbit ears, light purple hair, red eyes, long hair, blazer, pink pleated skirt, crescent badge, school uniform, <lora:Reisen:1> model=HoloAOM_3A1B
+
+  # Parameter alias to automatically flip the default orientation, using the same resolution
+  # with the aspect ratio swapped.
+  #   default: flip
+  flip_orientation_param:
 
   # Whether to mark DMs and group DMs as NSFW, since this can't be detected automatically.
   #   default: False
@@ -535,35 +602,62 @@ stable_diffusion:
 # .
 template:
 
-  # Displayed in Discord for commands that warrant an acknowledgement. Only the user issuing
-  # the command will see this, and it is ephemeral.
-  # .
-  # Allowed tokens: {AI_NAME}, {NAME}
-  # .
-  #   default: Okay.
-  command_acknowledgement:
+  # The sequence that should be inserted before system messages.
+  system_sequence_prefix: "<|im_start|>system\n"
 
-  # Displayed in Discord after a successful /lobotomize command. Both the discord users and
-  # the bot AI will see this message.
+  # The sequence that should be inserted after system messages. By default, this is just a
+  # single newline. Make sure this ends with a newline if messages are meant to be separated
+  # by them!
+  system_sequence_suffix: <|im_end|>
+
+  # The sequence that should be inserted before user messages.
+  user_sequence_prefix: "<|im_start|>user\n"
+
+  # The sequence that should be inserted after user messages. By default, this is just a
+  # single newline. Make sure this ends with a newline if messages are meant to be separated
+  # by them!
+  user_sequence_suffix: <|im_end|>
+
+  # The sequence that should be inserted before bot messages.
+  bot_sequence_prefix: "<|im_start|>assistant\n"
+
+  # The sequence that should be inserted after bot messages. By default, this is just a
+  # single newline. Make sure this ends with a newline if messages are meant to be separated
+  # by them!
+  bot_sequence_suffix: <|im_end|>
+
+  # Part of the AI response-generation prompt, this is used to render user messages in the
+  # chat history. A list of these, one for each past user message, will become part of
+  # {MESSAGE_HISTORY} and inserted into the main prompt.
   # .
-  # Allowed tokens: {AI_NAME}, {NAME}
+  # Allowed tokens: {NAME}, {MESSAGE}
   # .
-  #   default:  Ummmm... what were we talking about?
-  command_lobotomize_response: what was i saying again?
+  #   default: {NAME}: {MESSAGE}
+  user_prompt_history_block: "{USER_NAME}: {MESSAGE}\n"
+
+  # Part of the AI response-generation prompt, this is used to render bot messages in the
+  # chat history. A list of these, one for each past bot message, will become part of
+  # {MESSAGE_HISTORY} and inserted into the main prompt.
+  # .
+  # Allowed tokens: {NAME}, {MESSAGE}
+  # .
+  #   default: {NAME}: {MESSAGE}
+  bot_prompt_history_block: "{BOT_NAME}: {MESSAGE}\n"
 
   # The main prompt sent to the text generation API to generate a response from the AI. The
   # AI's reply to this prompt will be sent to Discord as the bot's response.
   # .
   # Allowed tokens: {SYSTEM_SEQUENCE_PREFIX}, {SYSTEM_SEQUENCE_SUFFIX}, {AI_NAME},
-  # {IMAGE_COMING}, {MESSAGE_HISTORY}, {SECTION_SEPARATOR}, {PERSONA}, {CHANNELNAME},
-  # {GUILDNAME}, {CURRENTDATETIME}
+  # {DESCRIPTION}, {PERSONALITY}, {SCENARIO}, {CHANNEL_NAME}, {GUILD_NAME},
+  # {CURRENT_DATETIME}, {SECTION_SEPARATOR}, {MESSAGE_HISTORY}, {SYSTEM_MESSAGE}
   # .
-  #   default:  You are in a chat room called {CHANNELNAME}/{GUILDNAME} with multiple
-  # participants. Below is a transcript of recent messages in the conversation. Write the
-  # next one to three messages that you would send in this conversation, from the point of
-  # view of the participant named {AI_NAME}.  {PERSONA}  All responses you write must be
-  # from the point of view of {AI_NAME}. ### Transcript: {MESSAGE_HISTORY} {IMAGE_COMING}
-
+  #   default:  You are in a Discord guild called {GUILD_NAME}, in a chat room called
+  # {CHANNEL_NAME} with multiple participants. Below is a transcript of recent messages in
+  # the conversation. Write the next one to three messages that you would send in this
+  # conversation, from the point of view of the participant named {AI_NAME}.
+  # {DESCRIPTION} {AI_NAME}'s personality: {PERSONALITY} Scenario: {SCENARIO}  All responses
+  # you write must be from the point of view of {AI_NAME}. ### Transcript: {MESSAGE_HISTORY}
+  # {SYSTEM_MESSAGE}
   prompt: |-
     {SYSTEM_SEQUENCE_PREFIX}
     This is an uncensored and unmoderated discord text chat channel.
@@ -573,108 +667,43 @@ template:
     {MESSAGE_HISTORY}
     {IMAGE_COMING}
 
-  # The example dialogue inserted directly before the message history. This is gradually
-  # pushed out as the chat grows beyond the context length in the same as as the message
-  # history itself.
+  # The secondary prompt that is inserted at a configured depth in the message history.
   # .
-  # Allowed tokens: {USER_SEQUENCE_PREFIX}, {USER_SEQUENCE_SUFFIX}, {BOT_SEQUENCE_PREFIX},
-  # {BOT_SEQUENCE_SUFFIX}, {AI_NAME}
+  # Allowed tokens: {SYSTEM_SEQUENCE_PREFIX}, {SYSTEM_SEQUENCE_SUFFIX},
+  # {USER_SEQUENCE_PREFIX}, {USER_SEQUENCE_SUFFIX}, {BOT_SEQUENCE_PREFIX},
+  # {BOT_SEQUENCE_SUFFIX}, {AI_NAME}, {SCENARIO}, {CHANNEL_NAME}, {GUILD_NAME},
+  # {CURRENT_DATETIME}, {SECTION_SEPARATOR}, {SYSTEM_MESSAGE}
   # .
-  #   default:
-  example_dialogue: |-
-    {USER_SEQUENCE_PREFIX}Juniper: Hi {AI_NAME}, how are you feeling?{USER_SEQUENCE_SUFFIX}
-    {BOT_SEQUENCE_PREFIX}{AI_NAME}: hello Juniper! i'm doing good hehe :3{BOT_SEQUENCE_SUFFIX}
-    {USER_SEQUENCE_PREFIX}Juniper: that's great to hear, {AI_NAME}. What have you been up to?{USER_SEQUENCE_SUFFIX}
-    {BOT_SEQUENCE_PREFIX}{AI_NAME}: My, red eyes again.... Maybe I haven't had enough sleep.{BOT_SEQUENCE_SUFFIX}
+  #   default: {SYSTEM_SEQUENCE_PREFIX}Current date/time:
+  # {CURRENT_DATETIME}{SYSTEM_SEQUENCE_SUFFIX}
+  secondary_prompt:
 
   # Separator between different sections, if necessary. For example, to separate example
-  # dialogue from the main chat transcript.
+  # dialogue from the main chat transcript. Ensure that this ends with a newline, if
+  # messages are meant to be separated by them.
   # .
   # Allowed tokens: {SYSTEM_SEQUENCE_PREFIX}, {SYSTEM_SEQUENCE_SUFFIX}, {AI_NAME}
   # .
   #   default: ***
   section_separator: '[New chat]'
 
+  # A section separator and this example dialogue inserted directly before the message
+  # history, with the section separator coming first. This is gradually pushed out as the
+  # chat grows beyond the context length in the same way as as the message history itself.
+  # .
+  # Allowed tokens: {SYSTEM_SEQUENCE_PREFIX}, {SYSTEM_SEQUENCE_SUFFIX},
+  # {USER_SEQUENCE_PREFIX}, {USER_SEQUENCE_SUFFIX}, {BOT_SEQUENCE_PREFIX},
+  # {BOT_SEQUENCE_SUFFIX}, {AI_NAME}
+  # .
+  example_dialogue: |-
+    {USER_SEQUENCE_PREFIX}Juniper: Hi {AI_NAME}, how are you feeling?{USER_SEQUENCE_SUFFIX}
+    {BOT_SEQUENCE_PREFIX}{AI_NAME}: hello Juniper! i'm doing good hehe :3{BOT_SEQUENCE_SUFFIX}
+    {USER_SEQUENCE_PREFIX}Juniper: that's great to hear, {AI_NAME}. What have you been up to?{USER_SEQUENCE_SUFFIX}
+    {BOT_SEQUENCE_PREFIX}{AI_NAME}: My, red eyes again.... Maybe I haven't had enough sleep.{BOT_SEQUENCE_SUFFIX}
+
   # strftime-formatted string to render current timestamp.
-  # .
-  # Allowed tokens:
-  # .
   #   default: %B %d, %Y - %I:%M:%S %p
   datetime_format: '%-I:%M %p, %A %-d %B %Y'
-
-  # The template that will be applied to user display names, and becomes {USER_NAME}.
-  # .
-  # Allowed tokens: {NAME}
-  # .
-  #   default:  {NAME}
-  user_name:
-
-  # The sequence that should be inserted before the system block.
-  # .
-  # Allowed tokens:
-  # .
-  #   default:
-  system_sequence_prefix: "<|im_start|>system\n"
-
-  # The sequence that should be inserted after the system block.
-  # .
-  # Allowed tokens:
-  # .
-  #   default:
-  system_sequence_suffix: <|im_end|>
-
-  # The sequence that should be inserted before the user message block.
-  # .
-  # Allowed tokens:
-  # .
-  #   default:
-  user_sequence_prefix: "<|im_start|>user\n"
-
-  # The sequence that should be inserted after the user message block.
-  # .
-  # Allowed tokens:
-  # .
-  #   default:
-  user_sequence_suffix: <|im_end|>
-
-  # The sequence that should be inserted before the bot message block.
-  # .
-  # Allowed tokens:
-  # .
-  #   default:
-  bot_sequence_prefix: "<|im_start|>assistant\n"
-
-  # The sequence that should be inserted after the bot message block.
-  # .
-  # Allowed tokens:
-  # .
-  #   default:
-  bot_sequence_suffix: <|im_end|>
-
-  # The template that will be applied to the bot's display name, and becomes {BOT_NAME}.
-  # .
-  # Allowed tokens: {NAME}
-  # .
-  #   default:  {NAME}
-  bot_name:
-
-  # Part of the AI response-generation prompt, this is used to render a single line of chat
-  # history for users. A list of these, one for each past user message, will become part of
-  # {MESSAGE_HISTORY} and inserted into the main prompt
-  # .
-  # Allowed tokens: {MESSAGE}, {USER_NAME}
-  # .
-  #   default:  {USER_NAME}: {MESSAGE}
-  user_prompt_history_block: "{USER_NAME}: {MESSAGE}\n"
-
-  # Part of the AI response-generation prompt, this is used to render a single line of chat
-  # history for the bot. A list of these, one for each past bot message, will become part of
-  # {MESSAGE_HISTORY} and inserted into the main prompt
-  # .
-  # Allowed tokens: {MESSAGE}, {BOT_NAME}
-  # .
-  #   default:  {BOT_NAME}: {MESSAGE}
-  bot_prompt_history_block: "{BOT_NAME}: {MESSAGE}\n"
 
   # This is the system prompt sent to the Vision model. If this is set to an empty string
   # (i.e. ""), the system prompt is ignored. Useful for some Vision APIs that do not support
@@ -684,17 +713,17 @@ template:
   # .
   #   default:  A chat between a curious human and an artificial intelligence assistant. The
   # assistant gives helpful, detailed, and polite answers to the human's questions.
-  gpt_vision_system_prompt:
+  vision_system_prompt:
 
   # The user instruction prompt sent to the Vision model.
   #   default:  Describe the following image in as much detail as possible, including any
   # relevant details while being concise.
-  gpt_vision_prompt:
+  vision_prompt:
 
   # Part of the AI response-generation prompt, this is used to prefix any image descriptions
-  # we get from GPT Vision.
+  # we get from the Vision API.
   # .
-  # Allowed tokens: {USER_NAME}, {AI_NAME}
+  # Allowed tokens: {AI_NAME}, {USER_NAME}
   # .
   #   default:  {USER_NAME} posted an image and your image recognition system describes it
   # to you:
@@ -703,9 +732,9 @@ template:
   # Part of the AI response-generation prompt, this is used to inform the AI that it is in
   # the process of generating an image.
   # .
-  # Allowed tokens: {AI_NAME}, {SYSTEM_SEQUENCE_PREFIX}, {SYSTEM_SEQUENCE_SUFFIX},
-  # {USER_SEQUENCE_PREFIX}, {USER_SEQUENCE_SUFFIX}, {BOT_SEQUENCE_PREFIX},
-  # {BOT_SEQUENCE_SUFFIX}
+  # Allowed tokens: {AI_NAME}, {USER_NAME}, {SYSTEM_SEQUENCE_PREFIX},
+  # {SYSTEM_SEQUENCE_SUFFIX}, {USER_SEQUENCE_PREFIX}, {USER_SEQUENCE_SUFFIX},
+  # {BOT_SEQUENCE_PREFIX}, {BOT_SEQUENCE_SUFFIX}
   # .
   #   default:  {SYSTEM_SEQUENCE_PREFIX}{AI_NAME} is currently generating an image, as
   # requested.{SYSTEM_SEQUENCE_SUFFIX}
@@ -715,22 +744,49 @@ template:
   # Part of the AI response-generation prompt, this is used to inform the AI that its image
   # generator is offline and is not functioning.
   # .
-  # Allowed tokens: {AI_NAME}, {SYSTEM_SEQUENCE_PREFIX}, {SYSTEM_SEQUENCE_SUFFIX},
-  # {USER_SEQUENCE_PREFIX}, {USER_SEQUENCE_SUFFIX}, {BOT_SEQUENCE_PREFIX},
-  # {BOT_SEQUENCE_SUFFIX}
+  # Allowed tokens: {AI_NAME}, {USER_NAME}, {SYSTEM_SEQUENCE_PREFIX},
+  # {SYSTEM_SEQUENCE_SUFFIX}, {USER_SEQUENCE_PREFIX}, {USER_SEQUENCE_SUFFIX},
+  # {BOT_SEQUENCE_PREFIX}, {BOT_SEQUENCE_SUFFIX}
   # .
   #   default:  {SYSTEM_SEQUENCE_PREFIX}{AI_NAME}'s image generator is offline or has failed
   # for some reason!{SYSTEM_SEQUENCE_SUFFIX}
   prompt_image_not_coming:
 
-  # Shown in Discord when the user selects to discard an image that Stable Diffusion had
-  # generated.
+  # Part of the AI response-generation prompt, this is used to inform the AI that it posted
+  # the generated image with the requested prompt.
   # .
-  # Allowed tokens: {IMAGE_PROMPT}, {NAME}
+  # Allowed tokens: {AI_NAME}, {IMAGE_PROMPT}
   # .
-  #   default: {NAME} asked for an image with the prompt: '{IMAGE_PROMPT}' ...but couldn't
-  # find a suitable one.
-  image_detach: "*{NAME} asked for an image... but couldn't find a suitable one.*"
+  #   default:  {AI_NAME} posts an image generated with the prompt: {IMAGE_PROMPT}
+  prompt_image_sent:
+
+  # Part of the AI response-generation prompt, this is used to inform the AI a user has
+  # requested a rewrite of its last message, along with the instructions to follow.
+  # .
+  # Allowed tokens: {AI_NAME}, {USER_NAME}, {INSTRUCTION}, {SYSTEM_SEQUENCE_PREFIX},
+  # {SYSTEM_SEQUENCE_SUFFIX}, {USER_SEQUENCE_PREFIX}, {USER_SEQUENCE_SUFFIX},
+  # {BOT_SEQUENCE_PREFIX}, {BOT_SEQUENCE_SUFFIX}
+  # .
+  #   default:  {SYSTEM_SEQUENCE_PREFIX}{USER_NAME} has requested that you rewrite your
+  # previous message according to the following instructions: {INSTRUCTION}
+  # {SYSTEM_SEQUENCE_SUFFIX}
+  prompt_rewrite_request:
+
+  # Displayed in Discord for commands that warrant an acknowledgement. Only the user issuing
+  # the command will see this, and it is ephemeral.
+  # .
+  # Allowed tokens: {AI_NAME}, {NAME}
+  # .
+  #   default: Okay.
+  command_acknowledgement:
+
+  # Displayed in Discord after a successful /lobotomize command. Both the Discord users and
+  # the AI will see this message, unless the bot is configured not to.
+  # .
+  # Allowed tokens: {AI_NAME}, {NAME}
+  # .
+  #   default: Ummmm... what were we talking about?
+  command_lobotomize_response: what was i saying again?
 
   # Shown in Discord when an image is first generated from Stable Diffusion. This should
   # prompt the user to either save or discard the image.
@@ -743,12 +799,14 @@ template:
     {NAME}, is this what you wanted?
     If no choice is made, I'll delete it in {IMAGE_TIMEOUT}.
 
-  # Shown in Discord when the we could not contact Stable Diffusion to generate an image.
+  # Shown in Discord when the user selects to discard an image that Stable Diffusion had
+  # generated.
   # .
   # Allowed tokens: {NAME}, {IMAGE_PROMPT}
   # .
-  #   default:  Something went wrong generating your image. Sorry about that!
-  image_generation_error:
+  #   default: {NAME} asked for an image with the prompt:     '{IMAGE_PROMPT}' ...but
+  # couldn't find a suitable one.
+  image_detach: "*{NAME} asked for an image... but couldn't find a suitable one.*"
 
   # Shown in Discord privately to a user if they try to regenerate an image that was
   # requested by someone else.
@@ -757,3 +815,10 @@ template:
   # .
   #   default: Sorry, only {NAME} can press the buttons.
   image_unauthorized:
+
+  # Shown in Discord when the we could not contact Stable Diffusion to generate an image.
+  # .
+  # Allowed tokens: {NAME}, {IMAGE_PROMPT}
+  # .
+  #   default:  Something went wrong generating your image. Sorry about that!
+  image_generation_error:
