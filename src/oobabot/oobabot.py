@@ -254,7 +254,10 @@ def run_cli():
 
     sys.excepthook = fancy_logger.excepthook
 
-    oobabot.start()
+    try:
+        oobabot.start()
+    except runtime.OobabotRuntimeError:
+        sys.exit(1)
 
 
 def main():

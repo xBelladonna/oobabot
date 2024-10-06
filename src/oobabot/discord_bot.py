@@ -440,6 +440,7 @@ class DiscordBot(discord.Client):
         prompt_generator: prompt_generator.PromptGenerator,
         repetition_tracker: repetition_tracker.RepetitionTracker,
         response_stats: response_stats.AggregateResponseStats,
+        intents = discord_utils.get_intents()
     ):
         self.bot_commands = bot_commands
         self.decide_to_respond = decide_to_respond
@@ -452,6 +453,7 @@ class DiscordBot(discord.Client):
         self.repetition_tracker = repetition_tracker
         self.response_stats = response_stats
 
+        self.is_bot = True
         self.bot_user_id = discord_utils.get_user_id_from_token(discord_settings["discord_token"])
         self.message_character_limit = 2000
 
@@ -497,8 +499,14 @@ class DiscordBot(discord.Client):
             )
         self.stream_responses_speed_limit = discord_settings["stream_responses_speed_limit"]
 
+        # Presence attributes
+        self.idle_timeout: float = discord_settings["idle_timeout"]
+        self.idle_timer: typing.Optional[asyncio.Task] = None
+        self._status: discord.Status = discord.Status.online
+        self._activity: typing.Optional[discord.BaseActivity] = None
+
         # Log in and identify our intents with the Gateway
-        super().__init__(intents=discord_utils.get_intents())
+        super().__init__(status=self._status, intents=intents)
 
         # Instantiate the per-channel double-ended message queue
         self.message_queue = MessageQueue(discord_settings)
@@ -519,12 +527,17 @@ class DiscordBot(discord.Client):
         Called by our runtime once the bot is set up and has successfully
         connected to Discord.
         """
+
+        # Wait for the internal cache to be all ready
+        await self.wait_until_ready()
+
         guilds = self.guilds
         num_guilds = len(self.guilds)
         num_private_channels = len(self.private_channels)
         num_channels = sum(len(guild.channels) for guild in guilds)
 
         if self.user:
+            self.is_bot = self.user.bot
             self.bot_user_id = self.user.id
             user_id_str = self.user.name
             # Discriminator is legacy and is 0 if not present.
@@ -610,6 +623,9 @@ class DiscordBot(discord.Client):
             fancy_logger.get().warning(
                 discord_utils.generate_invite_url(self.bot_user_id)
             )
+
+        # Start a timer to set presence status to idle
+        self.idle_countdown()
 
         # we do this at the very end because when you restart
         # the bot, it can take a while for the commands to
@@ -778,6 +794,10 @@ class DiscordBot(discord.Client):
                     "Error while regenerating response: %s", err, stack_info=True
                 )
                 self.response_stats.log_response_failure()
+
+    async def on_presence_update(self, before: discord.Member, after: discord.Member):
+        # Sync presence status and activity from Discord
+        self._sync_presence(before, after)
 
     async def on_poke(self, raw_message: discord.Message) -> None:
         """
@@ -1006,6 +1026,7 @@ class DiscordBot(discord.Client):
             )
 
             try:
+                await self.stop_idle()
                 await self._handle_response(
                     message,
                     raw_message,
@@ -1020,6 +1041,9 @@ class DiscordBot(discord.Client):
         # finished processing the queue, just in case a message we
         # didn't process was logged, to prevent memory leaks.
         self.decide_to_respond.purge_guarantees(channel_id)
+        # Start the timer to set the presence status to idle
+        if len(self.message_queue) == 0:
+            self.idle_countdown()
 
     async def _handle_response(
         self,
@@ -1096,6 +1120,81 @@ class DiscordBot(discord.Client):
                             pass
                         task_name = task.get_coro().__name__
                         fancy_logger.get().debug("Task '%s' cancelled.", task_name)
+                if len(self.message_queue) == 0:
+                    self.idle_countdown()
+
+    async def set_presence_status(self, status: discord.Status) -> None:
+        """
+        Sync presence from Discord and set presence status.
+        """
+        self._status = status
+        await self.change_presence(
+            status=self._status,
+            activity=self._activity
+        )
+
+    def idle_countdown(self) -> bool:
+        """
+        Start a timer to set the presence status to idle.
+        """
+        if (
+            self.idle_timeout
+            and (not self.idle_timer or not self.idle_timer.cancelled())
+            and self._status == discord.Status.online
+        ):
+            def _clear_idle_timer():
+                if self.idle_timer:
+                    self.idle_timer = None
+
+            self.idle_timer = asyncio.create_task(
+                self._start_idle_timer(self.idle_timeout)
+            )
+            self.idle_timer.add_done_callback(
+                lambda _: _clear_idle_timer()
+            )
+            return True
+
+        return False
+
+    async def stop_idle(self) -> None:
+        """
+        Cancel the timer to set the presence status to idle,
+        and change presence status to online.
+        """
+        await self._stop_idle_timer()
+        if self._status == discord.Status.idle:
+            await self.set_presence_status(discord.Status.online)
+
+    async def _start_idle_timer(self, timeout: float = 5 * 60) -> None:
+        """
+        Set presence status to idle after timeout.
+        """
+        try:
+            await asyncio.sleep(timeout)
+            if self._status == discord.Status.online:
+                await self.set_presence_status(discord.Status.idle)
+        except asyncio.CancelledError:
+            return
+
+    async def _stop_idle_timer(self) -> None:
+        """
+        Cancel any existing idle timer.
+        """
+        if self.idle_timer:
+            if not self.idle_timer.done():
+                if not self.idle_timer.cancelled():
+                    self.idle_timer.cancel()
+                await self.idle_timer
+
+    def _sync_presence(self, before: discord.Member, after: discord.Member):
+        """
+        Sync bot's own presence status and activity, if changed.
+        """
+        if self.bot_user_id in (before.id, after.id):
+            if before.status != after.status:
+                self._status = after.status
+            if before.activity != after.activity:
+                self._activity = after.activity # type: ignore
 
     async def _get_image_descriptions(
         self,

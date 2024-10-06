@@ -464,6 +464,21 @@ class Settings:
             )
         )
         self.discord_settings.add_setting(
+            oesp.ConfigSetting[float](
+                name="idle_timeout",
+                default=300,
+                description_lines=[
+                    textwrap.dedent(
+                        """
+                        Time in seconds before the bot is marked as away,
+                        starting after the last message has been
+                        processed. Disabled if set to 0.
+                        """
+                    )
+                ]
+            )
+        )
+        self.discord_settings.add_setting(
             oesp.ConfigSetting[int](
                 name="history_messages",
                 default=20,

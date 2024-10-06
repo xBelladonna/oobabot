@@ -269,10 +269,11 @@ def guild_user_id_to_name(
     return _replace_user_id_mention
 
 
-def get_intents() -> discord.Intents:
+def get_intents(presence: bool = True) -> discord.Intents:
     intents = discord.Intents.default()
     intents.message_content = True
     intents.members = True
+    intents.presences = presence
     return intents
 
 

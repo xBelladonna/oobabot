@@ -15,6 +15,7 @@ import discord
 from oobabot import bot_commands
 from oobabot import decide_to_respond
 from oobabot import discord_bot
+from oobabot import discord_utils
 from oobabot import fancy_logger
 from oobabot import http_client
 from oobabot import image_generator
@@ -156,10 +157,13 @@ class Runtime:
                 + "or place the token in the configuration file."
             )
 
-        self.discord_bot = discord_bot.DiscordBot(
+        self.discord_bot = self.get_discord_bot(self.discord_settings)
+
+    def get_discord_bot(self, settings, intents = discord_utils.get_intents()):
+        return discord_bot.DiscordBot(
             bot_commands=self.bot_commands,
             decide_to_respond=self.decide_to_respond,
-            discord_settings=self.discord_settings,
+            discord_settings=settings,
             ooba_client=self.ooba_client,
             image_generator=self.image_generator,
             vision_client=self.vision_client,
@@ -168,6 +172,7 @@ class Runtime:
             prompt_generator=self.prompt_generator,
             repetition_tracker=self.repetition_tracker,
             response_stats=self.response_stats,
+            intents=intents
         )
 
     def test_connections(self) -> bool:
@@ -206,6 +211,18 @@ class Runtime:
         Raises OobabotRuntimeError if the bot cannot connect to Discord.
         """
 
+        def raise_intent_error(err: discord.DiscordException):
+            fancy_logger.get().error("Could not log in to Discord: %s", err)
+            fancy_logger.get().warning(
+                "The bot token you provided does not have the required "
+                + "gateway intents. Did you remember to enable the "
+                + "'PRESENCE INTENT', 'SERVER MEMBERS INTENT',  and "
+                + "'MESSAGE CONTENT INTENT' in the bot's settings on Discord?"
+            )
+            raise OobabotRuntimeError(
+                "Could not log in to Discord: intents not set"
+            ) from err
+
         async with contextlib.AsyncExitStack() as stack:
             for context_manager in [
                 self.ooba_client,
@@ -221,24 +238,26 @@ class Runtime:
                 await self.discord_bot.start(discord_token)
                 fancy_logger.get().info("Discord bot exited.")
 
-            except discord.errors.PrivilegedIntentsRequired as err:
-                fancy_logger.get().warning("Could not log in to Discord: %s", err)
-                fancy_logger.get().warning(
-                    "The bot token you provided does not have the required "
-                    + "gateway intents. Did you remember to enable both "
-                    + "'SERVER MEMBERS INTENT' and 'MESSAGE CONTENT INTENT' "
-                    + "in the bot's settings on Discord?"
-                )
-                raise OobabotRuntimeError(
-                    "Could not log in to Discord: intents not set"
-                ) from err
-
             except discord.LoginFailure as err:
-                fancy_logger.get().warning("Could not log in to Discord: %s", err)
+                fancy_logger.get().error("Could not log in to Discord: %s", err)
                 fancy_logger.get().warning("Please check the token and try again.")
                 raise OobabotRuntimeError(
                     "Could not log in to Discord: invalid token"
                 ) from err
+
+            except discord.errors.PrivilegedIntentsRequired as err:
+                if self.discord_bot.intents.presences:
+                    fancy_logger.get().info("Trying again without presence intent...")
+                    self.discord_bot = self.get_discord_bot(
+                        settings=self.discord_settings,
+                        intents=discord_utils.get_intents(presence=False)
+                    )
+                    try:
+                        await self.discord_bot.start(discord_token)
+                    except discord.errors.PrivilegedIntentsRequired as err:
+                        raise_intent_error(err)
+                else:
+                    raise_intent_error(err)
 
             finally:
                 await self.discord_bot.close()
